@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# bin/grove — Grove v2 entry point and dynamic command router
+# Usage: grove [COMMAND] [ARGS...]
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Global variables
+# ---------------------------------------------------------------------------
+GROVE_VERSION="0.1.0"
+
+# Resolve GROVE_ROOT to the repo directory (parent of bin/)
+GROVE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+GROVE_HOME="${GROVE_HOME:-$HOME/.grove}"
+GROVE_DB="$GROVE_HOME/grove.db"
+GROVE_CONFIG="$GROVE_HOME/grove.yaml"
+GROVE_LOG_DIR="$GROVE_HOME/logs"
+
+export GROVE_VERSION GROVE_ROOT GROVE_HOME GROVE_DB GROVE_CONFIG GROVE_LOG_DIR
+
+# ---------------------------------------------------------------------------
+# Source libraries (order matters)
+# ---------------------------------------------------------------------------
+source "$GROVE_ROOT/lib/utils.sh"
+source "$GROVE_ROOT/lib/config.sh"
+source "$GROVE_ROOT/lib/db.sh"
+
+# Source optional libraries (used by execution/monitoring commands)
+for lib_file in "$GROVE_ROOT"/lib/prompt.sh "$GROVE_ROOT"/lib/worktree.sh "$GROVE_ROOT"/lib/monitor.sh; do
+  if [ -f "$lib_file" ]; then
+    source "$lib_file"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Source all command files
+# ---------------------------------------------------------------------------
+for cmd_file in "$GROVE_ROOT"/lib/commands/*.sh; do
+  if [ -f "$cmd_file" ]; then
+    source "$cmd_file"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Command dispatch
+# ---------------------------------------------------------------------------
+main() {
+  local command="${1:-}"
+
+  # No arguments: show HUD (or placeholder until Unit 1)
+  if [ -z "$command" ]; then
+    if type grove_cmd_hud >/dev/null 2>&1; then
+      grove_cmd_hud
+    else
+      # Placeholder until the HUD is implemented (Unit 1)
+      if [ ! -f "$GROVE_DB" ]; then
+        grove_info "Welcome to Grove v$GROVE_VERSION"
+        printf '\n  Run %sgrove init%s to get started.\n\n' "$BOLD" "$RESET"
+      else
+        grove_info "Grove v$GROVE_VERSION"
+        printf '\n  HUD not yet available. Try:\n'
+        printf '    grove status    — quick summary\n'
+        printf '    grove help      — list all commands\n'
+        printf '    grove repos     — list configured repos\n\n'
+      fi
+    fi
+    return 0
+  fi
+
+  shift
+
+  # Convert hyphens to underscores for function lookup
+  local func_name
+  func_name="grove_cmd_$(printf '%s' "$command" | tr '-' '_')"
+
+  # Dispatch to the command function
+  if type "$func_name" >/dev/null 2>&1; then
+    "$func_name" "$@"
+  else
+    grove_error "Unknown command: $command"
+    printf 'Run "grove help" for available commands.\n' >&2
+    return 1
+  fi
+}
+
+main "$@"

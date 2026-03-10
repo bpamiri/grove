@@ -1,0 +1,17 @@
+# Grove runtime data
+*.db
+*.db-wal
+*.db-shm
+.grove/
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
