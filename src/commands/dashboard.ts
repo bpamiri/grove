@@ -1,13 +1,102 @@
-// grove dashboard — Live-refreshing dashboard with active workers, spend, events, queue
+// grove dashboard — Live-refreshing TUI dashboard
 import { getDb, getEnv } from "../core/db";
-import { budgetGet } from "../core/config";
+import { budgetGet, workspaceName } from "../core/config";
 import * as ui from "../core/ui";
-import { lastActivity, isAlive } from "../lib/monitor";
 import type { Command, Task, Session, Event } from "../types";
 
 // ---------------------------------------------------------------------------
-// Elapsed time helper
+// ANSI helpers
 // ---------------------------------------------------------------------------
+
+const ESC = "\x1b";
+const CLEAR = `${ESC}[2J${ESC}[H`;
+const HIDE_CURSOR = `${ESC}[?25l`;
+const SHOW_CURSOR = `${ESC}[?25h`;
+const BOLD = `${ESC}[1m`;
+const DIM = `${ESC}[2m`;
+const RESET = `${ESC}[0m`;
+const RED = `${ESC}[31m`;
+const GREEN = `${ESC}[32m`;
+const YELLOW = `${ESC}[33m`;
+const BLUE = `${ESC}[34m`;
+const MAGENTA = `${ESC}[35m`;
+const CYAN = `${ESC}[36m`;
+const WHITE = `${ESC}[37m`;
+const BG_RED = `${ESC}[41m`;
+const BG_GREEN = `${ESC}[42m`;
+const BG_YELLOW = `${ESC}[43m`;
+const BG_BLUE = `${ESC}[44m`;
+
+// Box-drawing characters
+const BOX = {
+  tl: "╭", tr: "╮", bl: "╰", br: "╯",
+  h: "─", v: "│",
+  tee_r: "├", tee_l: "┤",
+  cross: "┼",
+  h_down: "┬", h_up: "┴",
+};
+
+// ---------------------------------------------------------------------------
+// Layout helpers
+// ---------------------------------------------------------------------------
+
+function stripAnsi(str: string): number {
+  return str.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+function box(title: string, lines: string[], width: number, titleColor: string = WHITE): string {
+  const inner = width - 2;
+  const out: string[] = [];
+
+  // Top border with title
+  const titleStr = ` ${title} `;
+  const titleLen = title.length + 2;
+  const leftPad = 2;
+  const rightPad = Math.max(0, inner - leftPad - titleLen);
+  out.push(
+    `${DIM}${BOX.tl}${BOX.h.repeat(leftPad)}${RESET}${BOLD}${titleColor}${titleStr}${RESET}${DIM}${BOX.h.repeat(rightPad)}${BOX.tr}${RESET}`
+  );
+
+  // Content lines
+  for (const line of lines) {
+    const visible = stripAnsi(line);
+    const pad = Math.max(0, inner - visible);
+    out.push(`${DIM}${BOX.v}${RESET}${line}${" ".repeat(pad)}${DIM}${BOX.v}${RESET}`);
+  }
+
+  // Bottom border
+  out.push(`${DIM}${BOX.bl}${BOX.h.repeat(inner)}${BOX.br}${RESET}`);
+
+  return out.join("\n");
+}
+
+function statusIcon(status: string): string {
+  switch (status) {
+    case "running": return `${GREEN}●${RESET}`;
+    case "paused": return `${YELLOW}◉${RESET}`;
+    case "ready": return `${BLUE}○${RESET}`;
+    case "ingested": return `${DIM}◌${RESET}`;
+    case "planned": return `${CYAN}◌${RESET}`;
+    case "done":
+    case "completed": return `${GREEN}✓${RESET}`;
+    case "failed": return `${RED}✗${RESET}`;
+    case "review": return `${MAGENTA}◎${RESET}`;
+    default: return `${DIM}·${RESET}`;
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "running": return `${GREEN}running${RESET}`;
+    case "paused": return `${YELLOW}paused${RESET}`;
+    case "ready": return `${BLUE}ready${RESET}`;
+    case "done":
+    case "completed": return `${GREEN}done${RESET}`;
+    case "failed": return `${RED}failed${RESET}`;
+    case "review": return `${MAGENTA}review${RESET}`;
+    default: return `${DIM}${status}${RESET}`;
+  }
+}
 
 function elapsedTime(startedAt: string): string {
   const normalized =
@@ -34,41 +123,36 @@ function elapsedTime(startedAt: string): string {
   return `${d}d ${h}h`;
 }
 
-// ---------------------------------------------------------------------------
-// Progress bar (unicode blocks with color)
-// ---------------------------------------------------------------------------
-
-function progressBar(current: number, max: number, width: number = 24): string {
-  if (max <= 0) return "";
-
+function budgetBar(current: number, max: number, width: number = 20): string {
+  if (max <= 0) return `${DIM}no limit${RESET}`;
   const pct = Math.min(current / max, 1.0);
   const filled = Math.round(pct * width);
   const empty = width - filled;
 
-  // Color thresholds: green <50%, yellow 50-80%, red >80%
-  let colorCode: string;
-  if (pct >= 0.8) {
-    colorCode = "\x1b[0;31m"; // red
-  } else if (pct >= 0.5) {
-    colorCode = "\x1b[0;33m"; // yellow
-  } else {
-    colorCode = "\x1b[0;32m"; // green
-  }
-  const reset = "\x1b[0m";
+  let color: string;
+  if (pct >= 0.9) color = RED;
+  else if (pct >= 0.7) color = YELLOW;
+  else color = GREEN;
 
-  const bar = "\u2588".repeat(filled) + "\u2591".repeat(empty);
-  const pctStr = `${Math.round(pct * 100)}%`;
-
-  return `${colorCode}[${bar}]${reset} ${pctStr}`;
+  const filledStr = "█".repeat(filled);
+  const emptyStr = `${DIM}░${RESET}`.repeat(empty);
+  // Since emptyStr has ANSI codes per character, build differently
+  const emptyPlain = "░".repeat(empty);
+  return `${color}${filledStr}${RESET}${DIM}${emptyPlain}${RESET} ${color}${Math.round(pct * 100)}%${RESET}`;
 }
 
-// ---------------------------------------------------------------------------
-// Horizontal line
-// ---------------------------------------------------------------------------
+function timeStr(): string {
+  return new Date().toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
 
-function hline(width: number): string {
-  const w = Math.min(width, 80);
-  return `  \x1b[2m${"-".repeat(w)}\x1b[0m`;
+function truncStr(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + "…";
 }
 
 // ---------------------------------------------------------------------------
@@ -77,152 +161,199 @@ function hline(width: number): string {
 
 function draw(): void {
   const db = getDb();
-  const { GROVE_LOG_DIR } = getEnv();
-  const cols = process.stdout.columns || 80;
+  const cols = Math.min(process.stdout.columns || 80, 100);
+  const halfWidth = Math.floor(cols / 2);
+  const w = cols;
 
-  // Clear screen
-  process.stdout.write("\x1b[2J\x1b[H");
+  const buf: string[] = [];
 
-  // Header
-  process.stdout.write(
-    `\x1b[1m\x1b[32m GROVE DASHBOARD \x1b[0m  \x1b[2mrefresh: 5s\x1b[0m\n`,
-  );
-  process.stdout.write(hline(cols) + "\n");
+  // ── Header ──
+  buf.push(CLEAR + HIDE_CURSOR);
+  buf.push("");
 
-  // --- Active Workers ---
-  process.stdout.write(`\n  \x1b[1m\x1b[33mACTIVE WORKERS\x1b[0m\n\n`);
+  const wsName = (() => { try { return workspaceName(); } catch { return "Grove"; } })();
+  const headerLeft = `${BOLD}${GREEN} ╔═══╗${RESET} ${BOLD}${wsName}${RESET}`;
+  const headerRight = `${DIM}${timeStr()}  refresh: 5s${RESET}`;
+  buf.push(` ${headerLeft}  ${headerRight}`);
+  buf.push(` ${GREEN}${BOLD} ╚═══╝${RESET} ${DIM}dashboard${RESET}`);
+  buf.push("");
 
+  // ── Active Workers ──
   const running = db.all<Task>(
     "SELECT * FROM tasks WHERE status = 'running' ORDER BY started_at ASC",
   );
+  const paused = db.all<Task>(
+    "SELECT * FROM tasks WHERE status = 'paused' ORDER BY paused_at DESC",
+  );
 
-  if (running.length === 0) {
-    process.stdout.write(`    \x1b[2mNo active workers\x1b[0m\n`);
+  const workerLines: string[] = [];
+  if (running.length === 0 && paused.length === 0) {
+    workerLines.push(`  ${DIM}No active workers. Run ${RESET}${BOLD}grove work${RESET}${DIM} to start.${RESET}`);
   } else {
-    // Header row
-    process.stdout.write(
-      `    \x1b[1m${"TASK".padEnd(8)} ${"REPO".padEnd(12)} ${"STRATEGY".padEnd(12)} ${"ELAPSED".padEnd(14)} LAST ACTIVITY\x1b[0m\n`,
+    // Column headers
+    workerLines.push(
+      `  ${DIM}${"TASK".padEnd(10)}${"REPO".padEnd(12)}${"STATUS".padEnd(10)}${"ELAPSED".padEnd(12)}ACTIVITY${RESET}`
     );
 
     for (const t of running) {
       const elapsed = t.started_at ? elapsedTime(t.started_at) : "-";
-
-      // Get last activity from events table
       const lastEvt = db.get<{ summary: string }>(
         "SELECT summary FROM events WHERE task_id = ? ORDER BY timestamp DESC LIMIT 1",
         [t.id],
       );
-      const lastAct = lastEvt?.summary ?? "-";
+      const activity = lastEvt?.summary ?? t.session_summary ?? "";
+      workerLines.push(
+        `  ${BOLD}${t.id.padEnd(10)}${RESET}${(t.repo ?? "-").padEnd(12)}${statusIcon(t.status)} ${statusLabel(t.status).padEnd(10 + 9)}${GREEN}${elapsed.padEnd(12)}${RESET}${DIM}${truncStr(activity, 30)}${RESET}`
+      );
+    }
 
-      process.stdout.write(
-        `    ${t.id.padEnd(8)} ${ui.truncate(t.repo ?? "-", 10).padEnd(12)} ${ui.truncate(t.strategy ?? "-", 10).padEnd(12)} ${elapsed.padEnd(14)} ${ui.truncate(lastAct, 40)}\n`,
+    for (const t of paused) {
+      const elapsed = t.paused_at ? elapsedTime(t.paused_at) + " ago" : "-";
+      workerLines.push(
+        `  ${BOLD}${t.id.padEnd(10)}${RESET}${(t.repo ?? "-").padEnd(12)}${statusIcon(t.status)} ${statusLabel(t.status).padEnd(10 + 9)}${YELLOW}${elapsed.padEnd(12)}${RESET}${DIM}${truncStr(t.next_steps ?? "", 30)}${RESET}`
       );
     }
   }
+  buf.push(box("WORKERS", workerLines, w, YELLOW));
+  buf.push("");
 
-  // --- Session Spend ---
-  process.stdout.write("\n" + hline(cols) + "\n");
-  process.stdout.write(`\n  \x1b[1m\x1b[34mSESSION SPEND\x1b[0m\n\n`);
+  // ── Budget + Queue side by side ──
+  // Budget section
+  let todayCost = 0, weekCost = 0, dailyLimit = 25, weeklyLimit = 100;
+  try { todayCost = db.costToday(); } catch {}
+  try { weekCost = db.costWeek(); } catch {}
+  try { dailyLimit = budgetGet("per_day") || 25; } catch {}
+  try { weeklyLimit = budgetGet("per_week") || 100; } catch {}
 
-  const todayCost = db.costToday();
-  const weekCost = db.costWeek();
+  const totalSpent = db.scalar<number>(
+    "SELECT COALESCE(SUM(cost_usd), 0) FROM sessions"
+  ) ?? 0;
+  const activeSessions = db.scalar<number>(
+    "SELECT COUNT(*) FROM sessions WHERE status = 'running'"
+  ) ?? 0;
 
-  let dailyLimit: number;
-  let weeklyLimit: number;
-  try {
-    dailyLimit = budgetGet("per_day") || 25;
-  } catch {
-    dailyLimit = 25;
+  const budgetLines: string[] = [];
+  budgetLines.push(`  ${DIM}Today${RESET}   ${ui.dollars(todayCost).padEnd(10)} ${budgetBar(todayCost, dailyLimit, 14)}`);
+  budgetLines.push(`  ${DIM}Week${RESET}    ${ui.dollars(weekCost).padEnd(10)} ${budgetBar(weekCost, weeklyLimit, 14)}`);
+  budgetLines.push(`  ${DIM}All-time${RESET} ${ui.dollars(totalSpent)}`);
+  buf.push(box("BUDGET", budgetLines, w, BLUE));
+  buf.push("");
+
+  // ── Queue ──
+  const readyCount = db.taskCount("ready");
+  const ingestedCount = db.taskCount("ingested");
+  const plannedCount = db.taskCount("planned");
+  const reviewCount = db.taskCount("review");
+
+  const queueLines: string[] = [];
+
+  // Summary counts
+  const counts: string[] = [];
+  if (readyCount > 0) counts.push(`${BLUE}${readyCount} ready${RESET}`);
+  if (plannedCount > 0) counts.push(`${CYAN}${plannedCount} planned${RESET}`);
+  if (ingestedCount > 0) counts.push(`${DIM}${ingestedCount} ingested${RESET}`);
+  if (reviewCount > 0) counts.push(`${MAGENTA}${reviewCount} review${RESET}`);
+
+  if (counts.length > 0) {
+    queueLines.push(`  ${counts.join("  ${DIM}│${RESET}  ")}`);
   }
-  try {
-    weeklyLimit = budgetGet("per_week") || 100;
-  } catch {
-    weeklyLimit = 100;
+
+  // Show ready tasks
+  if (readyCount > 0) {
+    queueLines.push("");
+    const readyTasks = db.all<Task>(
+      "SELECT * FROM tasks WHERE status = 'ready' ORDER BY priority ASC, created_at ASC LIMIT 6",
+    );
+    for (const t of readyTasks) {
+      const cost = t.estimated_cost && t.estimated_cost > 0 ? `${DIM}~${ui.dollars(t.estimated_cost)}${RESET}` : "";
+      const strat = t.strategy ? `${DIM}${t.strategy}${RESET}` : "";
+      queueLines.push(
+        `  ${statusIcon(t.status)} ${BOLD}${t.id.padEnd(8)}${RESET}${(t.repo ?? "").padEnd(10)}${truncStr(t.title, 35).padEnd(36)}${strat.padEnd(strat ? 16 : 0)}${cost}`
+      );
+    }
+    if (readyCount > 6) {
+      queueLines.push(`  ${DIM}  … and ${readyCount - 6} more${RESET}`);
+    }
+  } else if (counts.length === 0) {
+    queueLines.push(`  ${DIM}Queue empty. Run ${RESET}${BOLD}grove add${RESET}${DIM} or ${RESET}${BOLD}grove sync${RESET}${DIM} to bring in work.${RESET}`);
   }
 
-  process.stdout.write(
-    `    Today:  ${ui.dollars(todayCost)} / ${ui.dollars(dailyLimit)}  ${progressBar(todayCost, dailyLimit)}\n`,
-  );
-  process.stdout.write(
-    `    Week:   ${ui.dollars(weekCost)} / ${ui.dollars(weeklyLimit)}  ${progressBar(weekCost, weeklyLimit)}\n`,
-  );
+  buf.push(box("QUEUE", queueLines, w, CYAN));
+  buf.push("");
 
-  // --- Recent Events ---
-  process.stdout.write("\n" + hline(cols) + "\n");
-  process.stdout.write(`\n  \x1b[1m\x1b[32mRECENT EVENTS\x1b[0m\n\n`);
-
-  const events = db.recentEvents(10);
+  // ── Recent Events ──
+  const events = db.recentEvents(8);
+  const eventLines: string[] = [];
 
   if (events.length === 0) {
-    process.stdout.write(`    \x1b[2mNo events yet\x1b[0m\n`);
+    eventLines.push(`  ${DIM}No events yet${RESET}`);
   } else {
     for (const e of events) {
-      const relTime = ui.relativeTime(e.timestamp);
-      const taskStr = e.task_id ? `\x1b[34m${e.task_id} \x1b[0m` : "";
-      process.stdout.write(
-        `    \x1b[2m${relTime.padEnd(16)}\x1b[0m ${taskStr}${ui.truncate(e.summary ?? "", 50)}\n`,
+      const rel = ui.relativeTime(e.timestamp);
+      const taskTag = e.task_id ? `${BLUE}${e.task_id.padEnd(8)}${RESET}` : `${"".padEnd(8)}`;
+      const typeIcon = eventIcon(e.event_type);
+      eventLines.push(
+        `  ${DIM}${rel.padEnd(14)}${RESET} ${typeIcon} ${taskTag} ${truncStr(e.summary ?? "", 42)}`
       );
     }
   }
+  buf.push(box("EVENTS", eventLines, w, GREEN));
+  buf.push("");
 
-  // --- Queue ---
-  process.stdout.write("\n" + hline(cols) + "\n");
-  process.stdout.write(`\n  \x1b[1m\x1b[33mQUEUE\x1b[0m\n\n`);
-
-  const readyCount = db.taskCount("ready");
-
-  if (readyCount > 0) {
-    process.stdout.write(`    ${readyCount} task(s) ready\n`);
-
-    const readyTasks = db.all<Task>(
-      "SELECT * FROM tasks WHERE status = 'ready' ORDER BY priority ASC, created_at ASC LIMIT 5",
-    );
-
-    for (const t of readyTasks) {
-      process.stdout.write(
-        `      \x1b[2m${t.id.padEnd(6)}\x1b[0m ${ui.truncate(t.title, 50)}\n`,
-      );
-    }
-
-    if (readyCount > 5) {
-      process.stdout.write(
-        `      \x1b[2m... and ${readyCount - 5} more\x1b[0m\n`,
-      );
-    }
-  } else {
-    process.stdout.write(`    \x1b[2mNo tasks queued\x1b[0m\n`);
-  }
-
-  // --- Keyboard shortcuts ---
-  process.stdout.write("\n" + hline(cols) + "\n");
-  process.stdout.write(
-    `\n  \x1b[1m[q]\x1b[0m quit  \x1b[1m[w]\x1b[0m watch  \x1b[1m[p]\x1b[0m pause  \x1b[1m[m]\x1b[0m message\n`,
+  // ── Keyboard shortcuts ──
+  buf.push(
+    ` ${DIM}${BOX.h.repeat(w - 2)}${RESET}`
   );
+  buf.push(
+    ` ${BOLD}q${RESET}${DIM} quit${RESET}  ${BOLD}w${RESET}${DIM} watch task${RESET}  ${BOLD}s${RESET}${DIM} start task${RESET}  ${BOLD}p${RESET}${DIM} pause task${RESET}  ${BOLD}r${RESET}${DIM} resume task${RESET}  ${BOLD}m${RESET}${DIM} message${RESET}`
+  );
+
+  process.stdout.write(buf.join("\n") + "\n");
+}
+
+function eventIcon(type: string): string {
+  switch (type) {
+    case "created": return `${BLUE}+${RESET}`;
+    case "started":
+    case "worker_spawned": return `${GREEN}▶${RESET}`;
+    case "paused": return `${YELLOW}⏸${RESET}`;
+    case "resumed": return `${GREEN}▶${RESET}`;
+    case "completed":
+    case "done": return `${GREEN}✓${RESET}`;
+    case "failed": return `${RED}✗${RESET}`;
+    case "pr_created": return `${MAGENTA}⎇${RESET}`;
+    case "status_change": return `${CYAN}↻${RESET}`;
+    case "planned": return `${BLUE}◆${RESET}`;
+    case "auto_approved": return `${GREEN}✓${RESET}`;
+    case "synced": return `${CYAN}⇣${RESET}`;
+    case "message_sent": return `${YELLOW}✉${RESET}`;
+    case "cancelled": return `${RED}⊘${RESET}`;
+    default: return `${DIM}·${RESET}`;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Interactive prompt helpers (exit raw mode, read line, re-enter raw mode)
+// Interactive prompt helpers
 // ---------------------------------------------------------------------------
 
 function readLinePrompt(prompt: string): Promise<string> {
   return new Promise((resolve) => {
-    // Exit raw mode for line input
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
-    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
     process.stdout.write(prompt);
 
     const onData = (chunk: Buffer) => {
       process.stdin.removeListener("data", onData);
       const line = chunk.toString().trim();
-      // Re-enter raw mode
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(true);
-      }
+      if (process.stdin.isTTY) process.stdin.setRawMode(true);
       resolve(line);
     };
     process.stdin.once("data", onData);
   });
+}
+
+function resumeRefresh(draw: () => void): NodeJS.Timer {
+  draw();
+  return setInterval(() => draw(), 5000);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +362,7 @@ function readLinePrompt(prompt: string): Promise<string> {
 
 export const dashboardCommand: Command = {
   name: "dashboard",
-  description: "Live-refreshing dashboard showing active workers",
+  description: "Live-refreshing TUI dashboard",
 
   async run() {
     const db = getDb();
@@ -240,43 +371,29 @@ export const dashboardCommand: Command = {
     draw();
 
     // Set up refresh interval
-    const refreshInterval = setInterval(() => {
-      draw();
-    }, 5000);
+    let refreshInterval: NodeJS.Timer = setInterval(() => draw(), 5000);
 
     // Set up raw mode for keyboard input
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding("utf-8");
 
     const cleanup = () => {
       clearInterval(refreshInterval);
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
       process.stdin.pause();
-      // Show cursor
-      process.stdout.write("\x1b[?25h");
-      process.stdout.write("\n");
+      process.stdout.write(SHOW_CURSOR + "\n");
     };
 
-    // Handle SIGINT gracefully
-    const sigHandler = () => {
-      cleanup();
-      process.exit(0);
-    };
+    const sigHandler = () => { cleanup(); process.exit(0); };
     process.on("SIGINT", sigHandler);
     process.on("SIGTERM", sigHandler);
 
-    // Keyboard input handler
     await new Promise<void>((resolve) => {
       process.stdin.on("data", async (key: string) => {
         const ch = key.toLowerCase();
 
         if (ch === "q" || ch === "\x03") {
-          // q or Ctrl+C
           cleanup();
           process.removeListener("SIGINT", sigHandler);
           process.removeListener("SIGTERM", sigHandler);
@@ -285,36 +402,53 @@ export const dashboardCommand: Command = {
         }
 
         if (ch === "w") {
-          // Pause refresh while prompting
           clearInterval(refreshInterval);
-
-          const tid = await readLinePrompt("\n  Task ID to watch: ");
+          const tid = await readLinePrompt(`\n  ${BOLD}Task ID to watch:${RESET} `);
           if (tid) {
             cleanup();
             process.removeListener("SIGINT", sigHandler);
             process.removeListener("SIGTERM", sigHandler);
             resolve();
-            // Load and run watch command
             const { watchCommand } = await import("./watch");
             await watchCommand.run([tid]);
             return;
           }
-          // Resume — redraw and restart interval
-          draw();
-          const newInterval = setInterval(() => draw(), 5000);
-          // Re-enter raw mode
-          if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
+          refreshInterval = resumeRefresh(draw);
+        }
+
+        if (ch === "s") {
+          clearInterval(refreshInterval);
+          const tid = await readLinePrompt(`\n  ${BOLD}Task ID to start:${RESET} `);
+          if (tid) {
+            cleanup();
+            process.removeListener("SIGINT", sigHandler);
+            process.removeListener("SIGTERM", sigHandler);
+            resolve();
+            const { workCommand } = await import("./work");
+            await workCommand.run([tid]);
+            return;
           }
-          // Note: we can't reassign refreshInterval in this closure,
-          // but the old one is already cleared. The new one will be
-          // cleared by cleanup() via process exit or q key.
+          refreshInterval = resumeRefresh(draw);
+        }
+
+        if (ch === "r") {
+          clearInterval(refreshInterval);
+          const tid = await readLinePrompt(`\n  ${BOLD}Task ID to resume:${RESET} `);
+          if (tid) {
+            cleanup();
+            process.removeListener("SIGINT", sigHandler);
+            process.removeListener("SIGTERM", sigHandler);
+            resolve();
+            const { resumeCommand } = await import("./resume");
+            await resumeCommand.run([tid]);
+            return;
+          }
+          refreshInterval = resumeRefresh(draw);
         }
 
         if (ch === "p") {
           clearInterval(refreshInterval);
-
-          const tid = await readLinePrompt("\n  Task ID to pause: ");
+          const tid = await readLinePrompt(`\n  ${BOLD}Task ID to pause:${RESET} `);
           if (tid) {
             const task = db.taskGet(tid);
             if (task && task.status === "running") {
@@ -325,22 +459,16 @@ export const dashboardCommand: Command = {
             } else {
               ui.warn(`Task ${tid} not found`);
             }
-            // Brief pause for user to read
             await new Promise((r) => setTimeout(r, 1500));
           }
-          draw();
-          setInterval(() => draw(), 5000);
-          if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
-          }
+          refreshInterval = resumeRefresh(draw);
         }
 
         if (ch === "m") {
           clearInterval(refreshInterval);
-
-          const tid = await readLinePrompt("\n  Task ID: ");
+          const tid = await readLinePrompt(`\n  ${BOLD}Task ID:${RESET} `);
           if (tid) {
-            const msg = await readLinePrompt("  Message: ");
+            const msg = await readLinePrompt(`  ${BOLD}Message:${RESET} `);
             if (msg) {
               try {
                 const { msgCommand } = await import("./msg");
@@ -351,11 +479,7 @@ export const dashboardCommand: Command = {
               await new Promise((r) => setTimeout(r, 1500));
             }
           }
-          draw();
-          setInterval(() => draw(), 5000);
-          if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
-          }
+          refreshInterval = resumeRefresh(draw);
         }
       });
     });
@@ -364,19 +488,21 @@ export const dashboardCommand: Command = {
   help() {
     return `Usage: grove dashboard
 
-Live-refreshing dashboard showing all active workers.
+Live-refreshing TUI dashboard with box-drawn panels.
 
 Displays:
-  - Active workers with elapsed time and last activity
-  - Session spend with progress bars (today + week)
-  - Last 10 events
-  - Queue of ready tasks
+  - Active workers with elapsed time, status, and last activity
+  - Budget progress bars (today, week, all-time)
+  - Queue of ready tasks with strategy and cost estimates
+  - Recent events timeline with type icons
 
 Keyboard shortcuts:
   q    Quit dashboard
-  w    Watch a task (prompts for ID)
-  p    Pause a task (prompts for ID)
-  m    Send a message (prompts for ID and text)
+  w    Watch a task (tail worker output)
+  s    Start a task (grove work)
+  r    Resume a paused task
+  p    Pause a running task
+  m    Send a message to a worker
 
 The display refreshes every 5 seconds.`;
   },
