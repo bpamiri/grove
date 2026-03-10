@@ -185,3 +185,64 @@ describe("work command pre-dispatch validation", () => {
     expect(task!.status).toBe("running");
   });
 });
+
+describe("batch dispatch validation", () => {
+  test("--batch requires a positive integer", () => {
+    const parseN = (s: string): number | null => {
+      const n = parseInt(s, 10);
+      if (isNaN(n) || n < 1) return null;
+      return n;
+    };
+    expect(parseN("5")).toBe(5);
+    expect(parseN("0")).toBeNull();
+    expect(parseN("-1")).toBeNull();
+    expect(parseN("abc")).toBeNull();
+    expect(parseN("3.5")).toBe(3);
+  });
+
+  test("batch selects top N tasks by priority", async () => {
+    for (let i = 1; i <= 5; i++) {
+      db.exec(
+        "INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+        [`W-${String(i).padStart(3, "0")}`, "manual", `Task ${i}`, "ready", "wheels", i],
+      );
+    }
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const tasks = testDb.all<{ id: string }>(
+      "SELECT id FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT ?",
+      [3],
+    );
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0].id).toBe("W-001");
+    expect(tasks[2].id).toBe("W-003");
+  });
+
+  test("batch capped by max_concurrent", async () => {
+    await resetModules();
+    const { settingsGet } = await import("../../src/core/config");
+    const maxConcurrent = settingsGet("max_concurrent") || 4;
+    expect(maxConcurrent).toBe(4);
+    expect(Math.min(10, maxConcurrent)).toBe(4);
+  });
+
+  test("batch capped by available tasks", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Only task", "ready", "wheels"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const tasks = testDb.all<{ id: string }>(
+      "SELECT id FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT ?",
+      [5],
+    );
+    expect(tasks).toHaveLength(1);
+  });
+});

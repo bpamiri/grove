@@ -471,6 +471,7 @@ export const workCommand: Command = {
     let taskId = "";
     let repoFilter = "";
     let isRun = false;
+    let batchSize = 0;
 
     // Parse arguments
     let i = 0;
@@ -483,6 +484,17 @@ export const workCommand: Command = {
         repoFilter = arg.slice("--repo=".length);
       } else if (arg === "--run") {
         isRun = true;
+      } else if (arg === "--batch") {
+        const val = args[++i] || "";
+        batchSize = parseInt(val, 10);
+        if (isNaN(batchSize) || batchSize < 1) {
+          ui.die("--batch requires a positive integer (e.g., --batch 5)");
+        }
+      } else if (arg.startsWith("--batch=")) {
+        batchSize = parseInt(arg.slice("--batch=".length), 10);
+        if (isNaN(batchSize) || batchSize < 1) {
+          ui.die("--batch requires a positive integer (e.g., --batch 5)");
+        }
       } else if (arg === "-h" || arg === "--help") {
         console.log(workCommand.help?.() ?? "");
         return;
@@ -492,6 +504,13 @@ export const workCommand: Command = {
         taskId = arg;
       }
       i++;
+    }
+
+    if (batchSize > 0 && taskId) {
+      ui.die("--batch cannot be used with a specific task ID.");
+    }
+    if (batchSize > 0 && repoFilter) {
+      ui.die("--batch cannot be used with --repo.");
     }
 
     // --- Mode 1: Specific task ID ---
