@@ -1,5 +1,9 @@
 // Grove v2 — Worker prompt generation
 // Builds the system prompt sent to Claude Code worker sessions.
+// NOTE: buildPrompt/buildResumePrompt are kept for backward compatibility.
+// New callers should use the sandbox overlay system (src/lib/sandbox.ts):
+//   buildOverlay() → writes full context to .claude/CLAUDE.md
+//   buildTriggerPrompt() / buildResumeTriggerPrompt() → short -p argument
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "../core/db";

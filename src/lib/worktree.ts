@@ -81,8 +81,9 @@ export function createWorktree(taskId: string, repoName: string, db: Database): 
     ui.die(`Failed to create worktree at ${worktreePath}: ${result.stderr}`);
   }
 
-  // Create .grove directory in worktree for session artifacts
+  // Create .grove and .claude directories in worktree for session artifacts and sandbox
   mkdirSync(join(worktreePath, ".grove"), { recursive: true });
+  mkdirSync(join(worktreePath, ".claude"), { recursive: true });
 
   // Update task in DB
   db.taskSet(taskId, "branch", branch);

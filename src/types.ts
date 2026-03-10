@@ -186,6 +186,19 @@ export interface StrategyConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Sandbox types (worker permission & overlay system)
+// ---------------------------------------------------------------------------
+
+export interface GuardHookEntry {
+  matcher: string;
+  hooks: Array<{ type: "command"; command: string }>;
+}
+
+export interface SandboxConfig {
+  hooks: { PreToolUse: GuardHookEntry[] };
+}
+
+// ---------------------------------------------------------------------------
 // Command interface
 // ---------------------------------------------------------------------------
 

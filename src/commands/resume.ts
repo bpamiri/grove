@@ -6,6 +6,7 @@ import type { Database } from "../core/db";
 import * as ui from "../core/ui";
 import { createWorktree, worktreeExists } from "../lib/worktree";
 import { buildResumePrompt } from "../lib/prompt-builder";
+import { deploySandbox, buildResumeTriggerPrompt } from "../lib/sandbox";
 import { parseCost, streamMonitor, isAlive } from "../lib/monitor";
 import type { Command, Task } from "../types";
 
@@ -103,8 +104,11 @@ export const resumeCommand: Command = {
       ui.die(`No valid working directory for task ${taskId}`);
     }
 
-    // Build the resume prompt
-    const resumePrompt = buildResumePrompt(taskId, db);
+    // Deploy sandbox (guard hooks + task overlay with resume context)
+    deploySandbox(workDir, taskId, db);
+
+    // Build the short trigger prompt (full context is in .claude/CLAUDE.md overlay)
+    const resumePrompt = buildResumeTriggerPrompt(taskId);
 
     // Check that claude is available
     const claudeCheck = Bun.spawnSync(["which", "claude"]);
@@ -140,6 +144,7 @@ export const resumeCommand: Command = {
       ["claude", "-p", resumePrompt, "--output-format", "stream-json", "--verbose"],
       {
         cwd: workDir,
+        env: { ...process.env, GROVE_TASK_ID: taskId, GROVE_WORKTREE_PATH: workDir },
         stdout: Bun.file(logFile),
         stderr: "inherit",
       },

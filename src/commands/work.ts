@@ -9,6 +9,7 @@ import { pc } from "../core/ui";
 import * as prompts from "../core/prompts";
 import { createWorktree } from "../lib/worktree";
 import { buildPrompt, buildResumePrompt } from "../lib/prompt-builder";
+import { deploySandbox, buildTriggerPrompt, buildResumeTriggerPrompt } from "../lib/sandbox";
 import type { Command, Task } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -193,12 +194,16 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
   }
   ui.debug(`Worktree: ${wtPath}`);
 
-  // -- Generate prompt --
+  // -- Deploy sandbox (guard hooks + task overlay) --
+  deploySandbox(wtPath, taskId, db);
+  ui.debug("Sandbox deployed (.claude/settings.local.json + CLAUDE.md)");
+
+  // -- Generate trigger prompt (full context is in the overlay CLAUDE.md) --
   let prompt: string;
   if (status === "paused") {
-    prompt = buildResumePrompt(taskId, db);
+    prompt = buildResumeTriggerPrompt(taskId);
   } else {
-    prompt = buildPrompt(taskId, db);
+    prompt = buildTriggerPrompt(taskId);
   }
 
   // -- Create session --
@@ -243,6 +248,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
     // Foreground: spawn and pipe to both stdout and log file
     const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose"], {
       cwd: wtPath,
+      env: { ...process.env, GROVE_TASK_ID: taskId, GROVE_WORKTREE_PATH: wtPath },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -366,6 +372,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
     // Background: redirect all output to log file
     const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose"], {
       cwd: wtPath,
+      env: { ...process.env, GROVE_TASK_ID: taskId, GROVE_WORKTREE_PATH: wtPath },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
