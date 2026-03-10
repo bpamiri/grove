@@ -1,0 +1,23 @@
+{
+  "name": "grove",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "grove": "bin/grove"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile bin/grove",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9",
+    "picocolors": "^1.1",
+    "yaml": "^2.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7"
+  }
+}

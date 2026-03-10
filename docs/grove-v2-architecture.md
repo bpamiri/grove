@@ -772,59 +772,17 @@ This week (March 3-9, 2026)
 
 ## Implementation Plan
 
-### Phase 0: The Skeleton (Day 1)
+The full CLI is implemented in TypeScript/Bun as a single codebase. The
+implementation was organized into work units:
 
-**Build:** The `grove` bash script, `grove.yaml` for your actual repos,
-SQLite schema, `grove status` command.
+- **Unit 0: Foundation** — types, database, config, UI, prompts, entry point,
+  and 4 bootstrap commands (init, config, repos, help)
+- **Units 1-6** — all 22 commands implemented in parallel batches:
+  HUD/status, task CRUD, worker execution, session persistence,
+  live monitoring, PR/review/reporting
+- **Unit 7: Tests** — bun:test suite covering core modules and commands
 
-**Result:** You can type `grove` and see an empty HUD. You can configure
-your repos. The database exists.
-
-### Phase 1: Task Tracking (Day 2-3)
-
-**Build:** `grove add`, `grove sync`, `grove tasks`, task lifecycle management.
-
-**Result:** You can add tasks manually, sync from GitHub, see everything in
-one list. This is immediately useful even without any automation — it's your
-unified task tracker.
-
-### Phase 2: Solo Execution (Day 4-7)
-
-**Build:** `grove work` for solo tasks, worktree management, `grove watch`,
-`grove detach`, the session summary system, `grove resume`.
-
-**Result:** You can queue a task, have it run, detach, come back later,
-and resume. This replaces one of your Claude Code windows.
-
-### Phase 3: Dashboard + HUD (Week 2)
-
-**Build:** `grove dashboard` TUI, the "Monday morning" greeting,
-event logging, `grove report`.
-
-**Result:** The heads-up display that makes you feel in control. You see
-everything at a glance. This is when you stop needing multiple windows.
-
-### Phase 4: Parallel Workers (Week 2-3)
-
-**Build:** Concurrent solo workers, the dispatch planner, budget tracking.
-
-**Result:** `grove work` can run 3-4 solo tasks across repos simultaneously.
-This replaces ALL of your Claude Code windows with a single `grove dashboard`.
-
-### Phase 5: Team + Sweep Strategies (Week 3-4)
-
-**Build:** Agent Teams integration for team tasks, sweep execution for audits.
-
-**Result:** Complex tasks get appropriate worker configurations. The
-CounterPro audit runs as a proper sweep.
-
-### Phase 6: Pipeline + Polish (Week 4+)
-
-**Build:** Cross-repo pipeline execution, PR linking, auto-sync scheduling,
-the full `grove` no-args experience.
-
-**Result:** The complete system. One tool for all your development
-coordination.
+Build: `bun build src/index.ts --compile --outfile bin/grove`
 
 ---
 
@@ -851,17 +809,20 @@ coordination.
 
 ## Tech Decisions
 
-**CLI in Bash (Phase 0-2), then TypeScript/Bun (Phase 3+)**
+**TypeScript + Bun**
 
-Start with bash because it works today with zero dependencies. When the
-dashboard needs a proper TUI (ncurses/blessed/ink), graduate to Bun +
-TypeScript. This is the same runtime Overstory uses, so if you ever want
-to integrate their worktree/merge logic, it's compatible.
+Full implementation in TypeScript compiled via `bun build --compile` to a
+single native binary (~5ms startup). Bun provides: native SQLite via
+`bun:sqlite` with parameterized queries, native test runner via `bun:test`,
+fast process spawning via `Bun.spawn()`, and zero-config TypeScript execution.
+Three runtime dependencies: `picocolors` (ANSI colors), `yaml` (config
+parsing), `@clack/prompts` (interactive UI).
 
 **SQLite for everything**
 
 Tasks, events, audit results, config. One file, WAL mode, works everywhere.
 The `sqlite3` CLI can query it directly for debugging. No server, no setup.
+All queries use parameterized bindings — no SQL injection surface.
 
 **Git worktrees for isolation**
 

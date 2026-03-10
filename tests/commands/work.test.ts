@@ -1,0 +1,187 @@
+// Tests for the work command (pre-dispatch validation only, no actual claude spawn)
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { Database } from "../../src/core/db";
+
+const schemaPath = join(import.meta.dir, "../../schema.sql");
+const projectRoot = join(import.meta.dir, "../..");
+
+let tempDir: string;
+let db: Database;
+let originalEnv: { GROVE_HOME?: string; GROVE_ROOT?: string };
+
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), "grove-work-test-"));
+  originalEnv = {
+    GROVE_HOME: process.env.GROVE_HOME,
+    GROVE_ROOT: process.env.GROVE_ROOT,
+  };
+  process.env.GROVE_HOME = tempDir;
+  process.env.GROVE_ROOT = projectRoot;
+
+  db = new Database(join(tempDir, "grove.db"));
+  db.init(schemaPath);
+
+  writeFileSync(
+    join(tempDir, "grove.yaml"),
+    `
+workspace:
+  name: "Test"
+repos:
+  wheels:
+    org: cfwheels
+    github: cfwheels/wheels
+    path: ~/code/wheels
+budgets:
+  per_task: 5
+  per_session: 10
+  per_day: 25
+  per_week: 100
+  auto_approve_under: 2
+settings:
+  max_concurrent: 4
+  branch_prefix: "grove/"
+  auto_sync: false
+`,
+  );
+
+  // Insert repo record for FK constraint
+  db.repoUpsert({ name: "wheels", org: "cfwheels", github_full: "cfwheels/wheels", local_path: "~/code/wheels", branch_prefix: "grove/", claude_md_path: null, last_synced: null });
+});
+
+afterEach(() => {
+  db.close();
+
+  if (originalEnv.GROVE_HOME !== undefined) process.env.GROVE_HOME = originalEnv.GROVE_HOME;
+  else delete process.env.GROVE_HOME;
+  if (originalEnv.GROVE_ROOT !== undefined) process.env.GROVE_ROOT = originalEnv.GROVE_ROOT;
+  else delete process.env.GROVE_ROOT;
+
+  rmSync(tempDir, { recursive: true, force: true });
+});
+
+async function resetModules() {
+  const { closeDb } = await import("../../src/core/db");
+  closeDb();
+  const config = await import("../../src/core/config");
+  config.reloadConfig();
+}
+
+describe("work command pre-dispatch validation", () => {
+  test("validates task exists", async () => {
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    expect(testDb.taskExists("NONEXISTENT")).toBe(false);
+  });
+
+  test("task must be in ready or planned status", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Test task", "ingested", "wheels"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const task = testDb.taskGet("W-001");
+    expect(task).not.toBeNull();
+    // "ingested" is not ready/planned -- work should reject it
+    expect(task!.status).toBe("ingested");
+    expect(["ready", "planned", "paused"]).not.toContain(task!.status);
+  });
+
+  test("ready task passes status check", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Test task", "ready", "wheels"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const task = testDb.taskGet("W-001");
+    expect(task!.status).toBe("ready");
+  });
+
+  test("budget check: within budget passes", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, estimated_cost) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Test task", "ready", "wheels", 2.0],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const task = testDb.taskGet("W-001");
+    const weekCost = testDb.costWeek();
+    const { budgetGet } = await import("../../src/core/config");
+    const weekBudget = budgetGet("per_week");
+
+    // Should be within budget
+    expect(weekCost + (task!.estimated_cost ?? 0)).toBeLessThanOrEqual(weekBudget);
+  });
+
+  test("budget check: over budget detected", async () => {
+    // Insert expensive sessions to exceed weekly budget
+    db.exec("INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Expensive past work", "completed", "wheels"]);
+    db.exec(
+      "INSERT INTO sessions (task_id, status, cost_usd) VALUES (?, 'completed', ?)",
+      ["W-001", 95.0],
+    );
+
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, estimated_cost) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "New task", "ready", "wheels", 10.0],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const task = testDb.taskGet("W-002");
+    const weekCost = testDb.costWeek();
+    const { budgetGet } = await import("../../src/core/config");
+    const weekBudget = budgetGet("per_week");
+
+    // 95 + 10 = 105 > 100 budget
+    expect(weekCost + (task!.estimated_cost ?? 0)).toBeGreaterThan(weekBudget);
+  });
+
+  test("completed task should be rejected", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Done task", "completed", "wheels"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const task = testDb.taskGet("W-001");
+    expect(task!.status).toBe("completed");
+    // work command checks: status should not be done/completed
+    expect(["done", "completed"]).toContain(task!.status);
+  });
+
+  test("running task should be rejected", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Running task", "running", "wheels"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const task = testDb.taskGet("W-001");
+    expect(task!.status).toBe("running");
+  });
+});

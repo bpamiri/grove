@@ -12,9 +12,7 @@ You tell Grove what needs to happen. Grove figures out who works on what, in whi
 
 ## Requirements
 
-- **bash** 3.2+ (macOS default works)
-- **python3** (for YAML parsing, date math, JSON processing)
-- **sqlite3** (for task/session persistence)
+- **Bun** runtime (for TypeScript execution and SQLite) — [install](https://bun.sh)
 - **gh** CLI (for GitHub sync and PR management) — [install](https://cli.github.com/)
 - **claude** CLI (for worker execution) — [install](https://docs.anthropic.com/en/docs/claude-code)
 
@@ -24,6 +22,10 @@ You tell Grove what needs to happen. Grove figures out who works on what, in whi
 # Clone the repo
 git clone https://github.com/bpamiri/grove.git
 cd grove
+
+# Install dependencies and build
+bun install
+bun build src/index.ts --compile --outfile bin/grove
 
 # Add to PATH (add to your ~/.zshrc or ~/.bashrc)
 export PATH="$HOME/GitHub/bpamiri/grove/bin:$PATH"
@@ -275,13 +277,6 @@ The SQLite database contains 7 tables:
 | `repo_deps` | Cross-repo dependency declarations |
 | `config` | Key-value settings store |
 
-You can query the database directly for debugging:
-
-```bash
-sqlite3 ~/.grove/grove.db "SELECT id, repo, title, status FROM tasks;"
-sqlite3 ~/.grove/grove.db "SELECT * FROM events ORDER BY timestamp DESC LIMIT 10;"
-```
-
 ## Git Worktrees
 
 Each active task gets an isolated git worktree at `{repo}/.grove/worktrees/{task-id}`. Worktrees:
@@ -303,48 +298,32 @@ Each active task gets an isolated git worktree at `{repo}/.grove/worktrees/{task
 
 ```
 grove/
-  bin/grove                  # Entry point — dynamic command router
-  lib/
-    utils.sh                 # Colors, formatting, logging, prompts
-    config.sh                # YAML config loading via python3
-    db.sh                    # SQLite helper functions
-    prompt.sh                # Worker prompt generation
-    worktree.sh              # Git worktree management
-    monitor.sh               # Worker output monitoring
+  src/
+    index.ts                 # Entry point — command router
+    types.ts                 # All shared types, interfaces, enums
+    core/
+      db.ts                  # Database (bun:sqlite, parameterized queries)
+      config.ts              # YAML config loading + validation
+      ui.ts                  # Colors, formatting, logging (picocolors)
+      prompts.ts             # Interactive prompts (@clack/prompts)
+    lib/
+      worktree.ts            # Git worktree management
+      prompt-builder.ts      # Worker prompt generation
+      monitor.ts             # Stream-json parser for claude output
+      github.ts              # gh CLI wrapper
     commands/
-      init.sh                # grove init
-      config-cmd.sh          # grove config
-      repos.sh               # grove repos
-      help.sh                # grove help
-      hud.sh                 # grove (no args)
-      status.sh              # grove status
-      add.sh                 # grove add
-      tasks.sh               # grove tasks
-      plan.sh                # grove plan
-      prioritize.sh          # grove prioritize
-      sync.sh                # grove sync
-      work.sh                # grove work / grove run
-      resume.sh              # grove resume
-      pause.sh               # grove pause
-      cancel.sh              # grove cancel
-      watch.sh               # grove watch
-      detach.sh              # grove detach
-      msg.sh                 # grove msg
-      dashboard.sh           # grove dashboard
-      prs.sh                 # grove prs
-      review.sh              # grove review
-      done.sh                # grove done
-      close.sh               # grove close
-      report.sh              # grove report
-      cost.sh                # grove cost
-      log.sh                 # grove log
-  schema.sql                 # Full SQLite schema
+      init.ts ... log.ts     # One file per command (22 commands)
+  tests/
+    core/                    # db, config tests
+    commands/                # Command tests
+    lib/                     # worktree, prompt-builder, monitor tests
+  schema.sql                 # SQLite schema
   grove.yaml.example         # Example configuration
   docs/
     grove-v2-architecture.md # Architecture document
 ```
 
-Commands are auto-discovered — drop a new `lib/commands/X.sh` file that exports `grove_cmd_X()` and it's immediately available.
+Commands are registered in a `Map<string, Command>` in `index.ts` — explicit, type-checked, and tree-shakeable.
 
 ## License
 

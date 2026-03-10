@@ -5,6 +5,14 @@
 .grove/
 logs/
 
+# Dependencies
+node_modules/
+
+# Build output
+bin/grove
+dist/
+*.compiled
+
 # IDE
 .idea/
 .vscode/
