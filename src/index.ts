@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getEnv, closeDb } from "./core/db";
+import { syncReposToDb } from "./core/config";
 import * as ui from "./core/ui";
 import { GROVE_VERSION } from "./types";
 import type { Command } from "./types";
@@ -77,9 +78,14 @@ async function main() {
   const args = process.argv.slice(2);
   const commandName = args[0];
 
+  // Sync repos from config → DB (ensures FK targets exist)
+  const { GROVE_DB } = getEnv();
+  if (existsSync(GROVE_DB) && commandName !== "init") {
+    syncReposToDb();
+  }
+
   // No arguments → HUD (or welcome message)
   if (!commandName) {
-    const { GROVE_DB } = getEnv();
     if (!existsSync(GROVE_DB)) {
       ui.logo();
       console.log(`  Run ${ui.bold("grove init")} to get started.\n`);

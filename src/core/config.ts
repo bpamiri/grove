@@ -1,7 +1,7 @@
 // Grove v2 — YAML config loading, validation, and dot-notation access
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { getEnv } from "./db";
+import { getEnv, getDb } from "./db";
 import type { GroveConfig, BudgetConfig, RepoConfig } from "../types";
 
 let _config: GroveConfig | null = null;
@@ -97,4 +97,26 @@ export function settingsGet<K extends keyof GroveConfig["settings"]>(
 ): GroveConfig["settings"][K] {
   const config = loadConfig();
   return config.settings?.[key];
+}
+
+/** Sync repos from grove.yaml into the SQLite repos table */
+export function syncReposToDb(): void {
+  const { GROVE_CONFIG } = getEnv();
+  if (!existsSync(GROVE_CONFIG)) return;
+
+  const repos = configRepoDetail();
+  const branchPrefix = settingsGet("branch_prefix") || "grove/";
+  const db = getDb();
+
+  for (const [name, repo] of Object.entries(repos)) {
+    db.repoUpsert({
+      name,
+      org: repo.org,
+      github_full: repo.github,
+      local_path: repo.path,
+      branch_prefix: repo.branch_prefix || branchPrefix,
+      claude_md_path: null,
+      last_synced: null,
+    });
+  }
 }

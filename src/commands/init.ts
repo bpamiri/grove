@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { getEnv, initDb } from "../core/db";
+import { syncReposToDb } from "../core/config";
 import { confirm } from "../core/prompts";
 import * as ui from "../core/ui";
 import { GROVE_VERSION } from "../types";
@@ -50,6 +51,9 @@ export const initCommand: Command = {
     db.configSet("grove_version", GROVE_VERSION);
     db.addEvent(null, "created", `Grove v${GROVE_VERSION} initialized`);
     ui.success("Database initialized.");
+
+    // Sync repos from config into DB
+    syncReposToDb();
 
     console.log(`\n  Edit ${ui.bold(GROVE_CONFIG)} to add your repos.`);
     console.log(`  Then run ${ui.bold("grove repos")} to verify.\n`);
