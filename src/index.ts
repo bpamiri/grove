@@ -44,6 +44,7 @@ async function loadCommand(name: string): Promise<Command | null> {
     case "report": return (await import("./commands/report")).reportCommand;
     case "cost": return (await import("./commands/cost")).costCommand;
     case "log": return (await import("./commands/log")).logCommand;
+    case "drain": return (await import("./commands/drain")).drainCommand;
     default: return null;
   }
 }
@@ -65,7 +66,7 @@ const allCommandNames = [
   "work", "run", "resume", "pause", "cancel",
   "watch", "detach", "msg", "dashboard",
   "prs", "review", "done", "publish", "close", "delete",
-  "report", "cost", "log",
+  "report", "cost", "log", "drain",
 ];
 
 // ---------------------------------------------------------------------------
