@@ -45,6 +45,7 @@ export const helpCommand: Command = {
       ["Execution", [
         "grove work [ID]    Start working (batch or specific)",
         "grove run ID       Execute without prompts",
+        "grove drain        Continuously dispatch until queue empty",
         "grove resume ID    Resume a paused task",
         "grove pause ID     Save state and stop",
         "grove cancel ID    Stop and clean up",
