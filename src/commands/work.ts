@@ -118,6 +118,17 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
 
   const { repo, title, status, estimated_cost } = task;
 
+  // -- Pre-flight: dependency check --
+  if (db.isTaskBlocked(taskId)) {
+    const deps = (task.depends_on ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+    const pendingDeps = deps.filter((dep) => {
+      const dt = db.taskGet(dep);
+      return !dt || (dt.status !== "done" && dt.status !== "completed");
+    });
+    ui.warn(`Skipping ${taskId}: blocked by ${pendingDeps.join(", ")}`);
+    return 1;
+  }
+
   // -- Pre-flight: status check --
   switch (status) {
     case "ready":
@@ -624,11 +635,33 @@ export const workCommand: Command = {
       const weekCost = db.costWeek();
       const weekBudget = budgetGet("per_week");
 
-      // Select top N from queue
-      const candidates = db.all<Task>(
+      // Select top N from queue (fetch extra to account for blocked tasks)
+      const allCandidates = db.all<Task>(
         "SELECT * FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT ?",
-        [batchSize],
+        [batchSize * 2],
       );
+
+      // Filter out blocked tasks
+      const blockedIds: string[] = [];
+      const candidates = allCandidates.filter((t) => {
+        if (db.isTaskBlocked(t.id)) {
+          blockedIds.push(t.id);
+          return false;
+        }
+        return true;
+      });
+
+      if (blockedIds.length > 0) {
+        for (const id of blockedIds) {
+          const bt = db.taskGet(id);
+          const deps = (bt?.depends_on ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+          const pending = deps.filter((dep) => {
+            const dt = db.taskGet(dep);
+            return !dt || (dt.status !== "done" && dt.status !== "completed");
+          });
+          ui.warn(`Skipping ${id}: blocked by ${pending.join(", ")}`);
+        }
+      }
 
       if (candidates.length === 0) {
         ui.info("No tasks ready to dispatch.");
@@ -751,6 +784,10 @@ export const workCommand: Command = {
         ui.info(`No ready tasks for repo: ${repoFilter}`);
         return;
       }
+      if (db.isTaskBlocked(next.id)) {
+        ui.warn(`Skipping ${next.id}: blocked by dependencies`);
+        return;
+      }
       ui.info(`Next task for ${repoFilter}: ${next.id} — ${next.title}`);
       if (isRun || await prompts.confirm("Start this task?")) {
         await dispatchTask(next.id, true);
@@ -759,13 +796,24 @@ export const workCommand: Command = {
     }
 
     // --- Mode 3: Batch selection (no args) ---
-    const readyTasks = db.all<Task>(
-      "SELECT id, repo, title, estimated_cost FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT 20"
+    const allReady = db.all<Task>(
+      "SELECT id, repo, title, estimated_cost, depends_on FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT 20"
     );
 
-    if (readyTasks.length === 0) {
+    const readyTasks = allReady.filter((t) => !db.isTaskBlocked(t.id));
+    const blockedTasks = allReady.filter((t) => db.isTaskBlocked(t.id));
+
+    if (readyTasks.length === 0 && blockedTasks.length === 0) {
       ui.info("No tasks ready to work on.");
       console.log(`  Run ${ui.bold("grove add")} to create a task, or ${ui.bold("grove sync")} to pull from GitHub.`);
+      return;
+    }
+
+    if (readyTasks.length === 0) {
+      ui.info("All ready tasks are blocked by dependencies.");
+      for (const t of blockedTasks) {
+        console.log(`  ${ui.dim(t.id)} ${ui.dim(t.repo || "")}  ${ui.truncate(t.title, 40)} ${ui.dim(`blocked by ${t.depends_on}`)}`);
+      }
       return;
     }
 
@@ -795,6 +843,14 @@ export const workCommand: Command = {
         : "";
       console.log(`  ${ui.bold(`[${idx + 1}]`)} ${ui.dim(t.id)} ${ui.dim(t.repo || "")}  ${ui.truncate(t.title, 40)}${ui.dim(costStr)}`);
       taskIds.push(t.id);
+    }
+
+    if (blockedTasks.length > 0) {
+      console.log();
+      console.log(`  ${ui.dim("Blocked:")}`);
+      for (const t of blockedTasks) {
+        console.log(`    ${ui.dim(t.id)} ${ui.dim(t.repo || "")}  ${ui.truncate(t.title, 40)} ${ui.dim(`waiting on ${t.depends_on}`)}`);
+      }
     }
 
     console.log();

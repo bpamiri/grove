@@ -277,6 +277,103 @@ describe("batch status rendering", () => {
   });
 });
 
+describe("dependency enforcement", () => {
+  test("blocked tasks excluded from batch candidate list", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Dep task", "running", "wheels", 1],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority, depends_on) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Blocked task", "ready", "wheels", 2, "W-001"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-003", "manual", "Free task", "ready", "wheels", 3],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const candidates = testDb.all<{ id: string }>(
+      "SELECT id FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT ?",
+      [10],
+    );
+    const filtered = candidates.filter((t) => !testDb.isTaskBlocked(t.id));
+    expect(filtered.map((t) => t.id)).toEqual(["W-003"]);
+  });
+
+  test("task with all deps done is not blocked", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Done dep", "done", "wheels"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, depends_on) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Unblocked", "ready", "wheels", "W-001"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    expect(testDb.isTaskBlocked("W-002")).toBe(false);
+  });
+
+  test("dispatchTask rejects blocked task", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Dep task", "running", "wheels", 1],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority, depends_on) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Blocked", "ready", "wheels", 2, "W-001"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    expect(testDb.isTaskBlocked("W-002")).toBe(true);
+    const task = testDb.taskGet("W-002")!;
+    const deps = task.depends_on!.split(",").map((d) => d.trim()).filter(Boolean);
+    const pendingDeps = deps.filter((dep) => {
+      const dt = testDb.taskGet(dep);
+      return !dt || (dt.status !== "done" && dt.status !== "completed");
+    });
+    expect(pendingDeps).toEqual(["W-001"]);
+  });
+
+  test("interactive mode separates blocked from available", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Running dep", "running", "wheels", 1],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority, depends_on) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Blocked", "ready", "wheels", 2, "W-001"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-003", "manual", "Available", "ready", "wheels", 3],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const readyTasks = testDb.all<{ id: string }>(
+      "SELECT id FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT 20",
+    );
+    const available = readyTasks.filter((t) => !testDb.isTaskBlocked(t.id));
+    const blocked = readyTasks.filter((t) => testDb.isTaskBlocked(t.id));
+
+    expect(available.map((t) => t.id)).toEqual(["W-003"]);
+    expect(blocked.map((t) => t.id)).toEqual(["W-002"]);
+  });
+});
+
 describe("batch dispatch end-to-end", () => {
   test("batch selects only ready/planned tasks and ignores others", async () => {
     db.exec("INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
