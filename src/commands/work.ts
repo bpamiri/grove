@@ -246,7 +246,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
   // -- Spawn Claude --
   if (foreground) {
     // Foreground: spawn and pipe to both stdout and log file
-    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose"], {
+    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"], {
       cwd: wtPath,
       env: { ...process.env, GROVE_TASK_ID: taskId, GROVE_WORKTREE_PATH: wtPath },
       stdin: "ignore",
@@ -370,7 +370,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
 
   } else {
     // Background: redirect all output to log file
-    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose"], {
+    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"], {
       cwd: wtPath,
       env: { ...process.env, GROVE_TASK_ID: taskId, GROVE_WORKTREE_PATH: wtPath },
       stdin: "ignore",

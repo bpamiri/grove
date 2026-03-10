@@ -141,7 +141,7 @@ export const resumeCommand: Command = {
 
     // Spawn claude -p in the worktree
     const workerProc = Bun.spawn(
-      ["claude", "-p", resumePrompt, "--output-format", "stream-json", "--verbose"],
+      ["claude", "-p", resumePrompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"],
       {
         cwd: workDir,
         env: { ...process.env, GROVE_TASK_ID: taskId, GROVE_WORKTREE_PATH: workDir },
