@@ -374,6 +374,68 @@ describe("dependency enforcement", () => {
   });
 });
 
+describe("unblock notification", () => {
+  test("getNewlyUnblocked finds tasks freed by completion", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Just finished", "done", "wheels"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, depends_on) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Was waiting", "ready", "wheels", "W-001"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const unblocked = testDb.getNewlyUnblocked("W-001");
+    expect(unblocked).toHaveLength(1);
+    expect(unblocked[0].id).toBe("W-002");
+  });
+
+  test("getNewlyUnblocked returns empty when no dependents", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Standalone", "done", "wheels"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    expect(testDb.getNewlyUnblocked("W-001")).toHaveLength(0);
+  });
+
+  test("dependency_met event logged for unblocked tasks", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Completed", "done", "wheels"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo, depends_on) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Unblocked", "ready", "wheels", "W-001"],
+    );
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    // Simulate the notifyUnblocked logic
+    const unblocked = testDb.getNewlyUnblocked("W-001");
+    for (const t of unblocked) {
+      testDb.addEvent(t.id, "dependency_met", `Unblocked by W-001`);
+    }
+
+    const events = testDb.all<{ task_id: string; event_type: string; summary: string }>(
+      "SELECT task_id, event_type, summary FROM events WHERE event_type = 'dependency_met'",
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].task_id).toBe("W-002");
+    expect(events[0].summary).toContain("W-001");
+  });
+});
+
 describe("batch dispatch end-to-end", () => {
   test("batch selects only ready/planned tasks and ignores others", async () => {
     db.exec("INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",

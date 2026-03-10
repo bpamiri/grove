@@ -96,6 +96,16 @@ function getFilesModified(worktreePath: string): string | null {
   return [...files].sort().join(", ");
 }
 
+/** Check for tasks unblocked by a completed task and notify */
+function notifyUnblocked(taskId: string): void {
+  const db = getDb();
+  const unblocked = db.getNewlyUnblocked(taskId);
+  for (const t of unblocked) {
+    db.addEvent(t.id, "dependency_met", `Unblocked by ${taskId}`);
+    ui.info(`Unblocked: ${t.id} (${t.title})`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch a single task
 // ---------------------------------------------------------------------------
@@ -372,6 +382,9 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       db.sessionEnd(sessionId, "completed");
       ui.success(`Task ${taskId} completed.`);
 
+      // Notify any tasks unblocked by this completion
+      notifyUnblocked(taskId);
+
       // Auto-publish: push branch + create draft PR
       const published = await publishTask(taskId, db);
       if (published) {
@@ -450,6 +463,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       if (exitCode === 0) {
         db.taskSetStatus(taskId, "done");
         db.sessionEnd(sessionId, "completed");
+        notifyUnblocked(taskId);
 
         // Auto-publish in background
         try {
