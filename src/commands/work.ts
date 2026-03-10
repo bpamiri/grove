@@ -4,7 +4,7 @@ import { getDb } from "../core/db";
 import { budgetGet, settingsGet } from "../core/config";
 import * as ui from "../core/ui";
 import * as prompts from "../core/prompts";
-import { dispatchTask, ANSI, renderBatchStatus } from "../lib/dispatch";
+import { dispatchTask, ANSI, renderBatchStatus, TERMINAL_STATUSES } from "../lib/dispatch";
 import type { Command, Task } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,6 @@ export const workCommand: Command = {
       console.log();
 
       // Live monitor loop
-      const TERMINAL = new Set(["done", "completed", "failed", "review"]);
       const POLL_MS = 3_000;
 
       process.stdout.write(ANSI.hideCursor);
@@ -170,7 +169,7 @@ export const workCommand: Command = {
 
           const allDone = dispatchedIds.every((id) => {
             const t = db.taskGet(id);
-            return t && TERMINAL.has(t.status);
+            return t && TERMINAL_STATUSES.has(t.status);
           });
           if (allDone) break;
 

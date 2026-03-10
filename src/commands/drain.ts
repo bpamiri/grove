@@ -2,7 +2,7 @@
 import { getDb } from "../core/db";
 import { budgetGet, settingsGet } from "../core/config";
 import * as ui from "../core/ui";
-import { dispatchTask, ANSI, renderBatchStatus } from "../lib/dispatch";
+import { dispatchTask, ANSI, renderBatchStatus, TERMINAL_STATUSES } from "../lib/dispatch";
 import type { Command, Task } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -10,7 +10,6 @@ import type { Command, Task } from "../types";
 // ---------------------------------------------------------------------------
 
 const POLL_MS = 3_000;
-const TERMINAL = new Set(["done", "completed", "failed", "review"]);
 
 // ---------------------------------------------------------------------------
 // Command
@@ -192,7 +191,7 @@ export const drainCommand: Command = {
         const stillActive: string[] = [];
         for (const id of activeIds) {
           const task = db.taskGet(id);
-          if (task && TERMINAL.has(task.status)) {
+          if (task && TERMINAL_STATUSES.has(task.status)) {
             if (task.status === "failed") {
               stats.totalFailed++;
             } else {

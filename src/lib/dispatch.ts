@@ -11,6 +11,9 @@ import { createWorktree } from "./worktree";
 import { deploySandbox, buildTriggerPrompt, buildResumeTriggerPrompt } from "./sandbox";
 import { publishTask } from "../commands/publish";
 
+/** Terminal task states — shared by batch monitor loops in work.ts and drain.ts */
+export const TERMINAL_STATUSES = new Set(["done", "completed", "failed", "review"]);
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
