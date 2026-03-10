@@ -137,7 +137,7 @@ export const resumeCommand: Command = {
 
     // Spawn claude -p in the worktree
     const workerProc = Bun.spawn(
-      ["claude", "-p", resumePrompt, "--output-format", "stream-json"],
+      ["claude", "-p", resumePrompt, "--output-format", "stream-json", "--verbose"],
       {
         cwd: workDir,
         stdout: Bun.file(logFile),

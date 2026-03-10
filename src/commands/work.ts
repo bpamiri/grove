@@ -235,7 +235,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
   // -- Spawn Claude --
   if (foreground) {
     // Foreground: spawn and pipe to both stdout and log file
-    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json"], {
+    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose"], {
       cwd: wtPath,
       stdin: "ignore",
       stdout: "pipe",
@@ -321,7 +321,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
 
   } else {
     // Background: redirect all output to log file
-    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json"], {
+    const proc = Bun.spawn(["claude", "-p", prompt, "--output-format", "stream-json", "--verbose"], {
       cwd: wtPath,
       stdin: "ignore",
       stdout: "pipe",
