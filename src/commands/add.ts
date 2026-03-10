@@ -16,6 +16,7 @@ export const addCommand: Command = {
 
     let description = "";
     let repo = "";
+    let depends = "";
 
     // Parse arguments
     let i = 0;
@@ -26,6 +27,12 @@ export const addCommand: Command = {
         i += 2;
       } else if (arg.startsWith("--repo=")) {
         repo = arg.slice("--repo=".length);
+        i++;
+      } else if (arg === "--depends" && i + 1 < args.length) {
+        depends = args[i + 1];
+        i += 2;
+      } else if (arg.startsWith("--depends=")) {
+        depends = arg.slice("--depends=".length);
         i++;
       } else if (arg === "-h" || arg === "--help") {
         console.log(this.help!());
@@ -93,15 +100,25 @@ export const addCommand: Command = {
       );
     }
 
+    // Validate dependency IDs exist
+    if (depends) {
+      const depIds = depends.split(",").map((d) => d.trim()).filter(Boolean);
+      for (const depId of depIds) {
+        if (!db.taskExists(depId)) {
+          ui.die(`Dependency not found: ${depId}`);
+        }
+      }
+    }
+
     // Generate task ID: first letter of repo name, uppercased
     const prefix = repo.charAt(0).toUpperCase();
     const taskId = db.nextTaskId(prefix);
 
     // Insert task
     db.exec(
-      `INSERT INTO tasks (id, repo, source_type, title, description, status, priority)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [taskId, repo, SourceType.Manual, description, description, "ingested", 50],
+      `INSERT INTO tasks (id, repo, source_type, title, description, status, priority, depends_on)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [taskId, repo, SourceType.Manual, description, description, "ingested", 50, depends || null],
     );
 
     // Log event
@@ -129,7 +146,7 @@ export const addCommand: Command = {
 
   help() {
     return [
-      "Usage: grove add [DESCRIPTION] [--repo NAME]",
+      "Usage: grove add [DESCRIPTION] [--repo NAME] [--depends IDS]",
       "",
       "Create a new task. Two modes:",
       "",
@@ -137,11 +154,10 @@ export const addCommand: Command = {
       "  Interactive: grove add",
       "",
       "Options:",
-      "  --repo NAME    Assign to a specific repository",
+      "  --repo NAME        Assign to a specific repository",
+      "  --depends IDS      Comma-separated task IDs this depends on",
       "",
-      "In interactive mode, Grove will prompt for a description and",
-      "try to detect the repo from keywords. If ambiguous, you choose",
-      "from configured repos.",
+      "Dependencies prevent dispatch until all listed tasks complete.",
       "",
       'The task starts in "ingested" status. Run "grove plan TASK"',
       'to assign a strategy, or "grove work TASK" to start immediately.',

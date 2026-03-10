@@ -154,4 +154,56 @@ describe("addCommand", () => {
     expect(verifyDb.taskGet("W-002")!.title).toBe("Second task");
     verifyDb.close();
   });
+
+  test("--depends stores dependency on task", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Dep target", "ready", "wheels"],
+    );
+
+    await resetModules();
+    const { addCommand } = await import("../../src/commands/add");
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true, configurable: true });
+
+    try {
+      await addCommand.run(["Follow-up task", "--repo", "wheels", "--depends", "W-001"]);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true, configurable: true });
+    }
+
+    const verifyDb = new Database(join(tempDir, "grove.db"));
+    const task = verifyDb.taskGet("W-002");
+    expect(task).not.toBeNull();
+    expect(task!.depends_on).toBe("W-001");
+    verifyDb.close();
+  });
+
+  test("--depends with multiple IDs", async () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Dep 1", "ready", "wheels"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, repo) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Dep 2", "ready", "wheels"],
+    );
+
+    await resetModules();
+    const { addCommand } = await import("../../src/commands/add");
+    const origIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, writable: true, configurable: true });
+
+    try {
+      await addCommand.run(["Depends on two", "--repo", "wheels", "--depends", "W-001,W-002"]);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, writable: true, configurable: true });
+    }
+
+    const verifyDb = new Database(join(tempDir, "grove.db"));
+    const task = verifyDb.taskGet("W-003");
+    expect(task).not.toBeNull();
+    expect(task!.depends_on).toBe("W-001,W-002");
+    verifyDb.close();
+  });
 });
