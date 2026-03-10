@@ -139,5 +139,19 @@ export function dim(text: string): string {
   return pc.dim(text);
 }
 
+/** Print the Grove logo */
+export function logo(): void {
+  const g = pc.green;
+  const d = pc.dim;
+  console.log();
+  console.log(g("   ╔═══╗ ╔═══╗ ╔═══╗ ╦   ╦ ╔═══╗"));
+  console.log(g("   ║     ║   ║ ║   ║ ║   ║ ║    "));
+  console.log(g("   ║ ╔═╗ ╠═══╝ ║   ║ ╚╗ ╔╝ ╠═══ "));
+  console.log(g("   ║   ║ ║  ╚╗ ║   ║  ║ ║  ║    "));
+  console.log(g("   ╚═══╝ ╩   ╩ ╚═══╝  ╚═╝  ╚═══╝"));
+  console.log(d("   development command center"));
+  console.log();
+}
+
 // Re-export picocolors for direct use
 export { pc };

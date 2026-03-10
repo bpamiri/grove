@@ -81,8 +81,8 @@ async function main() {
   if (!commandName) {
     const { GROVE_DB } = getEnv();
     if (!existsSync(GROVE_DB)) {
-      ui.info(`Welcome to Grove v${GROVE_VERSION}`);
-      console.log(`\n  Run ${ui.bold("grove init")} to get started.\n`);
+      ui.logo();
+      console.log(`  Run ${ui.bold("grove init")} to get started.\n`);
       return;
     }
     // Try to load HUD

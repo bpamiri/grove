@@ -84,7 +84,7 @@ export const hudCommand: Command = {
     const wsName = workspaceName();
 
     // --- Greeting ---
-    console.log();
+    ui.logo();
     console.log(`  ${ui.bold(wsName)}  ${ui.dim(`v0.2.0`)}`);
     console.log(`  ${greeting()} — ${todayString()}`);
     console.log();
