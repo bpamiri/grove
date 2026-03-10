@@ -7,6 +7,7 @@ import * as ui from "../core/ui";
 import { createWorktree, worktreeExists } from "../lib/worktree";
 import { buildResumePrompt } from "../lib/prompt-builder";
 import { deploySandbox, buildResumeTriggerPrompt } from "../lib/sandbox";
+import { publishTask } from "./publish";
 import { parseCost, streamMonitor, isAlive } from "../lib/monitor";
 import type { Command, Task } from "../types";
 
@@ -219,6 +220,14 @@ export const resumeCommand: Command = {
       if (workerProc.exitCode === 0) {
         db.taskSetStatus(taskId, "done");
         db.addEvent(taskId, "completed", `Session ${sessionId} completed (cost: $${costResult.costUsd.toFixed(2)})`);
+
+        // Auto-publish: push branch + create draft PR
+        const published = await publishTask(taskId, db);
+        if (published) {
+          ui.success(`PR created for ${taskId}`);
+        } else {
+          ui.warn(`Auto-publish failed. Retry with: grove publish ${taskId}`);
+        }
       } else {
         db.taskSetStatus(taskId, "failed");
         db.addEvent(taskId, "failed", `Session ${sessionId} failed (exit: ${workerProc.exitCode})`);
