@@ -166,3 +166,30 @@ export function ghPrClose(repo: string, prNumber: number): void {
     throw new Error(`gh pr close failed (exit ${result.exitCode}): ${result.stderr}`);
   }
 }
+
+/**
+ * Create a pull request.
+ * @param repo — GitHub repo in "owner/name" format
+ * @returns PR number and URL
+ */
+export function ghPrCreate(repo: string, opts: {
+  title: string;
+  body: string;
+  head: string;
+  draft?: boolean;
+}): { number: number; url: string } {
+  const args = [
+    "pr", "create",
+    "-R", repo,
+    "--title", opts.title,
+    "--body", opts.body,
+    "--head", opts.head,
+  ];
+  if (opts.draft) args.push("--draft");
+
+  const result = gh([...args, "--json", "number,url"]);
+  if (result.exitCode !== 0) {
+    throw new Error(`gh pr create failed (exit ${result.exitCode}): ${result.stderr}`);
+  }
+  return JSON.parse(result.stdout) as { number: number; url: string };
+}
