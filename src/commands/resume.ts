@@ -221,6 +221,13 @@ export const resumeCommand: Command = {
         db.taskSetStatus(taskId, "done");
         db.addEvent(taskId, "completed", `Session ${sessionId} completed (cost: $${costResult.costUsd.toFixed(2)})`);
 
+        // Notify any tasks unblocked by this completion
+        const unblocked = db.getNewlyUnblocked(taskId);
+        for (const t of unblocked) {
+          db.addEvent(t.id, "dependency_met", `Unblocked by ${taskId}`);
+          ui.info(`Unblocked: ${t.id} (${t.title})`);
+        }
+
         // Auto-publish: push branch + create draft PR
         const published = await publishTask(taskId, db);
         if (published) {
