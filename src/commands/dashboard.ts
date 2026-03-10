@@ -236,46 +236,63 @@ function draw(): void {
   buf.push(box("BUDGET", budgetLines, w, BLUE));
   buf.push("");
 
-  // ── Queue ──
-  const readyCount = db.taskCount("ready");
-  const ingestedCount = db.taskCount("ingested");
-  const plannedCount = db.taskCount("planned");
-  const reviewCount = db.taskCount("review");
+  // ── Tasks ──
+  const allTasks = db.all<Task>(
+    `SELECT * FROM tasks
+     WHERE status NOT IN ('completed', 'done', 'failed')
+     ORDER BY
+       CASE status
+         WHEN 'ready' THEN 0
+         WHEN 'planned' THEN 1
+         WHEN 'ingested' THEN 2
+         WHEN 'review' THEN 3
+         ELSE 4
+       END,
+       priority ASC, created_at ASC
+     LIMIT 12`,
+  );
 
-  const queueLines: string[] = [];
+  const taskLines: string[] = [];
 
-  // Summary counts
-  const counts: string[] = [];
-  if (readyCount > 0) counts.push(`${BLUE}${readyCount} ready${RESET}`);
-  if (plannedCount > 0) counts.push(`${CYAN}${plannedCount} planned${RESET}`);
-  if (ingestedCount > 0) counts.push(`${DIM}${ingestedCount} ingested${RESET}`);
-  if (reviewCount > 0) counts.push(`${MAGENTA}${reviewCount} review${RESET}`);
-
-  if (counts.length > 0) {
-    queueLines.push(`  ${counts.join("  ${DIM}│${RESET}  ")}`);
-  }
-
-  // Show ready tasks
-  if (readyCount > 0) {
-    queueLines.push("");
-    const readyTasks = db.all<Task>(
-      "SELECT * FROM tasks WHERE status = 'ready' ORDER BY priority ASC, created_at ASC LIMIT 6",
+  if (allTasks.length === 0) {
+    taskLines.push(`  ${DIM}No tasks. Run ${RESET}${BOLD}grove add${RESET}${DIM} or ${RESET}${BOLD}grove sync${RESET}${DIM} to bring in work.${RESET}`);
+  } else {
+    // Column headers
+    taskLines.push(
+      `  ${DIM}${"ID".padEnd(10)}${"REPO".padEnd(12)}${"STATUS".padEnd(12)}${"TITLE"}${RESET}`
     );
-    for (const t of readyTasks) {
-      const cost = t.estimated_cost && t.estimated_cost > 0 ? `${DIM}~${ui.dollars(t.estimated_cost)}${RESET}` : "";
-      const strat = t.strategy ? `${DIM}${t.strategy}${RESET}` : "";
-      queueLines.push(
-        `  ${statusIcon(t.status)} ${BOLD}${t.id.padEnd(8)}${RESET}${(t.repo ?? "").padEnd(10)}${truncStr(t.title, 35).padEnd(36)}${strat.padEnd(strat ? 16 : 0)}${cost}`
+
+    for (const t of allTasks) {
+      // Skip running/paused — already shown in WORKERS
+      if (t.status === "running" || t.status === "paused") continue;
+
+      const strat = t.strategy ? `${DIM} [${t.strategy}]${RESET}` : "";
+      const cost = t.estimated_cost && t.estimated_cost > 0 ? `${DIM} ~${ui.dollars(t.estimated_cost)}${RESET}` : "";
+      const titleWidth = Math.max(20, w - 38);
+
+      taskLines.push(
+        `  ${statusIcon(t.status)} ${BOLD}${t.id.padEnd(9)}${RESET}${(t.repo ?? "-").padEnd(12)}${statusLabel(t.status).padEnd(12 + 9)}${truncStr(t.title, titleWidth)}${strat}${cost}`
       );
+
+      // Show description snippet if different from title
+      if (t.description && t.description !== t.title) {
+        taskLines.push(
+          `    ${DIM}${truncStr(t.description, titleWidth + 20)}${RESET}`
+        );
+      }
     }
-    if (readyCount > 6) {
-      queueLines.push(`  ${DIM}  … and ${readyCount - 6} more${RESET}`);
+
+    // Counts of what's not shown
+    const totalQueued = db.scalar<number>(
+      "SELECT COUNT(*) FROM tasks WHERE status NOT IN ('completed', 'done', 'failed', 'running', 'paused')"
+    ) ?? 0;
+    const shown = taskLines.length - 1; // minus header
+    if (totalQueued > shown) {
+      taskLines.push(`  ${DIM}… and ${totalQueued - shown} more (grove tasks --all)${RESET}`);
     }
-  } else if (counts.length === 0) {
-    queueLines.push(`  ${DIM}Queue empty. Run ${RESET}${BOLD}grove add${RESET}${DIM} or ${RESET}${BOLD}grove sync${RESET}${DIM} to bring in work.${RESET}`);
   }
 
-  buf.push(box("QUEUE", queueLines, w, CYAN));
+  buf.push(box("TASKS", taskLines, w, CYAN));
   buf.push("");
 
   // ── Recent Events ──
