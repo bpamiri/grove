@@ -866,31 +866,36 @@ export const workCommand: Command = {
   },
 
   help() {
-    return `Usage: grove work [TASK_ID] [--repo NAME]
+    return `Usage: grove work [TASK_ID] [--repo NAME] [--batch N]
 
 Dispatch a Claude Code worker session for a task.
 
 Modes:
-  grove work TASK_ID     Start a specific task
-  grove work --repo NAME Pick the next ready task for a repo
-  grove work             Show ready tasks, choose interactively
-  grove run TASK_ID      Non-interactive mode (auto-pick, no prompts)
+  grove work TASK_ID       Start a specific task (foreground)
+  grove work --repo NAME   Pick the next ready task for a repo
+  grove work --batch N     Dispatch top N tasks in parallel
+  grove work               Show ready tasks, choose interactively
+  grove run TASK_ID        Non-interactive mode (auto-pick, no prompts)
 
 What happens:
   1. Creates a git worktree for the task
-  2. Generates a prompt with task context
+  2. Deploys sandbox (guard hooks + CLAUDE.md overlay)
   3. Spawns "claude -p" with stream-json output
   4. Captures session summary, cost, and files modified
-  5. Updates task status (done/failed)
+  5. Auto-publishes (push + draft PR) on success
 
 Options:
   --repo NAME    Filter to tasks for a specific repo
+  --batch N      Dispatch N tasks in parallel with live status monitor
   --run          Non-interactive mode (same as "grove run")
 
-The task must be in "ready" or "planned" status. Budget is checked
-against the weekly limit before dispatch. Override with confirmation.
+Batch mode:
+  Selects top N tasks from the priority queue. All run in background.
+  Displays a live status table until all tasks finish.
+  Capped by max_concurrent setting and weekly budget.
+  Ctrl+C detaches — workers continue in background.
 
-Batch mode: select multiple tasks to dispatch. The first runs in
+Interactive mode: select multiple tasks to dispatch. The first runs in
 foreground; the rest run in background up to max_concurrent.`;
   },
 };
