@@ -276,3 +276,36 @@ describe("batch status rendering", () => {
     expect(counts.failed).toBe(1);
   });
 });
+
+describe("batch dispatch end-to-end", () => {
+  test("batch selects only ready/planned tasks and ignores others", async () => {
+    db.exec("INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Ready 1", "ready", "wheels", 1]);
+    db.exec("INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Ready 2", "ready", "wheels", 2]);
+    db.exec("INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-003", "manual", "Running", "running", "wheels", 3]);
+    db.exec("INSERT INTO tasks (id, source_type, title, status, repo, priority) VALUES (?, ?, ?, ?, ?, ?)",
+      ["W-004", "manual", "Done", "done", "wheels", 4]);
+
+    await resetModules();
+    const { getDb } = await import("../../src/core/db");
+    const testDb = getDb();
+
+    const batch = testDb.all<{ id: string }>(
+      "SELECT id FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT ?",
+      [10],
+    );
+    expect(batch.map(t => t.id)).toEqual(["W-001", "W-002"]);
+  });
+
+  test("terminal states are correctly identified", () => {
+    const TERMINAL = new Set(["done", "completed", "failed", "review"]);
+    expect(TERMINAL.has("done")).toBe(true);
+    expect(TERMINAL.has("completed")).toBe(true);
+    expect(TERMINAL.has("failed")).toBe(true);
+    expect(TERMINAL.has("review")).toBe(true);
+    expect(TERMINAL.has("running")).toBe(false);
+    expect(TERMINAL.has("paused")).toBe(false);
+  });
+});

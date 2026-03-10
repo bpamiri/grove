@@ -615,6 +615,118 @@ export const workCommand: Command = {
       ui.die("--batch cannot be used with --repo.");
     }
 
+    // --- Mode 0: Batch dispatch ---
+    if (batchSize > 0) {
+      const maxConcurrent = settingsGet("max_concurrent") || 4;
+      const weekCost = db.costWeek();
+      const weekBudget = budgetGet("per_week");
+
+      // Select top N from queue
+      const candidates = db.all<Task>(
+        "SELECT * FROM tasks WHERE status IN ('ready', 'planned') ORDER BY priority ASC, created_at ASC LIMIT ?",
+        [batchSize],
+      );
+
+      if (candidates.length === 0) {
+        ui.info("No tasks ready to dispatch.");
+        return;
+      }
+
+      // Cap by max_concurrent (accounting for already-running tasks)
+      const runningCount = db.taskCount("running");
+      const slotsAvailable = Math.max(0, maxConcurrent - runningCount);
+
+      if (slotsAvailable === 0) {
+        ui.die(`All ${maxConcurrent} concurrent slots in use. Wait or increase max_concurrent.`);
+      }
+
+      const toDispatch = candidates.slice(0, slotsAvailable);
+      if (toDispatch.length < candidates.length) {
+        ui.warn(`Capped to ${toDispatch.length} (${runningCount} already running, max ${maxConcurrent}).`);
+      }
+
+      // Budget warning
+      if (weekBudget > 0) {
+        const totalEstimated = toDispatch.reduce((sum, t) => sum + (t.estimated_cost ?? 0), 0);
+        const remaining = weekBudget - weekCost;
+        if (totalEstimated > remaining) {
+          ui.warn(`Estimated cost $${totalEstimated.toFixed(2)} exceeds remaining budget $${remaining.toFixed(2)}.`);
+        }
+      }
+
+      // Dispatch all in background
+      ui.header(`Dispatching ${toDispatch.length} task(s)`);
+      const dispatchedIds: string[] = [];
+
+      for (const task of toDispatch) {
+        const exitCode = await dispatchTask(task.id, false);
+        if (exitCode === 0) {
+          dispatchedIds.push(task.id);
+        } else {
+          ui.warn(`Failed to dispatch ${task.id}`);
+        }
+      }
+
+      if (dispatchedIds.length === 0) {
+        ui.error("No tasks were dispatched.");
+        return;
+      }
+
+      console.log();
+
+      // Live monitor loop
+      const TERMINAL = new Set(["done", "completed", "failed", "review"]);
+      const POLL_MS = 3_000;
+
+      process.stdout.write(ANSI.hideCursor);
+
+      const cleanup = () => process.stdout.write(ANSI.showCursor);
+      const onSig = () => {
+        cleanup();
+        console.log(`\n  Detached. Workers continue in background.`);
+        console.log(`  Use ${ui.bold("grove dashboard")} or ${ui.bold("grove watch TASK_ID")} to monitor.\n`);
+        process.exit(0);
+      };
+      process.on("SIGINT", onSig);
+      process.on("SIGTERM", onSig);
+
+      let isFirst = true;
+      while (true) {
+        renderBatchStatus(dispatchedIds, isFirst);
+        isFirst = false;
+
+        const allDone = dispatchedIds.every((id) => {
+          const t = db.taskGet(id);
+          return t && TERMINAL.has(t.status);
+        });
+        if (allDone) break;
+
+        await new Promise((r) => setTimeout(r, POLL_MS));
+      }
+
+      cleanup();
+      process.removeListener("SIGINT", onSig);
+      process.removeListener("SIGTERM", onSig);
+
+      // Final summary
+      console.log();
+      let batchDone = 0, batchFailed = 0, batchCost = 0;
+      for (const id of dispatchedIds) {
+        const t = db.taskGet(id);
+        if (!t) continue;
+        if (t.status === "failed") batchFailed++;
+        else batchDone++;
+        batchCost += t.cost_usd || 0;
+      }
+
+      if (batchFailed === 0) {
+        ui.success(`Batch complete: ${batchDone} task(s) finished. Cost: ${ui.dollars(batchCost)}`);
+      } else {
+        ui.warn(`Batch complete: ${batchDone} succeeded, ${batchFailed} failed. Cost: ${ui.dollars(batchCost)}`);
+      }
+      return;
+    }
+
     // --- Mode 1: Specific task ID ---
     if (taskId) {
       if (!db.taskExists(taskId)) {
