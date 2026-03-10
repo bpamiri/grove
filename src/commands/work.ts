@@ -10,6 +10,7 @@ import * as prompts from "../core/prompts";
 import { createWorktree } from "../lib/worktree";
 import { buildPrompt, buildResumePrompt } from "../lib/prompt-builder";
 import { deploySandbox, buildTriggerPrompt, buildResumeTriggerPrompt } from "../lib/sandbox";
+import { publishTask } from "./publish";
 import type { Command, Task } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -359,6 +360,14 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       db.taskSetStatus(taskId, "done");
       db.sessionEnd(sessionId, "completed");
       ui.success(`Task ${taskId} completed.`);
+
+      // Auto-publish: push branch + create draft PR
+      const published = await publishTask(taskId, db);
+      if (published) {
+        ui.success(`PR created for ${taskId}`);
+      } else {
+        ui.warn(`Auto-publish failed. Retry with: grove publish ${taskId}`);
+      }
     } else {
       db.taskSetStatus(taskId, "failed");
       db.sessionEnd(sessionId, "failed");
@@ -430,6 +439,13 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       if (exitCode === 0) {
         db.taskSetStatus(taskId, "done");
         db.sessionEnd(sessionId, "completed");
+
+        // Auto-publish in background
+        try {
+          await publishTask(taskId, db);
+        } catch {
+          // Publish failure is non-fatal; task stays at done
+        }
       } else {
         db.taskSetStatus(taskId, "failed");
         db.sessionEnd(sessionId, "failed");
