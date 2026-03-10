@@ -364,6 +364,128 @@ describe("Event helpers", () => {
   });
 });
 
+describe("dependency helpers", () => {
+  test("isTaskBlocked returns false when depends_on is null", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "No deps", "ready"],
+    );
+    expect(db.isTaskBlocked("W-001")).toBe(false);
+  });
+
+  test("isTaskBlocked returns true when dependency is not done", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Dep task", "running"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Blocked task", "ready", "W-001"],
+    );
+    expect(db.isTaskBlocked("W-002")).toBe(true);
+  });
+
+  test("isTaskBlocked returns false when all deps are done", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Dep task", "done"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Unblocked task", "ready", "W-001"],
+    );
+    expect(db.isTaskBlocked("W-002")).toBe(false);
+  });
+
+  test("isTaskBlocked handles completed status", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Dep task", "completed"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Unblocked task", "ready", "W-001"],
+    );
+    expect(db.isTaskBlocked("W-002")).toBe(false);
+  });
+
+  test("isTaskBlocked with multiple deps — one incomplete", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Done dep", "done"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-002", "manual", "Running dep", "running"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-003", "manual", "Multi-dep task", "ready", "W-001,W-002"],
+    );
+    expect(db.isTaskBlocked("W-003")).toBe(true);
+  });
+
+  test("isTaskBlocked returns true when dep task doesn't exist", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "manual", "Missing dep task", "ready", "W-999"],
+    );
+    expect(db.isTaskBlocked("W-001")).toBe(true);
+  });
+
+  test("getNewlyUnblocked returns tasks whose deps are now all met", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Just finished", "done"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Was waiting", "ready", "W-001"],
+    );
+    const unblocked = db.getNewlyUnblocked("W-001");
+    expect(unblocked.length).toBe(1);
+    expect(unblocked[0].id).toBe("W-002");
+  });
+
+  test("getNewlyUnblocked excludes tasks still blocked by other deps", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Just finished", "done"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-002", "manual", "Still running", "running"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-003", "manual", "Multi-dep", "ready", "W-001,W-002"],
+    );
+    const unblocked = db.getNewlyUnblocked("W-001");
+    expect(unblocked.length).toBe(0);
+  });
+
+  test("getNewlyUnblocked ignores terminal tasks", () => {
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "manual", "Just finished", "done"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "manual", "Already done", "done", "W-001"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-003", "manual", "Already completed", "completed", "W-001"],
+    );
+    db.exec(
+      "INSERT INTO tasks (id, source_type, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-004", "manual", "Already failed", "failed", "W-001"],
+    );
+    const unblocked = db.getNewlyUnblocked("W-001");
+    expect(unblocked.length).toBe(0);
+  });
+});
+
 describe("Session helpers", () => {
   test("sessionCreate and sessionEnd", () => {
     db.repoUpsert({ name: "wheels", org: "x", github_full: "x/w", local_path: "/tmp/w", branch_prefix: "g/", claude_md_path: null, last_synced: null });

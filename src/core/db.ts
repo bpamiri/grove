@@ -137,6 +137,28 @@ export class Database {
     ) ?? 0) > 0;
   }
 
+  /** Check if a task is blocked by incomplete dependencies */
+  isTaskBlocked(taskId: string): boolean {
+    const task = this.taskGet(taskId);
+    if (!task?.depends_on) return false;
+    const deps = task.depends_on.split(",").map((d) => d.trim()).filter(Boolean);
+    return deps.some((dep) => {
+      const depTask = this.taskGet(dep);
+      return !depTask || (depTask.status !== "done" && depTask.status !== "completed");
+    });
+  }
+
+  /** Find tasks that just became unblocked because completedTaskId finished */
+  getNewlyUnblocked(completedTaskId: string): Task[] {
+    const candidates = this.all<Task>(
+      `SELECT * FROM tasks
+       WHERE (',' || depends_on || ',') LIKE ?
+         AND status NOT IN ('done', 'completed', 'failed')`,
+      [`%,${completedTaskId},%`]
+    );
+    return candidates.filter((t) => !this.isTaskBlocked(t.id));
+  }
+
   // -------------------------------------------------------------------------
   // Event helpers
   // -------------------------------------------------------------------------
