@@ -118,9 +118,6 @@ export const addCommand: Command = {
       const startNow = await prompts.confirm("Start working on this now?");
       if (startNow) {
         try {
-          // Auto-plan first (ingested → ready)
-          const { planCommand } = await import("./plan");
-          await planCommand.run([taskId]);
           const { workCommand } = await import("./work");
           await workCommand.run([taskId]);
         } catch {

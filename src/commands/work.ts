@@ -123,6 +123,21 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       ui.info(`Task ${taskId} is planned but not explicitly marked ready. Auto-approving.`);
       db.taskSetStatus(taskId, "ready");
       break;
+    case "ingested": {
+      ui.info(`Task ${taskId} is ingested. Auto-planning...`);
+      const { planCommand } = await import("./plan");
+      await planCommand.run([taskId]);
+      // Verify it reached ready (plan may leave it at planned if over budget)
+      const updated = db.taskGet(taskId);
+      if (!updated || (updated.status !== "ready" && updated.status !== "planned")) {
+        ui.error(`Task ${taskId} could not be promoted to ready (status: ${updated?.status}).`);
+        return 1;
+      }
+      if (updated.status === "planned") {
+        db.taskSetStatus(taskId, "ready");
+      }
+      break;
+    }
     case "paused":
       ui.info(`Task ${taskId} is paused. Using standard dispatch (use 'grove resume' for resume-specific prompting).`);
       break;
@@ -134,7 +149,7 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       ui.warn(`Task ${taskId} is already done.`);
       return 1;
     default:
-      ui.error(`Task ${taskId} has status '${status}' — must be 'ready' or 'planned' to start.`);
+      ui.error(`Task ${taskId} has status '${status}' — must be 'ready', 'planned', or 'ingested' to start.`);
       return 1;
   }
 
