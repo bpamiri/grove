@@ -959,6 +959,11 @@ Options:
   --batch N      Dispatch N tasks in parallel with live status monitor
   --run          Non-interactive mode (same as "grove run")
 
+Dependencies:
+  Tasks with --depends are skipped until all dependencies complete.
+  Use "grove add --depends W-001,W-002" to set dependencies.
+  Blocked tasks show a warning when skipped during dispatch.
+
 Batch mode:
   Selects top N tasks from the priority queue. All run in background.
   Displays a live status table until all tasks finish.
