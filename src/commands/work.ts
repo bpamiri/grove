@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getDb, getEnv } from "../core/db";
 import { budgetGet, configRepoDetail, settingsGet } from "../core/config";
 import * as ui from "../core/ui";
+import { pc } from "../core/ui";
 import * as prompts from "../core/prompts";
 import { createWorktree } from "../lib/worktree";
 import { buildPrompt, buildResumePrompt } from "../lib/prompt-builder";
@@ -138,6 +139,11 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       }
       break;
     }
+    case "failed":
+      ui.info(`Task ${taskId} failed previously. Retrying...`);
+      db.taskSetStatus(taskId, "ready");
+      db.addEvent(taskId, "status_change", "Retrying failed task");
+      break;
     case "paused":
       ui.info(`Task ${taskId} is paused. Using standard dispatch (use 'grove resume' for resume-specific prompting).`);
       break;
@@ -242,17 +248,54 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
       stderr: "pipe",
     });
 
-    // Stream stdout to both console and log file
+    // Stream stdout: write everything to log, show filtered status to console
     const logWriter = Bun.file(logFile).writer();
     const reader = proc.stdout.getReader();
     const decoder = new TextDecoder();
+    let lineBuf = "";
+    let toolCount = 0;
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const text = decoder.decode(value);
-        process.stdout.write(text);
         logWriter.write(value);
+
+        // Buffer and parse line-by-line for display
+        lineBuf += text;
+        const lines = lineBuf.split("\n");
+        lineBuf = lines.pop() ?? ""; // keep incomplete last line
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let obj: any;
+          try { obj = JSON.parse(trimmed); } catch { continue; }
+          if (!obj || typeof obj !== "object") continue;
+
+          // Only display meaningful events
+          if (obj.type === "assistant" && obj.message?.content) {
+            for (const block of obj.message.content) {
+              if (block.type === "text" && block.text) {
+                // Show assistant text output
+                const txt = block.text.trim();
+                if (txt) console.log(`  ${pc.cyan("▸")} ${txt}`);
+              } else if (block.type === "tool_use") {
+                toolCount++;
+                const name = block.name || "unknown";
+                const desc = block.input?.description || block.input?.command || block.input?.pattern || block.input?.file_path || "";
+                const short = desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
+                console.log(`  ${pc.yellow("⚙")} ${pc.dim(`[${toolCount}]`)} ${pc.bold(name)} ${pc.dim(short)}`);
+              }
+              // Skip: thinking blocks
+            }
+          } else if (obj.type === "result") {
+            // Final result
+            const cost = typeof obj.cost_usd === "number" ? ` (${ui.dollars(obj.cost_usd)})` : "";
+            console.log(`  ${pc.green("●")} ${pc.bold("Session complete")}${cost}`);
+          }
+          // Skip: system, user (tool results), rate_limit_event, hook events
+        }
       }
     } catch {
       // Stream closed

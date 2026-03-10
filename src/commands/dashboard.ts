@@ -246,14 +246,15 @@ function draw(): void {
   // ── Tasks ──
   const allTasks = db.all<Task>(
     `SELECT * FROM tasks
-     WHERE status NOT IN ('completed', 'done', 'failed')
+     WHERE status NOT IN ('completed', 'done')
      ORDER BY
        CASE status
-         WHEN 'ready' THEN 0
-         WHEN 'planned' THEN 1
-         WHEN 'ingested' THEN 2
-         WHEN 'review' THEN 3
-         ELSE 4
+         WHEN 'failed' THEN 0
+         WHEN 'ready' THEN 1
+         WHEN 'planned' THEN 2
+         WHEN 'ingested' THEN 3
+         WHEN 'review' THEN 4
+         ELSE 5
        END,
        priority ASC, created_at ASC
      LIMIT 12`,
