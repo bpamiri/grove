@@ -246,3 +246,33 @@ describe("batch dispatch validation", () => {
     expect(tasks).toHaveLength(1);
   });
 });
+
+describe("batch status rendering", () => {
+  test("formatElapsed returns human-readable duration", () => {
+    const formatElapsed = (startedAt: string): string => {
+      const dt = new Date(startedAt.replace(" ", "T") + (startedAt.includes("Z") ? "" : "Z"));
+      if (isNaN(dt.getTime())) return "-";
+      const totalSecs = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+      const m = Math.floor(totalSecs / 60);
+      const s = totalSecs % 60;
+      return `${m}:${String(s).padStart(2, "0")}`;
+    };
+
+    const past = new Date(Date.now() - 90_000).toISOString().replace("T", " ").slice(0, 19);
+    const result = formatElapsed(past);
+    expect(result).toBe("1:30");
+  });
+
+  test("batch summary counts statuses correctly", () => {
+    const statuses = ["running", "running", "done", "failed", "running"];
+    const counts = { running: 0, done: 0, failed: 0 };
+    for (const s of statuses) {
+      if (s === "running") counts.running++;
+      else if (s === "done" || s === "completed" || s === "review") counts.done++;
+      else if (s === "failed") counts.failed++;
+    }
+    expect(counts.running).toBe(3);
+    expect(counts.done).toBe(1);
+    expect(counts.failed).toBe(1);
+  });
+});

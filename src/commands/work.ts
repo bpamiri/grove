@@ -459,6 +459,108 @@ async function dispatchTask(taskId: string, foreground: boolean): Promise<number
 }
 
 // ---------------------------------------------------------------------------
+// Batch monitor helpers
+// ---------------------------------------------------------------------------
+
+const ANSI = {
+  up: (n: number) => `\x1b[${n}A`,
+  clearLine: "\x1b[2K",
+  hideCursor: "\x1b[?25l",
+  showCursor: "\x1b[?25h",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  reset: "\x1b[0m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+};
+
+function formatElapsed(startedAt: string | null): string {
+  if (!startedAt) return "-";
+  const dt = new Date(
+    startedAt.replace(" ", "T") +
+    (startedAt.includes("Z") || startedAt.includes("+") ? "" : "Z")
+  );
+  if (isNaN(dt.getTime())) return "-";
+  const totalSecs = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function batchStatusIcon(status: string): string {
+  switch (status) {
+    case "running": return `${ANSI.green}⚙${ANSI.reset}`;
+    case "done": case "completed": case "review":
+      return `${ANSI.green}✓${ANSI.reset}`;
+    case "failed": return `${ANSI.red}✗${ANSI.reset}`;
+    default: return `${ANSI.dim}·${ANSI.reset}`;
+  }
+}
+
+function batchStatusLabel(status: string): string {
+  switch (status) {
+    case "running": return `${ANSI.green}running${ANSI.reset}`;
+    case "done": case "completed": case "review":
+      return `${ANSI.green}done${ANSI.reset}`;
+    case "failed": return `${ANSI.red}failed${ANSI.reset}`;
+    default: return `${ANSI.dim}${status}${ANSI.reset}`;
+  }
+}
+
+/**
+ * Render a compact batch status table.
+ * On subsequent calls, moves cursor up to overwrite previous render.
+ */
+function renderBatchStatus(taskIds: string[], isFirst: boolean): void {
+  const db = getDb();
+  const lineCount = taskIds.length + 2; // tasks + blank + summary
+
+  if (!isFirst) {
+    process.stdout.write(ANSI.up(lineCount));
+  }
+
+  let running = 0, done = 0, failed = 0, totalCost = 0;
+
+  for (const id of taskIds) {
+    const task = db.taskGet(id);
+    if (!task) {
+      process.stdout.write(ANSI.clearLine + `  ? ${id} (not found)\n`);
+      continue;
+    }
+
+    const icon = batchStatusIcon(task.status);
+    const label = batchStatusLabel(task.status);
+    const repo = (task.repo ?? "-").padEnd(12);
+    const title = task.title.length > 30
+      ? task.title.slice(0, 27) + "..."
+      : task.title.padEnd(30);
+    const elapsed = formatElapsed(task.started_at);
+    const cost = task.cost_usd > 0 ? `  $${task.cost_usd.toFixed(2)}` : "";
+
+    if (task.status === "running") running++;
+    else if (["done", "completed", "review"].includes(task.status)) done++;
+    else if (task.status === "failed") failed++;
+    totalCost += task.cost_usd || 0;
+
+    process.stdout.write(
+      ANSI.clearLine +
+      `  ${icon} ${ANSI.bold}${id.padEnd(8)}${ANSI.reset} ${repo} ${title} ${label}  ${ANSI.dim}${elapsed}${ANSI.reset}${cost}\n`
+    );
+  }
+
+  const parts = [
+    running > 0 ? `${running} running` : "",
+    done > 0 ? `${done} done` : "",
+    failed > 0 ? `${failed} failed` : "",
+  ].filter(Boolean).join(" · ");
+  const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)} total` : "";
+
+  process.stdout.write(ANSI.clearLine + "\n");
+  process.stdout.write(ANSI.clearLine + `  ${parts}${costStr}\n`);
+}
+
+// ---------------------------------------------------------------------------
 // Command entry point
 // ---------------------------------------------------------------------------
 
