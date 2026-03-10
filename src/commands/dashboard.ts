@@ -172,10 +172,7 @@ function draw(): void {
   buf.push("");
 
   const wsName = (() => { try { return workspaceName(); } catch { return "Grove"; } })();
-  const headerLeft = `${BOLD}${GREEN} ╔═══╗${RESET} ${BOLD}${wsName}${RESET}`;
-  const headerRight = `${DIM}${timeStr()}  refresh: 5s${RESET}`;
-  buf.push(` ${headerLeft}  ${headerRight}`);
-  buf.push(` ${GREEN}${BOLD} ╚═══╝${RESET} ${DIM}dashboard${RESET}`);
+  buf.push(` ${GREEN}${BOLD}🌿 ${wsName}${RESET}  ${DIM}dashboard  ${timeStr()}  refresh: 5s${RESET}`);
   buf.push("");
 
   // ── Active Workers ──
