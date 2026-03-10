@@ -40,8 +40,15 @@ const BOX = {
 // Layout helpers
 // ---------------------------------------------------------------------------
 
-function stripAnsi(str: string): number {
+function visibleLength(str: string): number {
   return str.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+/** Pad a string to a visible width, accounting for ANSI escape codes */
+function padV(str: string, width: number): string {
+  const visible = visibleLength(str);
+  const needed = Math.max(0, width - visible);
+  return str + " ".repeat(needed);
 }
 
 function box(title: string, lines: string[], width: number, titleColor: string = WHITE): string {
@@ -59,7 +66,7 @@ function box(title: string, lines: string[], width: number, titleColor: string =
 
   // Content lines
   for (const line of lines) {
-    const visible = stripAnsi(line);
+    const visible = visibleLength(line);
     const pad = Math.max(0, inner - visible);
     out.push(`${DIM}${BOX.v}${RESET}${line}${" ".repeat(pad)}${DIM}${BOX.v}${RESET}`);
   }
@@ -200,14 +207,14 @@ function draw(): void {
       );
       const activity = lastEvt?.summary ?? t.session_summary ?? "";
       workerLines.push(
-        `  ${BOLD}${t.id.padEnd(10)}${RESET}${(t.repo ?? "-").padEnd(12)}${statusIcon(t.status)} ${statusLabel(t.status).padEnd(10 + 9)}${GREEN}${elapsed.padEnd(12)}${RESET}${DIM}${truncStr(activity, 30)}${RESET}`
+        `  ${BOLD}${t.id.padEnd(10)}${RESET}${(t.repo ?? "-").padEnd(12)}${padV(`${statusIcon(t.status)} ${statusLabel(t.status)}`, 10)}${GREEN}${elapsed.padEnd(12)}${RESET}${DIM}${truncStr(activity, 30)}${RESET}`
       );
     }
 
     for (const t of paused) {
       const elapsed = t.paused_at ? elapsedTime(t.paused_at) + " ago" : "-";
       workerLines.push(
-        `  ${BOLD}${t.id.padEnd(10)}${RESET}${(t.repo ?? "-").padEnd(12)}${statusIcon(t.status)} ${statusLabel(t.status).padEnd(10 + 9)}${YELLOW}${elapsed.padEnd(12)}${RESET}${DIM}${truncStr(t.next_steps ?? "", 30)}${RESET}`
+        `  ${BOLD}${t.id.padEnd(10)}${RESET}${(t.repo ?? "-").padEnd(12)}${padV(`${statusIcon(t.status)} ${statusLabel(t.status)}`, 10)}${YELLOW}${elapsed.padEnd(12)}${RESET}${DIM}${truncStr(t.next_steps ?? "", 30)}${RESET}`
       );
     }
   }
@@ -271,7 +278,7 @@ function draw(): void {
       const titleWidth = Math.max(20, w - 38);
 
       taskLines.push(
-        `  ${statusIcon(t.status)} ${BOLD}${t.id.padEnd(9)}${RESET}${(t.repo ?? "-").padEnd(12)}${statusLabel(t.status).padEnd(12 + 9)}${truncStr(t.title, titleWidth)}${strat}${cost}`
+        `  ${padV(`${statusIcon(t.status)} ${BOLD}${t.id}${RESET}`, 10)}${(t.repo ?? "-").padEnd(12)}${padV(statusLabel(t.status), 12)}${truncStr(t.title, titleWidth)}${strat}${cost}`
       );
 
       // Show description snippet if different from title
