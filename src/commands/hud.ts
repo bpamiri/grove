@@ -209,13 +209,7 @@ export const hudCommand: Command = {
 
     const blockedLines: string[] = [];
     for (const t of blockedCandidates) {
-      if (!t.depends_on) continue;
-      const deps = t.depends_on.split(",").map((d) => d.trim()).filter(Boolean);
-      const isBlocked = deps.some((dep) => {
-        const depTask = db.taskGet(dep);
-        return !depTask || (depTask.status !== "completed" && depTask.status !== "done");
-      });
-      if (isBlocked) {
+      if (db.isTaskBlocked(t.id)) {
         blockedLines.push(
           `    ${ui.badge("blocked", "red")} ${ui.dim(t.id)} ${ui.dim(t.repo ?? "")}  ${ui.truncate(t.title, 44)}`,
         );
