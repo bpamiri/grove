@@ -63,10 +63,10 @@ const allCommandNames = [
   "init", "config", "repos", "help",
   "hud", "status",
   "add", "tasks", "plan", "prioritize", "sync",
-  "work", "run", "resume", "pause", "cancel",
+  "work", "run", "drain", "resume", "pause", "cancel",
   "watch", "detach", "msg", "dashboard",
   "prs", "review", "done", "publish", "close", "delete",
-  "report", "cost", "log", "drain",
+  "report", "cost", "log",
 ];
 
 // ---------------------------------------------------------------------------

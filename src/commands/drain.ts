@@ -83,6 +83,9 @@ export const drainCommand: Command = {
       ui.info(`${blockedIds.length} blocked task(s) will auto-enqueue when dependencies complete.`);
     }
 
+    // -- Pre-existing running tasks --
+    const preExistingRunning = db.taskCount("running");
+
     // -- Dry run --
     if (dryRun) {
       const weekCost = db.costWeek();
@@ -90,6 +93,7 @@ export const drainCommand: Command = {
 
       ui.header("Drain — Dry Run");
       console.log(`  ${ui.dim("Concurrency:")} ${maxSlots}`);
+      console.log(`  ${ui.dim("Running:")}     ${preExistingRunning} task(s)`);
       console.log(`  ${ui.dim("Queue:")}       ${queue.length} task(s)`);
       console.log(`  ${ui.dim("Blocked:")}     ${blockedIds.length} task(s)`);
       console.log(`  ${ui.dim("Budget:")}      ${ui.dollars(weekCost)} / ${ui.dollars(weekBudget)} this week`);
@@ -123,6 +127,10 @@ export const drainCommand: Command = {
       return;
     }
 
+    if (preExistingRunning > 0) {
+      ui.info(`${preExistingRunning} task(s) already running (${Math.max(0, maxSlots - preExistingRunning)} slot(s) available)`);
+    }
+
     // -- Main dispatch loop --
     const activeIds: string[] = [];
     const allDispatchedIds: string[] = [];
@@ -144,8 +152,8 @@ export const drainCommand: Command = {
 
     try {
       while (true) {
-        // Fill slots
-        while (activeIds.length < maxSlots && queue.length > 0) {
+        // Fill slots — account for ALL running tasks (including externally dispatched)
+        while (db.taskCount("running") < maxSlots && queue.length > 0) {
           const nextId = queue.shift()!;
 
           // Budget check
@@ -202,6 +210,7 @@ export const drainCommand: Command = {
                 if (!alreadyTracked) {
                   queue.push(ut.id);
                   stats.autoEnqueued++;
+                  db.addEvent(ut.id, "dependency_met", `Unblocked by ${id}`);
                   ui.info(`Auto-enqueued: ${ut.id} (${ut.title})`);
                 }
               }
