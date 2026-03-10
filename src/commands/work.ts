@@ -614,6 +614,9 @@ export const workCommand: Command = {
     if (batchSize > 0 && repoFilter) {
       ui.die("--batch cannot be used with --repo.");
     }
+    if (batchSize > 0 && isRun) {
+      ui.die("--batch cannot be used with --run.");
+    }
 
     // --- Mode 0: Batch dispatch ---
     if (batchSize > 0) {
@@ -690,23 +693,25 @@ export const workCommand: Command = {
       process.on("SIGINT", onSig);
       process.on("SIGTERM", onSig);
 
-      let isFirst = true;
-      while (true) {
-        renderBatchStatus(dispatchedIds, isFirst);
-        isFirst = false;
+      try {
+        let isFirst = true;
+        while (true) {
+          renderBatchStatus(dispatchedIds, isFirst);
+          isFirst = false;
 
-        const allDone = dispatchedIds.every((id) => {
-          const t = db.taskGet(id);
-          return t && TERMINAL.has(t.status);
-        });
-        if (allDone) break;
+          const allDone = dispatchedIds.every((id) => {
+            const t = db.taskGet(id);
+            return t && TERMINAL.has(t.status);
+          });
+          if (allDone) break;
 
-        await new Promise((r) => setTimeout(r, POLL_MS));
+          await new Promise((r) => setTimeout(r, POLL_MS));
+        }
+      } finally {
+        cleanup();
+        process.removeListener("SIGINT", onSig);
+        process.removeListener("SIGTERM", onSig);
       }
-
-      cleanup();
-      process.removeListener("SIGINT", onSig);
-      process.removeListener("SIGTERM", onSig);
 
       // Final summary
       console.log();
