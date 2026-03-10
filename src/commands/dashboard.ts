@@ -429,9 +429,9 @@ export const dashboardCommand: Command = {
             cleanup();
             process.removeListener("SIGINT", sigHandler);
             process.removeListener("SIGTERM", sigHandler);
-            resolve();
             const { watchCommand } = await import("./watch");
             await watchCommand.run([tid]);
+            resolve();
             return;
           }
           refreshInterval = resumeRefresh(draw);
@@ -444,9 +444,9 @@ export const dashboardCommand: Command = {
             cleanup();
             process.removeListener("SIGINT", sigHandler);
             process.removeListener("SIGTERM", sigHandler);
-            resolve();
             const { workCommand } = await import("./work");
             await workCommand.run([tid]);
+            resolve();
             return;
           }
           refreshInterval = resumeRefresh(draw);
@@ -459,9 +459,9 @@ export const dashboardCommand: Command = {
             cleanup();
             process.removeListener("SIGINT", sigHandler);
             process.removeListener("SIGTERM", sigHandler);
-            resolve();
             const { resumeCommand } = await import("./resume");
             await resumeCommand.run([tid]);
+            resolve();
             return;
           }
           refreshInterval = resumeRefresh(draw);
