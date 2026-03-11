@@ -6,7 +6,7 @@ import * as ui from "../core/ui";
 import { SourceType, EventType } from "../types";
 import type { Command } from "../types";
 import type { Database } from "../core/db";
-import { scanMarkers, scanSignals } from "../lib/scanner";
+import { scanMarkers, scanSignals, scanDeep } from "../lib/scanner";
 import type { Finding } from "../lib/scanner";
 
 // ---------------------------------------------------------------------------
@@ -197,6 +197,25 @@ export const scanCommand: Command = {
       return ui.die("No repos configured.");
     }
 
+    // Cost guard for deep scanning
+    if (wantDeep) {
+      const repoCount = repos.filter(([, rc]) => existsSync(rc.path)).length;
+      ui.info(`Deep analysis will scan ${repoCount} repo(s). This uses Claude API credits.`);
+
+      if (mode !== "apply") {
+        const readline = await import("node:readline");
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await new Promise<string>((resolve) =>
+          rl.question("  Continue with deep scan? [y/N] ", resolve),
+        );
+        rl.close();
+        if (answer.trim().toLowerCase() !== "y") {
+          console.log("Deep scan cancelled.");
+          return;
+        }
+      }
+    }
+
     // Scan each repo
     const findingsByRepo = new Map<string, Finding[]>();
     const allFindings: Finding[] = [];
@@ -210,10 +229,15 @@ export const scanCommand: Command = {
 
       const markers = scanMarkers(repoPath, repoName, limit);
       const signals = scanSignals(repoPath, repoName, limit);
-      const repoFindings = [...markers, ...signals].slice(0, limit);
+      const repoFindings = [...markers, ...signals];
 
-      findingsByRepo.set(repoName, repoFindings);
-      allFindings.push(...repoFindings);
+      if (wantDeep) {
+        const deepFindings = scanDeep(repoPath, repoName, deepCategories, limit);
+        repoFindings.push(...deepFindings);
+      }
+
+      findingsByRepo.set(repoName, repoFindings.slice(0, limit));
+      allFindings.push(...repoFindings.slice(0, limit));
     }
 
     // Dedup: filter out findings whose source_ref already exists in DB

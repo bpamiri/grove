@@ -9,6 +9,9 @@ import {
   detectToolchain,
   parseNpmOutdated,
   scanSignals,
+  DEEP_PROMPTS,
+  buildDeepPrompt,
+  parseDeepResponse,
 } from "../../src/lib/scanner";
 
 let tempDir: string;
@@ -188,5 +191,72 @@ describe("scanSignals", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("deep scanning", () => {
+  test("DEEP_PROMPTS contains all three categories", () => {
+    expect(DEEP_PROMPTS).toHaveProperty("smells");
+    expect(DEEP_PROMPTS).toHaveProperty("tests");
+    expect(DEEP_PROMPTS).toHaveProperty("security");
+  });
+
+  test("buildDeepPrompt includes category instructions", () => {
+    const prompt = buildDeepPrompt([], ["smells"]);
+    expect(prompt).toContain("dead code");
+    expect(prompt).toContain("complex functions");
+  });
+
+  test("buildDeepPrompt includes file contents", () => {
+    const prompt = buildDeepPrompt(
+      [{ relPath: "src/foo.ts", content: "function bar() {}" }],
+      ["smells"],
+    );
+    expect(prompt).toContain("--- FILE: src/foo.ts ---");
+    expect(prompt).toContain("function bar() {}");
+  });
+
+  test("buildDeepPrompt includes multiple categories", () => {
+    const prompt = buildDeepPrompt([], ["smells", "security"]);
+    expect(prompt).toContain(DEEP_PROMPTS.smells);
+    expect(prompt).toContain(DEEP_PROMPTS.security);
+  });
+
+  test("parseDeepResponse extracts findings", () => {
+    const json = JSON.stringify([
+      {
+        file: "src/foo.ts",
+        line: 10,
+        category: "smells",
+        title: "Complex function",
+        description: "bar() is 90 lines",
+      },
+    ]);
+    const findings = parseDeepResponse(json, "wheels");
+    expect(findings.length).toBe(1);
+    expect(findings[0].tier).toBe("deep");
+    expect(findings[0].type).toBe("smells");
+    expect(findings[0].file).toBe("src/foo.ts");
+    expect(findings[0].line).toBe(10);
+  });
+
+  test("parseDeepResponse returns empty for invalid JSON", () => {
+    const findings = parseDeepResponse("not json at all", "wheels");
+    expect(findings).toEqual([]);
+  });
+
+  test("parseDeepResponse sets priority 30 for security findings", () => {
+    const json = JSON.stringify([
+      {
+        file: "src/auth.ts",
+        line: 5,
+        category: "security",
+        title: "Hardcoded secret",
+        description: "API key in source",
+      },
+    ]);
+    const findings = parseDeepResponse(json, "wheels");
+    expect(findings.length).toBe(1);
+    expect(findings[0].priority).toBe(30);
   });
 });
