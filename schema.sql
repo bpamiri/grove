@@ -118,3 +118,4 @@ CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_repo ON tasks(repo);
 CREATE INDEX IF NOT EXISTS idx_sessions_task_id ON sessions(task_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_source_ref ON tasks(source_ref);

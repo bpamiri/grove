@@ -86,6 +86,8 @@ export function scanMarkers(repoPath: string, repoName: string, limit = 50): Fin
 
     let content: string;
     try {
+      const stat = statSync(absPath);
+      if (stat.size > 500_000) continue;
       content = readFileSync(absPath, "utf-8");
     } catch {
       continue;

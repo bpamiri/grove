@@ -105,7 +105,7 @@ function help(): string {
     "",
     "Tiers:",
     "  Markers   TODO, FIXME, HACK, XXX, DEPRECATED comments",
-    "  Signals   Outdated deps, missing configs, stale branches",
+    "  Signals   Outdated npm deps (major version bumps)",
     "  Deep      AI-powered analysis (--deep)",
     "",
     "Modes:",
@@ -194,6 +194,9 @@ export const scanCommand: Command = {
     }
 
     if (repos.length === 0) {
+      if (filterRepo) {
+        return ui.die(`Repo '${filterRepo}' not found in config.`);
+      }
       return ui.die("No repos configured.");
     }
 
