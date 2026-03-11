@@ -52,6 +52,7 @@ export const helpCommand: Command = {
       ]],
       ["Monitoring", [
         "grove dashboard    Live-updating TUI",
+        "grove health       Worker health report + reap",
         "grove watch ID     Tail worker output",
         "grove detach [ID]  Worker continues in background",
         "grove msg ID MSG   Queue message for worker",
