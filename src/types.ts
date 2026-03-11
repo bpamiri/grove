@@ -42,6 +42,8 @@ export enum EventType {
   AutoApproved = "auto_approved",
   Cancelled = "cancelled",
   Detached = "detached",
+  AutoRetried = "auto_retried",
+  RetryExhausted = "retry_exhausted",
 }
 
 export enum SourceType {
@@ -79,6 +81,8 @@ export interface Task {
   estimated_cost: number | null;
   estimated_files: number | null;
   depends_on: string | null;
+  retry_count: number;
+  max_retries: number | null;
   branch: string | null;
   worktree_path: string | null;
   session_id: string | null;
@@ -167,6 +171,7 @@ export interface SettingsConfig {
   branch_prefix: string;
   auto_sync: boolean;
   stall_timeout_minutes: number;
+  max_retries: number;
 }
 
 export interface GroveConfig {

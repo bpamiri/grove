@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   estimated_cost REAL,
   estimated_files INTEGER,
   depends_on TEXT,
+  retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT NULL,
 
   -- Execution
   branch TEXT,

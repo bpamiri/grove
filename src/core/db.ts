@@ -17,6 +17,15 @@ export class Database {
   init(schemaPath: string): void {
     const sql = readFileSync(schemaPath, "utf-8");
     this.db.exec(sql);
+
+    // Migrations: add columns if missing (idempotent)
+    const cols = this.all<{ name: string }>("PRAGMA table_info(tasks)").map(c => c.name);
+    if (!cols.includes("retry_count")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0");
+    }
+    if (!cols.includes("max_retries")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT NULL");
+    }
   }
 
   /** Close the database connection */
