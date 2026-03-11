@@ -354,6 +354,8 @@ function eventIcon(type: string): string {
     case "message_sent": return `${YELLOW}✉${RESET}`;
     case "cancelled": return `${RED}⊘${RESET}`;
     case "worker_reaped": return `${RED}✗${RESET}`;
+    case "auto_retried": return `${YELLOW}↻${RESET}`;
+    case "retry_exhausted": return `${RED}⊗${RESET}`;
     default: return `${DIM}·${RESET}`;
   }
 }

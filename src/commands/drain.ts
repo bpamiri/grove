@@ -312,6 +312,7 @@ Options:
 Behavior:
   - Dispatches ready/planned tasks in priority order
   - Skips blocked tasks (auto-enqueues when dependencies complete)
+  - Auto-retries failed tasks up to max_retries (default: 2)
   - Stops dispatching when weekly budget would be exceeded
   - Ctrl+C detaches — workers continue in background
 
