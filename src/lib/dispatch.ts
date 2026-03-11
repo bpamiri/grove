@@ -563,6 +563,7 @@ export function renderBatchStatus(taskIds: string[], isFirst: boolean): void {
       : task.title.padEnd(30);
     const elapsed = formatElapsed(task.started_at);
     const cost = task.cost_usd > 0 ? `  $${task.cost_usd.toFixed(2)}` : "";
+    const retry = task.retry_count > 0 ? `${ANSI.dim} (retry ${task.retry_count})${ANSI.reset}` : "";
 
     if (task.status === "running") running++;
     else if (["done", "completed", "review"].includes(task.status)) done++;
@@ -571,7 +572,7 @@ export function renderBatchStatus(taskIds: string[], isFirst: boolean): void {
 
     process.stdout.write(
       ANSI.clearLine +
-      `  ${icon} ${ANSI.bold}${id.padEnd(8)}${ANSI.reset} ${repo} ${title} ${label}  ${ANSI.dim}${elapsed}${ANSI.reset}${cost}\n`
+      `  ${icon} ${ANSI.bold}${id.padEnd(8)}${ANSI.reset} ${repo} ${title} ${label}  ${ANSI.dim}${elapsed}${ANSI.reset}${cost}${retry}\n`
     );
   }
 

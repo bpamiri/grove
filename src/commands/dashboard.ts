@@ -278,10 +278,11 @@ function draw(): void {
 
       const strat = t.strategy ? `${DIM} [${t.strategy}]${RESET}` : "";
       const cost = t.estimated_cost && t.estimated_cost > 0 ? `${DIM} ~${ui.dollars(t.estimated_cost)}${RESET}` : "";
+      const retry = t.retry_count > 0 ? `${DIM} (retry ${t.retry_count})${RESET}` : "";
       const titleWidth = Math.max(20, w - 38);
 
       taskLines.push(
-        `  ${padV(`${statusIcon(t.status)} ${BOLD}${t.id}${RESET}`, 10)}${(t.repo ?? "-").padEnd(12)}${padV(statusLabel(t.status), 12)}${truncStr(t.title, titleWidth)}${strat}${cost}`
+        `  ${padV(`${statusIcon(t.status)} ${BOLD}${t.id}${RESET}`, 10)}${(t.repo ?? "-").padEnd(12)}${padV(statusLabel(t.status), 12)}${truncStr(t.title, titleWidth)}${strat}${cost}${retry}`
       );
 
       // Show description snippet if different from title
