@@ -12,6 +12,7 @@ let tempDir: string;
 let db: Database;
 let logsDir: string;
 let originalEnv: { GROVE_HOME?: string; GROVE_ROOT?: string };
+let spawnedProcs: ReturnType<typeof Bun.spawn>[] = [];
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "grove-reaper-test-"));
@@ -65,6 +66,12 @@ settings:
 });
 
 afterEach(() => {
+  // Kill any spawned test processes to prevent leaks
+  for (const proc of spawnedProcs) {
+    try { proc.kill(); } catch {}
+  }
+  spawnedProcs = [];
+
   db.close();
 
   if (originalEnv.GROVE_HOME !== undefined) process.env.GROVE_HOME = originalEnv.GROVE_HOME;
@@ -136,7 +143,7 @@ describe("reapDeadWorkers", () => {
     expect(events.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("skips sessions with null PID (treats PID 0 as dead)", async () => {
+  test("treats PID 0 as dead", async () => {
     // PID 0 — isAlive returns false for 0
     insertRunningTask("R-002", 0);
 
@@ -199,37 +206,50 @@ describe("reapDeadWorkers", () => {
 // ---------------------------------------------------------------------------
 
 describe("reapStalledWorkers", () => {
-  test("dead PIDs handled by reapDeadWorkers not stall reaper", async () => {
-    // Insert running task with dead PID + stale log
+  test("detects stalled worker by log mtime", async () => {
+    // Spawn a real process so isAlive() returns true
+    const proc = Bun.spawn(["sleep", "300"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    spawnedProcs.push(proc);
+
     const logFile = join(logsDir, "R-005.log");
     writeFileSync(logFile, '{"type":"assistant","text":"hello"}\n');
 
-    // Set log mtime to 20 minutes ago (well past stall timeout)
-    const pastTime = new Date(Date.now() - 20 * 60 * 1000);
+    // Set log mtime to 15 minutes ago (past stall timeout of 10 min)
+    const pastTime = new Date(Date.now() - 15 * 60 * 1000);
     utimesSync(logFile, pastTime, pastTime);
 
-    insertRunningTask("R-005", 99999999, logFile);
+    insertRunningTask("R-005", proc.pid, logFile);
 
     await resetModules();
     const { reapStalledWorkers } = await import("../../src/lib/reaper");
 
-    // Stall reaper should skip dead PIDs (those are handled by reapDeadWorkers)
     const results = reapStalledWorkers(db, 10);
-    expect(results).toHaveLength(0);
+
+    // Stall reaper should detect the stalled worker and kill it
+    expect(results).toHaveLength(1);
+    expect(results[0].taskId).toBe("R-005");
+    expect(results[0].reason).toBe("stalled");
+
+    // Task should be marked failed
+    const task = db.taskGet("R-005");
+    expect(task!.status).toBe("failed");
   });
 
   test("skips workers with recent log activity", async () => {
-    // Insert running task with dead PID + fresh log (mtime is now)
+    // Spawn a real process so isAlive() returns true
+    const proc = Bun.spawn(["sleep", "300"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    spawnedProcs.push(proc);
+
     const logFile = join(logsDir, "R-006.log");
     writeFileSync(logFile, '{"type":"assistant","text":"actively working"}\n');
     // mtime is already "now" since we just wrote it
 
-    insertRunningTask("R-006", 99999999, logFile);
+    insertRunningTask("R-006", proc.pid, logFile);
 
     await resetModules();
     const { reapStalledWorkers } = await import("../../src/lib/reaper");
 
-    // Fresh log = not stalled, and dead PID = not stall reaper's concern
+    // Fresh log + alive PID = not stalled, should be skipped
     const results = reapStalledWorkers(db, 10);
     expect(results).toHaveLength(0);
   });
