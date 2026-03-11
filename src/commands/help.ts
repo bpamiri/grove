@@ -42,6 +42,7 @@ export const helpCommand: Command = {
         "grove plan [ID]    Assign strategy to task(s)",
         "grove prioritize   Interactive priority reordering",
         "grove sync         Pull issues from GitHub",
+        "grove scan         Auto-discover work from repos",
       ]],
       ["Execution", [
         "grove work [ID]    Start working (batch or specific)",
