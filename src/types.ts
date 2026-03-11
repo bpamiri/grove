@@ -166,6 +166,7 @@ export interface SettingsConfig {
   max_concurrent: number;
   branch_prefix: string;
   auto_sync: boolean;
+  stall_timeout_minutes: number;
 }
 
 export interface GroveConfig {
