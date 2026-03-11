@@ -17,6 +17,7 @@ export const addCommand: Command = {
     let description = "";
     let repo = "";
     let depends = "";
+    let maxRetries: number | null = null;
 
     // Parse arguments
     let i = 0;
@@ -34,6 +35,22 @@ export const addCommand: Command = {
       } else if (arg.startsWith("--depends=")) {
         depends = arg.slice("--depends=".length);
         i++;
+      } else if (arg === "--max-retries" && i + 1 < args.length) {
+        const val = parseInt(args[i + 1], 10);
+        if (isNaN(val) || val < 0) ui.die("--max-retries requires a non-negative integer");
+        maxRetries = val;
+        i += 2;
+        continue;
+      } else if (arg.startsWith("--max-retries=")) {
+        const val = parseInt(arg.slice("--max-retries=".length), 10);
+        if (isNaN(val) || val < 0) ui.die("--max-retries requires a non-negative integer");
+        maxRetries = val;
+        i++;
+        continue;
+      } else if (arg === "--no-retry") {
+        maxRetries = 0;
+        i++;
+        continue;
       } else if (arg === "-h" || arg === "--help") {
         console.log(this.help!());
         return;
@@ -116,9 +133,9 @@ export const addCommand: Command = {
 
     // Insert task
     db.exec(
-      `INSERT INTO tasks (id, repo, source_type, title, description, status, priority, depends_on)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [taskId, repo, SourceType.Manual, description, description, "ingested", 50, depends || null],
+      `INSERT INTO tasks (id, repo, source_type, title, description, status, priority, depends_on, max_retries)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [taskId, repo, SourceType.Manual, description, description, "ingested", 50, depends || null, maxRetries],
     );
 
     // Log event
@@ -156,6 +173,8 @@ export const addCommand: Command = {
       "Options:",
       "  --repo NAME        Assign to a specific repository",
       "  --depends IDS      Comma-separated task IDs this depends on",
+      "  --max-retries N    Max auto-retries in drain (default: global setting)",
+      "  --no-retry         Disable auto-retry for this task",
       "",
       "Dependencies prevent dispatch until all listed tasks complete.",
       "",
