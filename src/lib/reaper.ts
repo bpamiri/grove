@@ -73,10 +73,11 @@ export function reapDeadWorkers(db: Database): ReapResult[] {
   const results: ReapResult[] = [];
 
   for (const session of sessions) {
+    if (!session.task_id) continue;
     const pid = session.pid ?? 0;
 
     if (!isAlive(pid)) {
-      const taskId = session.task_id!;
+      const taskId = session.task_id;
       const detail = `Worker dead: PID ${pid} not found (process died)`;
 
       cleanupReapedSession(db, session, "dead", detail);
@@ -92,7 +93,7 @@ export function reapDeadWorkers(db: Database): ReapResult[] {
 // reapStalledWorkers — find workers alive but producing no output
 // ---------------------------------------------------------------------------
 
-export function reapStalledWorkers(db: Database, timeoutMinutes: number): ReapResult[] {
+export async function reapStalledWorkers(db: Database, timeoutMinutes: number): Promise<ReapResult[]> {
   const sessions = db.all<Session>(
     "SELECT * FROM sessions WHERE status = 'running'",
   );
@@ -101,7 +102,9 @@ export function reapStalledWorkers(db: Database, timeoutMinutes: number): ReapRe
   const timeoutMs = timeoutMinutes * 60_000;
 
   for (const session of sessions) {
-    const pid = session.pid ?? 0;
+    if (!session.task_id) continue;
+    if (!session.pid || session.pid <= 0) continue;
+    const pid = session.pid;
 
     // Only check workers that are still alive
     if (!isAlive(pid)) continue;
@@ -124,7 +127,7 @@ export function reapStalledWorkers(db: Database, timeoutMinutes: number): ReapRe
     if (elapsed <= timeoutMs) continue;
 
     // Worker is stalled — kill it
-    const taskId = session.task_id!;
+    const taskId = session.task_id;
     const elapsedMinutes = Math.round(elapsed / 60_000);
 
     // SIGTERM first
@@ -141,7 +144,7 @@ export function reapStalledWorkers(db: Database, timeoutMinutes: number): ReapRe
         killed = true;
         break;
       }
-      Bun.sleepSync(200);
+      await Bun.sleep(200);
     }
 
     // SIGKILL if still alive

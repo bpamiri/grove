@@ -223,7 +223,7 @@ describe("reapStalledWorkers", () => {
     await resetModules();
     const { reapStalledWorkers } = await import("../../src/lib/reaper");
 
-    const results = reapStalledWorkers(db, 10);
+    const results = await reapStalledWorkers(db, 10);
 
     // Stall reaper should detect the stalled worker and kill it
     expect(results).toHaveLength(1);
@@ -250,7 +250,7 @@ describe("reapStalledWorkers", () => {
     const { reapStalledWorkers } = await import("../../src/lib/reaper");
 
     // Fresh log + alive PID = not stalled, should be skipped
-    const results = reapStalledWorkers(db, 10);
+    const results = await reapStalledWorkers(db, 10);
     expect(results).toHaveLength(0);
   });
 });
@@ -273,7 +273,7 @@ describe("reaper integration", () => {
     expect(deadResults[0].taskId).toBe("R-007");
 
     // Stall reaper finds nothing (task already reaped / no longer running)
-    const stallResults = reapStalledWorkers(db, 10);
+    const stallResults = await reapStalledWorkers(db, 10);
     expect(stallResults).toHaveLength(0);
   });
 
