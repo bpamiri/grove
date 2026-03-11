@@ -73,6 +73,7 @@ export const helpCommand: Command = {
         "grove init         Set up ~/.grove/",
         "grove config       View/edit settings",
         "grove repos        List configured repos",
+        "grove gc           Clean up old data (events, logs, worktrees)",
         "grove help [CMD]   Show help",
       ]],
     ];
