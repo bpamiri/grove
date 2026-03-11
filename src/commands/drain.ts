@@ -189,14 +189,11 @@ export const drainCommand: Command = {
         await new Promise((r) => setTimeout(r, POLL_MS));
 
         // Reap dead/stalled workers (frees slots for next iteration)
+        // Note: don't increment stats here — the terminal-status check below
+        // will pick up reaped tasks (now status=failed) and count them.
         const stallTimeout = settingsGet("stall_timeout_minutes") || 10;
-        const deadReaped = reapDeadWorkers(db);
-        const stalledReaped = await reapStalledWorkers(db, stallTimeout);
-        for (const r of [...deadReaped, ...stalledReaped]) {
-          if (activeIds.includes(r.taskId)) {
-            stats.totalFailed++;
-          }
-        }
+        reapDeadWorkers(db);
+        await reapStalledWorkers(db, stallTimeout);
 
         // Check active workers
         const stillActive: string[] = [];

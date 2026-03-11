@@ -352,6 +352,7 @@ function eventIcon(type: string): string {
     case "synced": return `${CYAN}⇣${RESET}`;
     case "message_sent": return `${YELLOW}✉${RESET}`;
     case "cancelled": return `${RED}⊘${RESET}`;
+    case "worker_reaped": return `${RED}✗${RESET}`;
     default: return `${DIM}·${RESET}`;
   }
 }
