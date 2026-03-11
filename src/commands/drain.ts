@@ -107,7 +107,9 @@ export const drainCommand: Command = {
         const cost = t.estimated_cost ?? 0;
         totalEstimated += cost;
         const costStr = cost > 0 ? ui.dim(` ~${ui.dollars(cost)}`) : "";
-        console.log(`  ${ui.statusBadge(t.status)} ${ui.bold(t.id)} ${ui.dim(t.repo || "")}  ${ui.truncate(t.title, 40)}${costStr}`);
+        const retryMax = t.max_retries ?? settingsGet("max_retries") ?? 2;
+        const retryStr = retryMax > 0 ? ui.dim(` [retries: ${t.retry_count ?? 0}/${retryMax}]`) : ui.dim(" [no-retry]");
+        console.log(`  ${ui.statusBadge(t.status)} ${ui.bold(t.id)} ${ui.dim(t.repo || "")}  ${ui.truncate(t.title, 40)}${costStr}${retryStr}`);
       }
 
       for (const id of blockedIds) {
@@ -134,7 +136,7 @@ export const drainCommand: Command = {
     // -- Main dispatch loop --
     const activeIds: string[] = [];
     const allDispatchedIds: string[] = [];
-    const stats = { totalDone: 0, totalFailed: 0, autoEnqueued: 0, startTime: Date.now() };
+    const stats = { totalDone: 0, totalFailed: 0, autoEnqueued: 0, autoRetried: 0, startTime: Date.now() };
     let isFirstRender = true;
 
     // Ctrl+C handler — detach cleanly
@@ -201,7 +203,20 @@ export const drainCommand: Command = {
           const task = db.taskGet(id);
           if (task && TERMINAL_STATUSES.has(task.status)) {
             if (task.status === "failed") {
-              stats.totalFailed++;
+              const effectiveMax = task.max_retries ?? settingsGet("max_retries") ?? 2;
+              if (task.retry_count < effectiveMax) {
+                const newCount = (task.retry_count ?? 0) + 1;
+                db.exec("UPDATE tasks SET retry_count = retry_count + 1, status = 'ready', updated_at = datetime('now') WHERE id = ?", [id]);
+                db.addEvent(id, "auto_retried", `Auto-retry ${newCount}/${effectiveMax}`);
+                queue.push(id);
+                stats.autoRetried++;
+                ui.info(`Auto-retry ${newCount}/${effectiveMax}: ${id} (${task.title})`);
+              } else {
+                if (effectiveMax > 0) {
+                  db.addEvent(id, "retry_exhausted", `Retry exhausted (${task.retry_count}/${effectiveMax})`);
+                }
+                stats.totalFailed++;
+              }
             } else {
               stats.totalDone++;
             }
@@ -272,6 +287,9 @@ export const drainCommand: Command = {
     console.log(`  ${ui.dim("Total cost:")}   ${ui.dollars(totalCost)}`);
     if (stats.autoEnqueued > 0) {
       console.log(`  ${ui.dim("Auto-enqueued:")} ${stats.autoEnqueued}`);
+    }
+    if (stats.autoRetried > 0) {
+      console.log(`  ${ui.dim("Auto-retried:")}  ${stats.autoRetried}`);
     }
     console.log();
   },
