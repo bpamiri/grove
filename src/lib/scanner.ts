@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, relative, extname } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -118,4 +118,118 @@ export function scanMarkers(repoPath: string, repoName: string, limit = 50): Fin
   }
 
   return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Toolchain detection
+// ---------------------------------------------------------------------------
+
+export interface Toolchain {
+  runtime: "bun" | "node" | "python" | null;
+  hasLint: boolean;
+  lintTool: string | null;
+}
+
+export function detectToolchain(repoPath: string): Toolchain {
+  let runtime: Toolchain["runtime"] = null;
+  let hasLint = false;
+  let lintTool: string | null = null;
+
+  // Runtime detection
+  if (
+    existsSync(join(repoPath, "bunfig.toml")) ||
+    existsSync(join(repoPath, "bun.lockb")) ||
+    existsSync(join(repoPath, "bun.lock"))
+  ) {
+    runtime = "bun";
+  } else if (existsSync(join(repoPath, "package.json"))) {
+    runtime = "node";
+  } else if (
+    existsSync(join(repoPath, "pyproject.toml")) ||
+    existsSync(join(repoPath, "setup.py"))
+  ) {
+    runtime = "python";
+  }
+
+  // Lint detection
+  if (
+    existsSync(join(repoPath, ".eslintrc.json")) ||
+    existsSync(join(repoPath, ".eslintrc.js")) ||
+    existsSync(join(repoPath, ".eslintrc.yml")) ||
+    existsSync(join(repoPath, "eslint.config.js")) ||
+    existsSync(join(repoPath, "eslint.config.mjs")) ||
+    existsSync(join(repoPath, "eslint.config.ts"))
+  ) {
+    hasLint = true;
+    lintTool = "eslint";
+  } else if (existsSync(join(repoPath, "ruff.toml"))) {
+    hasLint = true;
+    lintTool = "ruff";
+  }
+
+  return { runtime, hasLint, lintTool };
+}
+
+// ---------------------------------------------------------------------------
+// Signal scanning
+// ---------------------------------------------------------------------------
+
+export function parseNpmOutdated(jsonStr: string): { pkg: string; current: string; latest: string }[] {
+  const data = JSON.parse(jsonStr) as Record<string, { current: string; latest: string }>;
+  const results: { pkg: string; current: string; latest: string }[] = [];
+
+  for (const [pkg, info] of Object.entries(data)) {
+    if (!info.current || !info.latest) continue;
+    const currentMajor = parseInt(info.current.split(".")[0], 10);
+    const latestMajor = parseInt(info.latest.split(".")[0], 10);
+    if (isNaN(currentMajor) || isNaN(latestMajor)) continue;
+    if (currentMajor !== latestMajor) {
+      results.push({ pkg, current: info.current, latest: info.latest });
+    }
+  }
+
+  return results;
+}
+
+export function scanSignals(repoPath: string, repoName: string, limit = 50): Finding[] {
+  try {
+    const toolchain = detectToolchain(repoPath);
+    if (toolchain.runtime !== "bun" && toolchain.runtime !== "node") {
+      return [];
+    }
+
+    const findings: Finding[] = [];
+
+    try {
+      const result = Bun.spawnSync(["npm", "outdated", "--json"], {
+        cwd: repoPath,
+        timeout: 30_000,
+      });
+
+      const stdout = result.stdout.toString().trim();
+      if (result.exitCode > 0 && stdout.length > 0) {
+        const outdated = parseNpmOutdated(stdout);
+        for (const { pkg, current, latest } of outdated) {
+          if (findings.length >= limit) break;
+          findings.push({
+            repo: repoName,
+            tier: "signal",
+            type: "outdep",
+            file: "package.json",
+            line: null,
+            title: `Outdated: ${pkg} ${current} \u2192 ${latest}`,
+            description: `${pkg} ${current} \u2192 ${latest}`,
+            sourceRef: generateSourceRef("scan", repoName, "signal", "outdep", pkg),
+            priority: 50,
+          });
+        }
+      }
+    } catch {
+      // Command failure is non-fatal
+    }
+
+    return findings;
+  } catch {
+    return [];
+  }
 }

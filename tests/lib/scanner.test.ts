@@ -1,9 +1,15 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { generateSourceRef, scanMarkers } from "../../src/lib/scanner";
+import {
+  generateSourceRef,
+  scanMarkers,
+  detectToolchain,
+  parseNpmOutdated,
+  scanSignals,
+} from "../../src/lib/scanner";
 
 let tempDir: string;
 
@@ -116,6 +122,71 @@ describe("scanMarkers", () => {
       expect(findings[0].file).toBe("src/good.ts");
     } finally {
       chmodSync(join(tempDir, "src/secret"), 0o755);
+    }
+  });
+});
+
+describe("detectToolchain", () => {
+  test("identifies bun project", () => {
+    writeFile("package.json", "{}");
+    writeFile("bunfig.toml", "");
+    const tc = detectToolchain(tempDir);
+    expect(tc.runtime).toBe("bun");
+  });
+
+  test("identifies node project", () => {
+    writeFile("package.json", "{}");
+    const tc = detectToolchain(tempDir);
+    expect(tc.runtime).toBe("node");
+  });
+
+  test("identifies python project", () => {
+    writeFile("pyproject.toml", "");
+    const tc = detectToolchain(tempDir);
+    expect(tc.runtime).toBe("python");
+  });
+
+  test("returns null runtime for unknown project", () => {
+    const tc = detectToolchain(tempDir);
+    expect(tc.runtime).toBe(null);
+  });
+});
+
+describe("scanSignals", () => {
+  test("parseNpmOutdated extracts major version bumps", () => {
+    const json = JSON.stringify({
+      lodash: { current: "4.17.21", wanted: "4.17.21", latest: "5.0.0", location: "" },
+      chalk: { current: "5.2.0", wanted: "5.3.0", latest: "5.3.0", location: "" },
+    });
+    const results = parseNpmOutdated(json);
+    expect(results.length).toBe(1);
+    expect(results[0].pkg).toBe("lodash");
+    expect(results[0].current).toBe("4.17.21");
+    expect(results[0].latest).toBe("5.0.0");
+  });
+
+  test("generates correct source refs for signals", () => {
+    const ref = generateSourceRef("scan", "wheels", "signal", "outdep", "lodash");
+    expect(ref).toBe("scan:wheels:signal:outdep:lodash");
+  });
+
+  test("scanSignals returns empty when no toolchain detected", () => {
+    const findings = scanSignals(tempDir, "test");
+    expect(findings).toEqual([]);
+  });
+
+  test("scanSignals handles command failure gracefully", () => {
+    writeFile("package.json", "{}");
+    const spy = spyOn(Bun, "spawnSync").mockReturnValue({
+      exitCode: 1,
+      stdout: Buffer.from(""),
+      stderr: Buffer.from(""),
+    } as any);
+    try {
+      const findings = scanSignals(tempDir, "test");
+      expect(findings).toEqual([]);
+    } finally {
+      spy.mockRestore();
     }
   });
 });
