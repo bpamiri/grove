@@ -3,6 +3,7 @@ import { getDb } from "../core/db";
 import { budgetGet, settingsGet } from "../core/config";
 import * as ui from "../core/ui";
 import { dispatchTask, ANSI, renderBatchStatus, TERMINAL_STATUSES } from "../lib/dispatch";
+import { reapDeadWorkers, reapStalledWorkers } from "../lib/reaper";
 import type { Command, Task } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -186,6 +187,16 @@ export const drainCommand: Command = {
 
         // Poll wait
         await new Promise((r) => setTimeout(r, POLL_MS));
+
+        // Reap dead/stalled workers (frees slots for next iteration)
+        const stallTimeout = settingsGet("stall_timeout_minutes") || 10;
+        const deadReaped = reapDeadWorkers(db);
+        const stalledReaped = await reapStalledWorkers(db, stallTimeout);
+        for (const r of [...deadReaped, ...stalledReaped]) {
+          if (activeIds.includes(r.taskId)) {
+            stats.totalFailed++;
+          }
+        }
 
         // Check active workers
         const stillActive: string[] = [];
