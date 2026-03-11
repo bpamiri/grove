@@ -234,7 +234,7 @@ describe("gc events cleanup", () => {
     verifyDb.close();
   });
 
-  test("--events --older-than 3d --force deletes events older than 3 days", async () => {
+  test("--events --older-than 3d --force deletes ALL events for qualifying tasks", async () => {
     insertTask("W-001", "done", daysAgo(5));
     insertEvent("W-001", "status_change", "old event", daysAgo(5));
     insertEvent("W-001", "status_change", "recent event", daysAgo(1));
@@ -245,9 +245,8 @@ describe("gc events cleanup", () => {
 
     const verifyDb = new Database(join(tempDir, "grove.db"));
     const events = verifyDb.all<{ summary: string }>("SELECT * FROM events WHERE task_id = 'W-001'");
-    // The 5-day-old event should be deleted; the 1-day-old event preserved
-    expect(events.length).toBe(1);
-    expect(events[0].summary).toBe("recent event");
+    // Task qualifies (terminal + updated_at older than 3d), so all its events are deleted
+    expect(events.length).toBe(0);
     verifyDb.close();
   });
 });
