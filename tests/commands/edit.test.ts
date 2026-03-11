@@ -421,7 +421,7 @@ describe("editCommand event logging", () => {
       "SELECT event_type, summary FROM events WHERE task_id = 'W-001'",
     );
     // Should have an "edited" event that mentions the changed fields
-    const editEvents = events.filter((e) => e.event_type === "edited");
+    const editEvents = events.filter((e) => e.event_type === "status_change" && e.summary.includes("Edited"));
     expect(editEvents.length).toBeGreaterThanOrEqual(1);
     const summary = editEvents[0].summary;
     expect(summary).toContain("title");
