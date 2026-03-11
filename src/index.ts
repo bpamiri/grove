@@ -23,6 +23,7 @@ async function loadCommand(name: string): Promise<Command | null> {
     case "status": return (await import("./commands/status")).statusCommand;
     case "add": return (await import("./commands/add")).addCommand;
     case "tasks": return (await import("./commands/tasks")).tasksCommand;
+    case "edit": return (await import("./commands/edit")).editCommand;
     case "plan": return (await import("./commands/plan")).planCommand;
     case "prioritize": return (await import("./commands/prioritize")).prioritizeCommand;
     case "sync": return (await import("./commands/sync")).syncCommand;
@@ -63,7 +64,7 @@ commands.set("help", helpCommand);
 const allCommandNames = [
   "init", "config", "repos", "help",
   "hud", "status",
-  "add", "tasks", "plan", "prioritize", "sync",
+  "add", "tasks", "edit", "plan", "prioritize", "sync",
   "work", "run", "drain", "resume", "pause", "cancel",
   "watch", "detach", "msg", "dashboard", "health",
   "prs", "review", "done", "publish", "close", "delete",

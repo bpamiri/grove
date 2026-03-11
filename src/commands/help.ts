@@ -38,6 +38,7 @@ export const helpCommand: Command = {
       ["Task Management", [
         "grove add          Add a task (interactive or quick)",
         "grove tasks        List tasks (--all, --status, --repo)",
+        "grove edit ID      Edit task fields (title, priority, etc.)",
         "grove plan [ID]    Assign strategy to task(s)",
         "grove prioritize   Interactive priority reordering",
         "grove sync         Pull issues from GitHub",
