@@ -3,6 +3,7 @@ import { getDb, getEnv } from "../core/db";
 import { budgetGet, workspaceName } from "../core/config";
 import * as ui from "../core/ui";
 import type { Command, Task, Session, Event } from "../types";
+import { reapDeadWorkers } from "../lib/reaper";
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -168,6 +169,7 @@ function truncStr(s: string, max: number): string {
 
 function draw(): void {
   const db = getDb();
+  reapDeadWorkers(db);
   const cols = Math.min(process.stdout.columns || 80, 100);
   const halfWidth = Math.floor(cols / 2);
   const w = cols;
