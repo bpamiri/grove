@@ -172,7 +172,9 @@ export const drainCommand: Command = {
           const exitCode = await dispatchTask(nextId, false);
           if (exitCode === 0) {
             activeIds.push(nextId);
-            allDispatchedIds.push(nextId);
+            if (!allDispatchedIds.includes(nextId)) {
+              allDispatchedIds.push(nextId);
+            }
           } else {
             ui.warn(`Failed to dispatch ${nextId}`);
           }
@@ -205,7 +207,7 @@ export const drainCommand: Command = {
             if (task.status === "failed") {
               const effectiveMax = task.max_retries ?? settingsGet("max_retries") ?? 2;
               if (task.retry_count < effectiveMax) {
-                const newCount = (task.retry_count ?? 0) + 1;
+                const newCount = task.retry_count + 1;
                 db.exec("UPDATE tasks SET retry_count = retry_count + 1, status = 'ready', updated_at = datetime('now') WHERE id = ?", [id]);
                 db.addEvent(id, "auto_retried", `Auto-retry ${newCount}/${effectiveMax}`);
                 queue.push(id);
