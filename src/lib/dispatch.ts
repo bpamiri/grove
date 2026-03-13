@@ -382,9 +382,18 @@ export async function dispatchTask(taskId: string, foreground: boolean): Promise
     // Set final status
     if (exitCode === 0) {
       // -- Quality gates --
-      const gateConfig = gateConfigFor(repo);
-      const gateResults = runGates(wtPath, gateConfig);
-      db.taskSet(taskId, "gate_results", JSON.stringify(gateResults));
+      let gateResults: import("../types").GateResult[];
+      try {
+        const gateConfig = gateConfigFor(repo);
+        gateResults = runGates(wtPath, gateConfig);
+        db.taskSet(taskId, "gate_results", JSON.stringify(gateResults));
+      } catch (err) {
+        ui.error(`Quality gates crashed for ${taskId}: ${err}`);
+        db.taskSetStatus(taskId, "failed");
+        db.sessionEnd(sessionId, "failed");
+        db.addEvent(taskId, "worker_ended", `Session ${sessionId} ended (gates crashed)`);
+        return 1;
+      }
 
       const hardFails = gateResults.filter(r => !r.passed && r.tier === "hard");
       const softFails = gateResults.filter(r => !r.passed && r.tier === "soft");
@@ -421,7 +430,8 @@ export async function dispatchTask(taskId: string, foreground: boolean): Promise
           const fixPrompt = buildGateFixPrompt(gateResults);
           db.taskSet(taskId, "next_steps", fixPrompt);
           db.taskSetStatus(taskId, "ready");
-          await dispatchTask(taskId, foreground);
+          db.addEvent(taskId, "worker_ended", `Session ${sessionId} ended (exit ${exitCode})`);
+          return dispatchTask(taskId, foreground);
         } else {
           db.taskSetStatus(taskId, "failed");
           db.sessionEnd(sessionId, "failed");
@@ -505,9 +515,17 @@ export async function dispatchTask(taskId: string, foreground: boolean): Promise
       }
 
       if (exitCode === 0) {
-        const gateConfig = gateConfigFor(repo);
-        const gateResults = runGates(wtPath, gateConfig);
-        db.taskSet(taskId, "gate_results", JSON.stringify(gateResults));
+        let gateResults: import("../types").GateResult[];
+        try {
+          const gateConfig = gateConfigFor(repo);
+          gateResults = runGates(wtPath, gateConfig);
+          db.taskSet(taskId, "gate_results", JSON.stringify(gateResults));
+        } catch (err) {
+          db.taskSetStatus(taskId, "failed");
+          db.sessionEnd(sessionId, "failed");
+          db.addEvent(taskId, "worker_ended", `Session ${sessionId} ended (gates crashed: ${err})`);
+          return;
+        }
 
         const hardFails = gateResults.filter(r => !r.passed && r.tier === "hard");
         const softFails = gateResults.filter(r => !r.passed && r.tier === "soft");
@@ -538,7 +556,9 @@ export async function dispatchTask(taskId: string, foreground: boolean): Promise
             const fixPrompt = buildGateFixPrompt(gateResults);
             db.taskSet(taskId, "next_steps", fixPrompt);
             db.taskSetStatus(taskId, "ready");
+            db.addEvent(taskId, "worker_ended", `Session ${sessionId} ended (exit ${exitCode})`);
             await dispatchTask(taskId, false);
+            return;
           } else {
             db.taskSetStatus(taskId, "failed");
             db.sessionEnd(sessionId, "failed");
