@@ -373,7 +373,9 @@ What happens:
   2. Deploys sandbox (guard hooks + CLAUDE.md overlay)
   3. Spawns "claude -p" with stream-json output
   4. Captures session summary, cost, and files modified
-  5. Auto-publishes (push + draft PR) on success
+  5. Runs quality gates (commits, tests, lint, diff size)
+  6. Auto-retries on hard failures, marks for review on soft failures
+  7. Auto-publishes (push + draft PR) when all gates pass
 
 Options:
   --repo NAME    Filter to tasks for a specific repo
