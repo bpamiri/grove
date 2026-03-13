@@ -44,6 +44,9 @@ export enum EventType {
   Detached = "detached",
   AutoRetried = "auto_retried",
   RetryExhausted = "retry_exhausted",
+  GatePassed = "gate_passed",
+  GateFailed = "gate_failed",
+  GateRetry = "gate_retry",
 }
 
 export enum SourceType {
@@ -156,6 +159,7 @@ export interface RepoConfig {
   github: string;
   path: string;
   branch_prefix?: string;
+  quality_gates?: QualityGatesConfig;
 }
 
 export interface BudgetConfig {
@@ -172,6 +176,7 @@ export interface SettingsConfig {
   auto_sync: boolean;
   stall_timeout_minutes: number;
   max_retries: number;
+  quality_gates?: QualityGatesConfig;
 }
 
 export interface GroveConfig {
@@ -202,6 +207,39 @@ export interface GuardHookEntry {
 
 export interface SandboxConfig {
   hooks: { PreToolUse: GuardHookEntry[] };
+}
+
+// ---------------------------------------------------------------------------
+// Quality gate types
+// ---------------------------------------------------------------------------
+
+export interface GateResult {
+  gate: string;
+  passed: boolean;
+  tier: "hard" | "soft";
+  message: string;
+}
+
+export interface GateConfig {
+  commits: boolean;
+  tests: boolean;
+  lint: boolean;
+  diff_size: boolean;
+  min_diff_lines: number;
+  max_diff_lines: number;
+  test_timeout: number;
+  lint_timeout: number;
+}
+
+export interface QualityGatesConfig {
+  commits?: boolean;
+  tests?: boolean;
+  lint?: boolean;
+  diff_size?: boolean;
+  min_diff_lines?: number;
+  max_diff_lines?: number;
+  test_timeout?: number;
+  lint_timeout?: number;
 }
 
 // ---------------------------------------------------------------------------
