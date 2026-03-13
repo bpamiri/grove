@@ -94,6 +94,7 @@ export interface Task {
   session_summary: string | null;
   files_modified: string | null;
   next_steps: string | null;
+  gate_results: string | null;
   cost_usd: number;
   tokens_used: number;
   time_minutes: number;

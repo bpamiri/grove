@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   session_summary TEXT,
   files_modified TEXT,
   next_steps TEXT,
+  gate_results TEXT,
 
   -- Metrics
   cost_usd REAL DEFAULT 0,

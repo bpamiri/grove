@@ -10,6 +10,8 @@ import * as prompts from "../core/prompts";
 import { createWorktree } from "./worktree";
 import { deploySandbox, buildTriggerPrompt, buildResumeTriggerPrompt } from "./sandbox";
 import { publishTask } from "../commands/publish";
+import { runGates, gateConfigFor, buildGateFixPrompt } from "./gates";
+import { EventType } from "../types";
 
 /** Terminal task states — shared by batch monitor loops in work.ts and drain.ts */
 export const TERMINAL_STATUSES = new Set(["done", "completed", "failed", "review"]);
@@ -379,19 +381,60 @@ export async function dispatchTask(taskId: string, foreground: boolean): Promise
 
     // Set final status
     if (exitCode === 0) {
-      db.taskSetStatus(taskId, "done");
-      db.sessionEnd(sessionId, "completed");
-      ui.success(`Task ${taskId} completed.`);
+      // -- Quality gates --
+      const gateConfig = gateConfigFor(repo);
+      const gateResults = runGates(wtPath, gateConfig);
+      db.taskSet(taskId, "gate_results", JSON.stringify(gateResults));
 
-      // Notify any tasks unblocked by this completion
-      notifyUnblocked(taskId);
+      const hardFails = gateResults.filter(r => !r.passed && r.tier === "hard");
+      const softFails = gateResults.filter(r => !r.passed && r.tier === "soft");
+      const allPassed = hardFails.length === 0 && softFails.length === 0;
 
-      // Auto-publish: push branch + create draft PR
-      const published = await publishTask(taskId, db);
-      if (published) {
-        ui.success(`PR created for ${taskId}`);
+      if (allPassed) {
+        db.addEvent(taskId, EventType.GatePassed, "All quality gates passed");
+        db.taskSetStatus(taskId, "done");
+        db.sessionEnd(sessionId, "completed");
+        ui.success(`Task ${taskId} completed -- all gates passed.`);
+        notifyUnblocked(taskId);
+
+        const published = await publishTask(taskId, db);
+        if (published) {
+          ui.success(`PR created for ${taskId}`);
+        } else {
+          ui.warn(`Auto-publish failed. Retry with: grove publish ${taskId}`);
+        }
+      } else if (hardFails.length > 0) {
+        const task = db.taskGet(taskId)!;
+        const maxRetries = task.max_retries ?? 1;
+        const retryCount = task.retry_count ?? 0;
+
+        const failSummary = hardFails.map(r => `${r.gate}: ${r.message}`).join("; ");
+        db.addEvent(taskId, EventType.GateFailed, `Hard gate failure: ${failSummary}`);
+
+        if (retryCount < maxRetries) {
+          db.exec("UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?", [taskId]);
+          db.addEvent(taskId, EventType.GateRetry, `Auto-retry ${retryCount + 1}/${maxRetries}`);
+          db.sessionEnd(sessionId, "completed");
+          ui.warn(`Gate failed for ${taskId}: ${failSummary}`);
+          ui.info(`Auto-retrying (${retryCount + 1}/${maxRetries})...`);
+
+          const fixPrompt = buildGateFixPrompt(gateResults);
+          db.taskSet(taskId, "next_steps", fixPrompt);
+          db.taskSetStatus(taskId, "ready");
+          await dispatchTask(taskId, foreground);
+        } else {
+          db.taskSetStatus(taskId, "failed");
+          db.sessionEnd(sessionId, "failed");
+          ui.error(`Task ${taskId} failed quality gates (retries exhausted): ${failSummary}`);
+        }
       } else {
-        ui.warn(`Auto-publish failed. Retry with: grove publish ${taskId}`);
+        // Soft failures only -- mark for review (no PR)
+        const failSummary = softFails.map(r => `${r.gate}: ${r.message}`).join("; ");
+        db.addEvent(taskId, EventType.GateFailed, `Soft gate failure: ${failSummary}`);
+        db.taskSetStatus(taskId, "review");
+        db.sessionEnd(sessionId, "completed");
+        ui.warn(`Task ${taskId} needs review: ${failSummary}`);
+        notifyUnblocked(taskId);
       }
     } else {
       db.taskSetStatus(taskId, "failed");
@@ -462,15 +505,50 @@ export async function dispatchTask(taskId: string, foreground: boolean): Promise
       }
 
       if (exitCode === 0) {
-        db.taskSetStatus(taskId, "done");
-        db.sessionEnd(sessionId, "completed");
-        notifyUnblocked(taskId);
+        const gateConfig = gateConfigFor(repo);
+        const gateResults = runGates(wtPath, gateConfig);
+        db.taskSet(taskId, "gate_results", JSON.stringify(gateResults));
 
-        // Auto-publish in background
-        try {
-          await publishTask(taskId, db);
-        } catch {
-          // Publish failure is non-fatal; task stays at done
+        const hardFails = gateResults.filter(r => !r.passed && r.tier === "hard");
+        const softFails = gateResults.filter(r => !r.passed && r.tier === "soft");
+        const allPassed = hardFails.length === 0 && softFails.length === 0;
+
+        if (allPassed) {
+          db.addEvent(taskId, EventType.GatePassed, "All quality gates passed");
+          db.taskSetStatus(taskId, "done");
+          db.sessionEnd(sessionId, "completed");
+          notifyUnblocked(taskId);
+          try {
+            await publishTask(taskId, db);
+          } catch {
+            // Publish failure is non-fatal
+          }
+        } else if (hardFails.length > 0) {
+          const task = db.taskGet(taskId)!;
+          const maxRetries = task.max_retries ?? 1;
+          const retryCount = task.retry_count ?? 0;
+
+          const failSummary = hardFails.map(r => `${r.gate}: ${r.message}`).join("; ");
+          db.addEvent(taskId, EventType.GateFailed, `Hard gate failure: ${failSummary}`);
+
+          if (retryCount < maxRetries) {
+            db.exec("UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?", [taskId]);
+            db.addEvent(taskId, EventType.GateRetry, `Auto-retry ${retryCount + 1}/${maxRetries}`);
+            db.sessionEnd(sessionId, "completed");
+            const fixPrompt = buildGateFixPrompt(gateResults);
+            db.taskSet(taskId, "next_steps", fixPrompt);
+            db.taskSetStatus(taskId, "ready");
+            await dispatchTask(taskId, false);
+          } else {
+            db.taskSetStatus(taskId, "failed");
+            db.sessionEnd(sessionId, "failed");
+          }
+        } else {
+          const failSummary = softFails.map(r => `${r.gate}: ${r.message}`).join("; ");
+          db.addEvent(taskId, EventType.GateFailed, `Soft gate failure: ${failSummary}`);
+          db.taskSetStatus(taskId, "review");
+          db.sessionEnd(sessionId, "completed");
+          notifyUnblocked(taskId);
         }
       } else {
         db.taskSetStatus(taskId, "failed");

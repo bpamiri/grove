@@ -26,6 +26,9 @@ export class Database {
     if (!cols.includes("max_retries")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT NULL");
     }
+    if (!cols.includes("gate_results")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN gate_results TEXT");
+    }
   }
 
   /** Close the database connection */
