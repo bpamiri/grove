@@ -230,7 +230,7 @@ export function gateConfigFor(repoName?: string | null): GateConfig {
   let repoGates: QualityGatesConfig | undefined;
   if (repoName) {
     const repos = configRepoDetail();
-    const rc = repos[repoName] as any;
+    const rc = repos[repoName];
     repoGates = rc?.quality_gates;
   }
   return resolveGateConfig(globalGates, repoGates);
