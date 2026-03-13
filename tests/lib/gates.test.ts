@@ -25,4 +25,16 @@ describe("resolveGateConfig", () => {
     expect(config.lint).toBe(true);
     expect(config.commits).toBe(true);
   });
+
+  test("repo can disable a default-true gate", () => {
+    const config = resolveGateConfig(undefined, { tests: false });
+    expect(config.tests).toBe(false);
+    expect(config.commits).toBe(true);
+    expect(config.diff_size).toBe(true);
+  });
+
+  test("explicit undefined values do not override defaults", () => {
+    const config = resolveGateConfig(undefined, { commits: undefined });
+    expect(config.commits).toBe(true);
+  });
 });

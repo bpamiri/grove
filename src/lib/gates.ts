@@ -21,13 +21,19 @@ export const DEFAULT_GATE_CONFIG: GateConfig = {
 // Config resolution: defaults -> global -> per-repo
 // ---------------------------------------------------------------------------
 
+function stripUndefined(obj: QualityGatesConfig): Partial<GateConfig> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as Partial<GateConfig>;
+}
+
 export function resolveGateConfig(
   global?: QualityGatesConfig,
   repo?: QualityGatesConfig,
 ): GateConfig {
   return {
     ...DEFAULT_GATE_CONFIG,
-    ...(global ?? {}),
-    ...(repo ?? {}),
+    ...(global ? stripUndefined(global) : {}),
+    ...(repo ? stripUndefined(repo) : {}),
   };
 }

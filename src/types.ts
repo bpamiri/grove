@@ -218,6 +218,7 @@ export interface GateResult {
   passed: boolean;
   tier: "hard" | "soft";
   message: string;
+  output?: string;
 }
 
 export interface GateConfig {
