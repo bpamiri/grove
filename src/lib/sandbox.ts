@@ -312,11 +312,14 @@ export function deploySandbox(worktreePath: string, taskId: string, db: Database
       const existing = JSON.parse(readFileSync(settingsPath, "utf-8"));
       finalSettings = { ...existing };
 
-      // Merge hooks: append our PreToolUse hooks to any existing ones
+      // Merge hooks: keep non-Grove hooks, replace Grove hooks with fresh ones
       if (existing.hooks?.PreToolUse) {
+        const nonGroveHooks = existing.hooks.PreToolUse.filter(
+          (h: any) => !h.hooks?.some?.((hook: any) => hook.command?.includes("GROVE_TASK_ID")),
+        );
         finalSettings.hooks = {
           ...existing.hooks,
-          PreToolUse: [...existing.hooks.PreToolUse, ...sandboxConfig.hooks.PreToolUse],
+          PreToolUse: [...nonGroveHooks, ...sandboxConfig.hooks.PreToolUse],
         };
       } else {
         finalSettings.hooks = {
