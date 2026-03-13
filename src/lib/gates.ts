@@ -1,6 +1,7 @@
 // Grove v2 — Worker quality gates
 // Validates worker output between completion and PR publishing.
 import type { GateConfig, GateResult, QualityGatesConfig } from "../types";
+import { configGet, configRepoDetail } from "../core/config";
 import { detectToolchain } from "./scanner";
 
 // ---------------------------------------------------------------------------
@@ -218,4 +219,56 @@ export function checkDiffSize(
     tier: "soft",
     message: `Diff ${totalChanged} lines within range (${minLines}..${maxLines})`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Config resolver — reads grove.yaml, merges global + per-repo
+// ---------------------------------------------------------------------------
+
+export function gateConfigFor(repoName?: string | null): GateConfig {
+  const globalGates = configGet("settings.quality_gates") as QualityGatesConfig | undefined;
+  let repoGates: QualityGatesConfig | undefined;
+  if (repoName) {
+    const repos = configRepoDetail();
+    const rc = repos[repoName] as any;
+    repoGates = rc?.quality_gates;
+  }
+  return resolveGateConfig(globalGates, repoGates);
+}
+
+// ---------------------------------------------------------------------------
+// Gate orchestrator — runs all enabled gates, returns results
+// ---------------------------------------------------------------------------
+
+export function runGates(worktreePath: string, config: GateConfig): GateResult[] {
+  const results: GateResult[] = [];
+  if (config.commits) results.push(checkCommits(worktreePath));
+  if (config.tests) results.push(checkTests(worktreePath, config.test_timeout));
+  if (config.lint) results.push(checkLint(worktreePath, config.lint_timeout));
+  if (config.diff_size) results.push(checkDiffSize(worktreePath, config.min_diff_lines, config.max_diff_lines));
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Fix prompt builder — explains gate failures to retry workers
+// ---------------------------------------------------------------------------
+
+export function buildGateFixPrompt(gateResults: GateResult[]): string {
+  const failures = gateResults.filter(r => !r.passed);
+  if (failures.length === 0) return "";
+
+  const lines = [
+    "Your previous session completed but failed quality checks:",
+    "",
+  ];
+  for (const f of failures) {
+    lines.push(`- ${f.gate}: FAILED -- "${f.message}"`);
+    if (f.output) {
+      lines.push(`  Output: ${f.output.slice(0, 500)}`);
+    }
+  }
+  lines.push("");
+  lines.push("Fix these issues. The worktree still contains your previous work.");
+  lines.push("Run tests before finishing to confirm they pass.");
+  return lines.join("\n");
 }

@@ -9,7 +9,10 @@ import {
   checkDiffSize,
   checkTests,
   checkLint,
+  runGates,
+  buildGateFixPrompt,
 } from "../../src/lib/gates";
+import type { GateConfig, GateResult } from "../../src/types";
 
 // ---------------------------------------------------------------------------
 // Config resolution tests
@@ -197,5 +200,112 @@ describe("checkLint", () => {
     expect(result.passed).toBe(true);
     expect(result.gate).toBe("lint");
     expect(result.message).toContain("No linter");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runGates
+// ---------------------------------------------------------------------------
+
+describe("runGates", () => {
+  test("returns all enabled gate results", () => {
+    const dir = setupGitWorktree();
+    writeFileSync(join(dir, "file.ts"), "export const x = 1;\n");
+    Bun.spawnSync(["git", "add", "."], { cwd: dir });
+    Bun.spawnSync(["git", "commit", "-m", "add file"], { cwd: dir });
+
+    const config: GateConfig = {
+      ...DEFAULT_GATE_CONFIG,
+      lint: false, // disable lint
+    };
+    const results = runGates(dir, config);
+    expect(results.length).toBe(3); // commits, tests, diff_size
+    const gates = results.map(r => r.gate);
+    expect(gates).toContain("commits");
+    expect(gates).toContain("tests");
+    expect(gates).toContain("diff_size");
+    const commits = results.find(r => r.gate === "commits")!;
+    expect(commits.passed).toBe(true);
+  });
+
+  test("skips disabled gates", () => {
+    const dir = setupGitWorktree();
+    const config: GateConfig = {
+      commits: false,
+      tests: false,
+      lint: false,
+      diff_size: false,
+      min_diff_lines: 1,
+      max_diff_lines: 5000,
+      test_timeout: 60,
+      lint_timeout: 30,
+    };
+    const results = runGates(dir, config);
+    expect(results.length).toBe(0);
+  });
+
+  test("reports hard and soft failures separately", () => {
+    const dir = setupGitWorktree();
+    // No commits on branch → commits = hard fail, diff_size = soft fail (below min)
+    const config: GateConfig = {
+      commits: true,
+      tests: false,
+      lint: false,
+      diff_size: true,
+      min_diff_lines: 1,
+      max_diff_lines: 5000,
+      test_timeout: 60,
+      lint_timeout: 30,
+    };
+    const results = runGates(dir, config);
+    const commits = results.find(r => r.gate === "commits")!;
+    expect(commits.passed).toBe(false);
+    expect(commits.tier).toBe("hard");
+    const diffSize = results.find(r => r.gate === "diff_size")!;
+    expect(diffSize.passed).toBe(false);
+    expect(diffSize.tier).toBe("soft");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildGateFixPrompt
+// ---------------------------------------------------------------------------
+
+describe("buildGateFixPrompt", () => {
+  test("builds prompt from failed gates", () => {
+    const results: GateResult[] = [
+      { gate: "commits", passed: true, tier: "hard", message: "1 commit on branch" },
+      { gate: "tests", passed: false, tier: "hard", message: "Tests failed (exit 1)" },
+      { gate: "diff_size", passed: false, tier: "soft", message: "Diff 0 lines below min (1..5000)" },
+    ];
+    const prompt = buildGateFixPrompt(results);
+    expect(prompt).toContain("tests");
+    expect(prompt).toContain("FAILED");
+    expect(prompt).toContain("diff_size");
+    expect(prompt).not.toContain("commits");
+  });
+
+  test("returns empty string when all pass", () => {
+    const results: GateResult[] = [
+      { gate: "commits", passed: true, tier: "hard", message: "1 commit" },
+      { gate: "tests", passed: true, tier: "hard", message: "Tests passed" },
+    ];
+    const prompt = buildGateFixPrompt(results);
+    expect(prompt).toBe("");
+  });
+
+  test("includes output in prompt when present", () => {
+    const results: GateResult[] = [
+      {
+        gate: "tests",
+        passed: false,
+        tier: "hard",
+        message: "Tests failed (exit 1)",
+        output: "FAIL src/index.test.ts\nExpected 2 but received 3",
+      },
+    ];
+    const prompt = buildGateFixPrompt(results);
+    expect(prompt).toContain("FAIL src/index.test.ts");
+    expect(prompt).toContain("Expected 2 but received 3");
   });
 });
