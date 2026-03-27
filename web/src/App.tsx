@@ -93,6 +93,7 @@ export default function App() {
             trees={taskState.trees}
             getActivity={taskState.getActivity}
             getActivityLog={taskState.getActivityLog}
+            loadActivityLog={taskState.loadActivityLog}
             onRefresh={taskState.refresh}
           />
         ) : (

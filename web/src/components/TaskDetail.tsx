@@ -29,9 +29,9 @@ export default function TaskDetail({ task, activityLog }: Props) {
         <Pipeline pathName={task.path_name} status={task.status} />
       </div>
 
-      {/* Live activity feed */}
-      {task.status === "running" && (
-        <ActivityFeed log={activityLog ?? []} />
+      {/* Activity feed — live when running, historical for completed/failed */}
+      {(activityLog ?? []).length > 0 && (
+        <ActivityFeed log={activityLog!} live={task.status === "running"} />
       )}
 
       {/* Description */}
@@ -111,7 +111,7 @@ export default function TaskDetail({ task, activityLog }: Props) {
   );
 }
 
-function ActivityFeed({ log }: { log: Array<{ ts: number; msg: string }> }) {
+function ActivityFeed({ log, live }: { log: Array<{ ts: number; msg: string }>; live?: boolean }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -119,7 +119,7 @@ function ActivityFeed({ log }: { log: Array<{ ts: number; msg: string }> }) {
 
   return (
     <div>
-      <Label>Live Activity</Label>
+      <Label>{live ? "Live Activity" : "Activity Log"}</Label>
       <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
         {log.length === 0 && (
           <div className="text-zinc-600 text-center py-2">Waiting for activity...</div>

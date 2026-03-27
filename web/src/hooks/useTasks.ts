@@ -109,5 +109,21 @@ export function useTasks() {
   const getActivity = (taskId: string): string | undefined => taskActivity.get(taskId);
   const getActivityLog = (taskId: string): Array<{ ts: number; msg: string }> => taskActivityLog.get(taskId) ?? [];
 
-  return { tasks, trees, status, selectedTree, setSelectedTree, refresh, handleWsMessage, getActivity, getActivityLog };
+  /** Fetch historical activity from the worker log file (seeds the feed on expand) */
+  const loadActivityLog = useCallback(async (taskId: string) => {
+    if (taskActivityLog.has(taskId) && taskActivityLog.get(taskId)!.length > 0) return;
+    try {
+      const entries = await api<Array<{ ts: string; msg: string }>>(`/api/tasks/${taskId}/activity`);
+      if (entries.length > 0) {
+        const log = entries.map(e => ({
+          ts: e.ts ? new Date(e.ts).getTime() : Date.now(),
+          msg: e.msg,
+        }));
+        taskActivityLog.set(taskId, log);
+        setTasks(prev => [...prev]); // force re-render
+      }
+    } catch {}
+  }, []);
+
+  return { tasks, trees, status, selectedTree, setSelectedTree, refresh, handleWsMessage, getActivity, getActivityLog, loadActivityLog };
 }

@@ -125,18 +125,23 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
         if (!trimmed) continue;
         try {
           const obj = JSON.parse(trimmed);
-          if (obj.type === "tool_use") {
-            const tool = obj.name ?? obj.tool ?? "";
-            const input = obj.input ?? {};
-            const file = input.file_path ?? input.command ?? "";
-            const activity = `${tool}: ${String(file).slice(0, 60)}`;
-            if (activity !== lastActivity) {
-              lastActivity = activity;
-              bus.emit("worker:activity", { taskId, msg: activity });
+          // stream-json nests tool_use in assistant message content blocks
+          if (obj.type === "assistant") {
+            for (const block of obj.message?.content ?? []) {
+              if (block.type === "tool_use") {
+                const tool = block.name ?? "tool";
+                const input = block.input ?? {};
+                const file = input.file_path ?? input.command ?? input.pattern ?? "";
+                const activity = `${tool}: ${String(file).slice(0, 60)}`;
+                if (activity !== lastActivity) {
+                  lastActivity = activity;
+                  bus.emit("worker:activity", { taskId, msg: activity });
+                }
+              }
             }
           }
-          // Update cost periodically
-          if (obj.cost_usd != null) {
+          // Update cost from result events
+          if (obj.type === "result" && obj.cost_usd != null) {
             db.sessionUpdateCost(sessionId, Number(obj.cost_usd), Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0));
           }
         } catch {

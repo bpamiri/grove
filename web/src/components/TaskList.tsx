@@ -9,6 +9,7 @@ interface Props {
   trees: Tree[];
   getActivity: (taskId: string) => string | undefined;
   getActivityLog: (taskId: string) => Array<{ ts: number; msg: string }>;
+  loadActivityLog: (taskId: string) => void;
   onRefresh: () => void;
 }
 
@@ -33,7 +34,7 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, trees, getActivity, getActivityLog, onRefresh }: Props) {
+export default function TaskList({ tasks, trees, getActivity, getActivityLog, loadActivityLog, onRefresh }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "done">("all");
   const [showNewTask, setShowNewTask] = useState(false);
@@ -155,7 +156,11 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, on
           <div key={task.id}>
             {/* Collapsed card */}
             <button
-              onClick={() => setExpandedId(expandedId === task.id ? null : task.id)}
+              onClick={() => {
+                const newId = expandedId === task.id ? null : task.id;
+                setExpandedId(newId);
+                if (newId) loadActivityLog(newId);
+              }}
               className={`w-full text-left rounded-lg border p-3.5 transition-colors ${
                 STATUS_BORDER[task.status] ?? "border-zinc-800"
               } ${expandedId === task.id ? "bg-zinc-800/50" : "bg-zinc-900/30 hover:bg-zinc-800/30"}`}
@@ -196,8 +201,8 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, on
                 </div>
               </div>
 
-              {/* Pipeline mini */}
-              {["running", "evaluating", "done", "merged"].includes(task.status) && (
+              {/* Pipeline mini (hidden when expanded to avoid duplicate) */}
+              {expandedId !== task.id && ["running", "evaluating", "done", "merged"].includes(task.status) && (
                 <div className="mt-3">
                   <Pipeline pathName={task.path_name} status={task.status} />
                 </div>

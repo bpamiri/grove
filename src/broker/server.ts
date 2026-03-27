@@ -372,6 +372,51 @@ async function handleApi(
       return json({ ok: true, taskId, status: "ready" });
     }
 
+    // GET /api/tasks/:id/activity — recent tool_use activity from worker log
+    const activityMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/activity$/);
+    if (activityMatch && req.method === "GET") {
+      const taskId = activityMatch[1];
+      try {
+        const { existsSync, readFileSync, readdirSync } = await import("node:fs");
+        const { getEnv } = await import("./db");
+        const logDir = getEnv().GROVE_LOG_DIR;
+
+        // Find worker log by filename convention: worker-{taskId}-*.jsonl
+        const prefix = `worker-${taskId}-`;
+        const files = readdirSync(logDir).filter(f => f.startsWith(prefix) && f.endsWith(".jsonl"));
+        if (files.length === 0) return json([]);
+
+        // Use the most recent log file
+        const logPath = join(logDir, files.sort().pop()!);
+        if (!existsSync(logPath)) return json([]);
+
+        const content = readFileSync(logPath, "utf-8");
+        const activities: Array<{ ts: string; msg: string }> = [];
+        for (const line of content.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            // stream-json nests tool_use in assistant message content blocks
+            if (obj.type === "assistant") {
+              for (const block of obj.message?.content ?? []) {
+                if (block.type === "tool_use") {
+                  const name = block.name ?? "tool";
+                  const inp = block.input ?? {};
+                  const detail = typeof inp === "object"
+                    ? (inp.file_path ?? inp.command ?? inp.pattern ?? "").toString().slice(0, 80)
+                    : "";
+                  activities.push({ ts: obj.timestamp ?? "", msg: `${name}: ${detail}` });
+                }
+              }
+            }
+          } catch {}
+        }
+        return json(activities.slice(-100));
+      } catch {
+        return json([]);
+      }
+    }
+
     // GET /api/events
     if (path === "/api/events" && req.method === "GET") {
       const url = new URL(req.url);
