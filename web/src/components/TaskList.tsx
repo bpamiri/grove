@@ -1,11 +1,14 @@
 import { useState } from "react";
-import type { Task } from "../hooks/useTasks";
+import { api } from "../api/client";
+import type { Task, Tree } from "../hooks/useTasks";
 import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
 
 interface Props {
   tasks: Task[];
+  trees: Tree[];
   getActivity: (taskId: string) => string | undefined;
+  getActivityLog: (taskId: string) => Array<{ ts: number; msg: string }>;
   onRefresh: () => void;
 }
 
@@ -30,9 +33,41 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
+export default function TaskList({ tasks, trees, getActivity, getActivityLog, onRefresh }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "done">("all");
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newTreeId, setNewTreeId] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+    setCreating(true);
+    try {
+      const body: Record<string, string> = { title: newTitle };
+      if (newTreeId) body.tree_id = newTreeId;
+      await api("/api/tasks", { method: "POST", body: JSON.stringify(body) });
+      setNewTitle("");
+      setNewTreeId("");
+      setShowNewTask(false);
+      onRefresh();
+    } catch (err) {
+      console.error("Failed to create task:", err);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const dispatchTask = async (taskId: string) => {
+    try {
+      await api(`/api/tasks/${taskId}/dispatch`, { method: "POST" });
+      onRefresh();
+    } catch (err) {
+      console.error("Failed to dispatch task:", err);
+    }
+  };
 
   const filtered = tasks.filter((t) => {
     if (filter === "active") return ["planned", "ready", "running", "paused", "evaluating"].includes(t.status);
@@ -45,7 +80,13 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
       {/* Header */}
       <div className="flex justify-between items-center mb-5">
         <h2 className="text-lg font-semibold">Tasks</h2>
-        <div className="flex gap-2 text-xs">
+        <div className="flex gap-2 text-xs items-center">
+          <button
+            onClick={() => setShowNewTask(!showNewTask)}
+            className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full hover:bg-emerald-500/30 mr-2"
+          >
+            + New
+          </button>
           {(["all", "active", "done"] as const).map((f) => (
             <button
               key={f}
@@ -61,6 +102,46 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
           ))}
         </div>
       </div>
+
+      {/* New task form */}
+      {showNewTask && (
+        <form onSubmit={handleCreateTask} className="mb-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg space-y-2">
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Task title"
+            autoFocus
+            className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+          />
+          <div className="flex gap-2">
+            <select
+              value={newTreeId}
+              onChange={(e) => setNewTreeId(e.target.value)}
+              className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+            >
+              <option value="">No tree (general)</option>
+              {trees.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={creating || !newTitle.trim()}
+              className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30 disabled:opacity-50"
+            >
+              Create
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNewTask(false)}
+              className="text-zinc-500 px-3 py-2 rounded-lg text-sm hover:text-zinc-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Task cards */}
       <div className="space-y-2">
@@ -99,9 +180,20 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
                     </div>
                   )}
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${STATUS_COLORS[task.status] ?? "bg-zinc-800"}`}>
-                  {task.status}
-                </span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {task.status === "planned" && (
+                    <span
+                      role="button"
+                      onClick={(e) => { e.stopPropagation(); dispatchTask(task.id); }}
+                      className="text-xs px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 cursor-pointer"
+                    >
+                      Dispatch
+                    </span>
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${STATUS_COLORS[task.status] ?? "bg-zinc-800"}`}>
+                    {task.status}
+                  </span>
+                </div>
               </div>
 
               {/* Pipeline mini */}
@@ -113,7 +205,7 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
             </button>
 
             {/* Expanded detail */}
-            {expandedId === task.id && <TaskDetail task={task} />}
+            {expandedId === task.id && <TaskDetail task={task} activityLog={getActivityLog(task.id)} />}
           </div>
         ))}
       </div>

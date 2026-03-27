@@ -34,16 +34,7 @@ export function useChat(send: (data: any) => void) {
 
   const sendMessage = useCallback((text: string) => {
     if (!text.trim()) return;
-    // Optimistic add
-    const optimistic: ChatMessage = {
-      id: Date.now(),
-      source: "user",
-      channel: "main",
-      content: text,
-      created_at: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, optimistic]);
-    // Send via WebSocket
+    // Message will appear when the server broadcasts it back via WebSocket
     send({ type: "chat", text });
   }, [send]);
 

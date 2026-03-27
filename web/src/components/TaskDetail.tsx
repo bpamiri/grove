@@ -1,11 +1,13 @@
+import { useEffect, useRef } from "react";
 import type { Task } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
 
 interface Props {
   task: Task;
+  activityLog?: Array<{ ts: number; msg: string }>;
 }
 
-export default function TaskDetail({ task }: Props) {
+export default function TaskDetail({ task, activityLog }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -26,6 +28,11 @@ export default function TaskDetail({ task }: Props) {
         <Label>Pipeline</Label>
         <Pipeline pathName={task.path_name} status={task.status} />
       </div>
+
+      {/* Live activity feed */}
+      {task.status === "running" && (
+        <ActivityFeed log={activityLog ?? []} />
+      )}
 
       {/* Description */}
       {task.description && (
@@ -102,6 +109,41 @@ export default function TaskDetail({ task }: Props) {
       </div>
     </div>
   );
+}
+
+function ActivityFeed({ log }: { log: Array<{ ts: number; msg: string }> }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [log.length]);
+
+  return (
+    <div>
+      <Label>Live Activity</Label>
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
+        {log.length === 0 && (
+          <div className="text-zinc-600 text-center py-2">Waiting for activity...</div>
+        )}
+        {log.map((entry, i) => {
+          const time = new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          return (
+            <div key={i} className="flex gap-2 hover:bg-zinc-900/50 px-1 rounded">
+              <span className="text-zinc-600 flex-shrink-0">{time}</span>
+              <span className={activityColor(entry.msg)}>{entry.msg}</span>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+function activityColor(msg: string): string {
+  if (msg.startsWith("Read") || msg.startsWith("Grep") || msg.startsWith("Glob")) return "text-zinc-400";
+  if (msg.startsWith("Edit") || msg.startsWith("Write")) return "text-amber-400";
+  if (msg.startsWith("Bash")) return "text-cyan-400";
+  return "text-zinc-300";
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

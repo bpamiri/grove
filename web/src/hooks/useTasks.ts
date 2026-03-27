@@ -48,6 +48,8 @@ export interface Status {
 
 // Activity messages per task (transient, not from DB)
 const taskActivity = new Map<string, string>();
+const taskActivityLog = new Map<string, Array<{ ts: number; msg: string }>>();
+const MAX_LOG_ENTRIES = 200;
 
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -84,11 +86,17 @@ export function useTasks() {
           prev.map(t => t.id === msg.data.taskId ? { ...t, status: msg.data.status } : t)
         );
         break;
-      case "worker:activity":
-        taskActivity.set(msg.data.taskId, msg.data.msg);
-        // Force re-render by updating the task (status hasn't changed but activity has)
+      case "worker:activity": {
+        const tid = msg.data.taskId;
+        taskActivity.set(tid, msg.data.msg);
+        if (!taskActivityLog.has(tid)) taskActivityLog.set(tid, []);
+        const log = taskActivityLog.get(tid)!;
+        log.push({ ts: Date.now(), msg: msg.data.msg });
+        if (log.length > MAX_LOG_ENTRIES) log.shift();
+        // Force re-render
         setTasks(prev => [...prev]);
         break;
+      }
       case "worker:spawned":
       case "worker:ended":
       case "cost:updated":
@@ -99,6 +107,7 @@ export function useTasks() {
   }, [refresh]);
 
   const getActivity = (taskId: string): string | undefined => taskActivity.get(taskId);
+  const getActivityLog = (taskId: string): Array<{ ts: number; msg: string }> => taskActivityLog.get(taskId) ?? [];
 
-  return { tasks, trees, status, selectedTree, setSelectedTree, refresh, handleWsMessage, getActivity };
+  return { tasks, trees, status, selectedTree, setSelectedTree, refresh, handleWsMessage, getActivity, getActivityLog };
 }

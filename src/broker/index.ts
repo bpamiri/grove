@@ -39,6 +39,9 @@ export async function startBroker(): Promise<BrokerInfo> {
   const db = new Database(GROVE_DB);
   db.initFromString(SCHEMA_SQL);
 
+  // Clear stale messages from previous sessions
+  db.clearMessages();
+
   // Load config and sync trees to DB
   const config = loadConfig();
   const trees = configTrees();

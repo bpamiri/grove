@@ -212,6 +212,10 @@ export class Database {
     );
   }
 
+  clearMessages(): void {
+    this.run("DELETE FROM messages");
+  }
+
   // ---- Cost helpers ----
 
   costToday(): number {

@@ -14,6 +14,7 @@ bin/
 dist/
 web/dist/
 *.compiled
+src/broker/web-assets.generated.ts
 
 # IDE
 .idea/

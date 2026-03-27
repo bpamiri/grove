@@ -10,6 +10,8 @@ interface Props {
 
 export default function Settings({ trees, status, onRefresh }: Props) {
   const [newTreePath, setNewTreePath] = useState("");
+  const [newTreeGithub, setNewTreeGithub] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [adding, setAdding] = useState(false);
 
   const handleAddTree = async (e: React.FormEvent) => {
@@ -17,11 +19,15 @@ export default function Settings({ trees, status, onRefresh }: Props) {
     if (!newTreePath.trim()) return;
     setAdding(true);
     try {
+      const body: Record<string, string> = { path: newTreePath };
+      if (newTreeGithub.trim()) body.github = newTreeGithub.trim();
       await api("/api/trees", {
         method: "POST",
-        body: JSON.stringify({ path: newTreePath }),
+        body: JSON.stringify(body),
       });
       setNewTreePath("");
+      setNewTreeGithub("");
+      setShowAdvanced(false);
       onRefresh();
     } catch (err) {
       console.error("Failed to add tree:", err);
@@ -53,21 +59,41 @@ export default function Settings({ trees, status, onRefresh }: Props) {
           )}
         </div>
 
-        <form onSubmit={handleAddTree} className="flex gap-2">
-          <input
-            type="text"
-            value={newTreePath}
-            onChange={(e) => setNewTreePath(e.target.value)}
-            placeholder="/path/to/repo"
-            className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
-          />
-          <button
-            type="submit"
-            disabled={adding || !newTreePath.trim()}
-            className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30 disabled:opacity-50"
-          >
-            Add Tree
-          </button>
+        <form onSubmit={handleAddTree} className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newTreePath}
+              onChange={(e) => setNewTreePath(e.target.value)}
+              placeholder="/path/to/repo"
+              className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+            />
+            <button
+              type="submit"
+              disabled={adding || !newTreePath.trim()}
+              className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30 disabled:opacity-50"
+            >
+              Add Tree
+            </button>
+          </div>
+          {newTreePath.trim() && (
+            <>
+              {!showAdvanced && (
+                <button type="button" onClick={() => setShowAdvanced(true)} className="text-xs text-zinc-500 hover:text-zinc-400">
+                  + GitHub repo, branch prefix
+                </button>
+              )}
+              {showAdvanced && (
+                <input
+                  type="text"
+                  value={newTreeGithub}
+                  onChange={(e) => setNewTreeGithub(e.target.value)}
+                  placeholder="owner/repo (optional)"
+                  className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+                />
+              )}
+            </>
+          )}
         </form>
       </section>
 

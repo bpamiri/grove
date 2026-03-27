@@ -4,6 +4,7 @@ import { join, extname } from "node:path";
 import type { Database } from "./db";
 import { bus } from "./event-bus";
 import type { EventBusMap } from "../shared/types";
+import { EMBEDDED_ASSETS } from "./web-assets.generated";
 
 export interface ServerOptions {
   db: Database;
@@ -101,15 +102,12 @@ export function startServer(opts: ServerOptions) {
         return handleApi(path, req, db, onChat, corsHeaders);
       }
 
-      // Static file serving (React SPA)
+      // Static file serving (React SPA) — filesystem first, then embedded assets
       if (staticDir && existsSync(staticDir)) {
         return serveStatic(path, staticDir, corsHeaders);
       }
 
-      // Fallback: JSON status
-      return new Response(JSON.stringify({ name: "grove", version: "3.0.0-alpha.0", status: "running" }), {
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      return serveEmbedded(path, corsHeaders);
     },
 
     websocket: {
@@ -203,6 +201,28 @@ function serveStatic(path: string, staticDir: string, corsHeaders: Record<string
   }
 
   return new Response("Not Found", { status: 404 });
+}
+
+function serveEmbedded(path: string, corsHeaders: Record<string, string>): Response {
+  const key = path === "/" ? "/index.html" : path;
+  const asset = EMBEDDED_ASSETS[key];
+  if (asset) {
+    return new Response(asset.data, {
+      headers: { "Content-Type": asset.contentType, ...corsHeaders },
+    });
+  }
+
+  // SPA fallback: serve index.html for client-side routes
+  const index = EMBEDDED_ASSETS["/index.html"];
+  if (index) {
+    return new Response(index.data, {
+      headers: { "Content-Type": "text/html", ...corsHeaders },
+    });
+  }
+
+  return new Response(JSON.stringify({ name: "grove", version: "3.0.0-alpha.0", status: "running" }), {
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
 }
 
 // ---------------------------------------------------------------------------
