@@ -39,6 +39,7 @@ export interface Tree {
 
 export interface Status {
   broker: string;
+  remoteUrl: string | null;
   orchestrator: string;
   workers: number;
   wsClients: number;

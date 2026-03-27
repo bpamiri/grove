@@ -19,6 +19,12 @@ interface WSData {
 
 let server: ReturnType<typeof Bun.serve<WSData>> | null = null;
 const wsClients = new Set<{ send(data: string): void }>();
+let _remoteUrl: string | null = null;
+
+/** Set the tunnel URL (called after tunnel starts) */
+export function setRemoteUrl(url: string | null): void {
+  _remoteUrl = url;
+}
 
 // Broadcast a message to all connected WebSocket clients
 function broadcast(type: string, data: any) {
@@ -271,6 +277,7 @@ async function handleApi(
       const { isSpawningPaused } = await import("../monitor/cost");
       return json({
         broker: "running",
+        remoteUrl: _remoteUrl,
         orchestrator: isRunning() ? "running" : "stopped",
         workers: activeWorkerCount(),
         queue: queueLength(),

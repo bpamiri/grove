@@ -3,7 +3,7 @@
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { Database, getEnv } from "./db";
-import { startServer, stopServer } from "./server";
+import { startServer, stopServer, setRemoteUrl } from "./server";
 import * as tmux from "./tmux";
 import * as orchestrator from "../agents/orchestrator";
 import { loadConfig, configTrees, tunnelConfig } from "./config";
@@ -107,6 +107,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     try {
       tunnel = new CloudflareTunnel();
       remoteUrl = await tunnel.start(port);
+      setRemoteUrl(remoteUrl);
     } catch (err: any) {
       console.log(`  Tunnel: ${err.message}`);
       // Non-fatal — continue without tunnel

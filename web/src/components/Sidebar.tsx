@@ -120,6 +120,18 @@ export default function Sidebar({ trees, status, selectedTree, onSelectTree, con
             <span>Today</span>
             <span>${(status?.cost.today ?? 0).toFixed(2)}</span>
           </div>
+          {status?.remoteUrl && (
+            <div className="mt-2 pt-2 border-t border-zinc-800">
+              <a
+                href={status.remoteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-500/70 hover:text-emerald-400 break-all"
+              >
+                {status.remoteUrl.replace("https://", "")}
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </aside>
