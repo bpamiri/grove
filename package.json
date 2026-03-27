@@ -1,18 +1,19 @@
 {
-  "name": "grove",
-  "version": "0.2.0",
+  "name": "@grove-ai/cli",
+  "version": "3.0.0-alpha.0",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "src/cli/index.ts",
   "bin": {
     "grove": "bin/grove"
   },
   "scripts": {
-    "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile bin/grove",
-    "test": "bun test"
+    "dev": "bun run src/cli/index.ts",
+    "build:web": "cd web && bun run build",
+    "build:bin": "mkdir -p bin && bun build src/cli/index.ts --compile --outfile bin/grove",
+    "build": "bun run build:web && bun run build:bin",
+    "test": "bun test tests/"
   },
   "dependencies": {
-    "@clack/prompts": "^0.9",
     "picocolors": "^1.1",
     "yaml": "^2.7"
   },

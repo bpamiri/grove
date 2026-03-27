@@ -7,10 +7,12 @@ logs/
 
 # Dependencies
 node_modules/
+web/node_modules/
 
 # Build output
-bin/grove
+bin/
 dist/
+web/dist/
 *.compiled
 
 # IDE

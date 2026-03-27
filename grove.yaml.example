@@ -1,34 +1,54 @@
-# Grove v2 Configuration
+# Grove v3 — Configuration
 # Copy this to ~/.grove/grove.yaml and customize.
 
 workspace:
-  name: "My Workshop"
+  name: My Workspace
 
-# Repositories Grove manages.
-# Each key is a short name used in task IDs and commands.
-repos:
-  # Example: CFWheels framework
-  # wheels:
-  #   org: cfwheels
-  #   github: cfwheels/wheels
-  #   path: ~/code/wheels
+# Trees: repos under Grove management
+# Each tree wraps a git repo that workers can operate on.
+trees:
+  # api-server:
+  #   path: ~/code/api-server
+  #   github: myorg/api-server
+  #   branch_prefix: grove/
+  #   quality_gates:
+  #     tests: true
+  #     lint: true
+  #
+  # frontend:
+  #   path: ~/code/frontend
+  #   github: myorg/frontend
+  #   branch_prefix: grove/
 
-  # Example: Titan e-commerce
-  # titan:
-  #   org: paiindustries
-  #   github: paiindustries/titan
-  #   path: ~/code/titan
+# Paths: workflow templates that define the step pipeline per task type.
+# Built-in paths (development, research, content) are always available.
+# Add custom paths here:
+paths:
+  # ops:
+  #   description: Infrastructure/ops tasks
+  #   steps: [plan, implement, evaluate]
 
-# Budget limits (USD). Grove tracks spend and warns/blocks at thresholds.
+# Budget controls
 budgets:
-  per_task: 5.00
-  per_session: 10.00
-  per_day: 25.00
-  per_week: 100.00
-  auto_approve_under: 2.00
+  per_task: 5.00        # Max spend per individual task
+  per_session: 10.00    # Max for a single worker session
+  per_day: 25.00        # Daily ceiling
+  per_week: 100.00      # Weekly ceiling
+  auto_approve_under: 2.00  # Tasks below this cost auto-dispatch
 
-# Execution settings
+# Server configuration
+server:
+  port: auto            # Random available port (or pin: 8432)
+
+# Tunnel configuration (remote access)
+tunnel:
+  provider: cloudflare  # Free quick tunnels, no account needed
+  auth: token           # Random token for security
+  # domain: mygrove.example.com  # Persistent tunnel (requires Cloudflare account)
+
+# General settings
 settings:
-  max_concurrent: 4
-  branch_prefix: "grove/"
-  auto_sync: false
+  max_workers: 5              # Concurrent worker limit
+  branch_prefix: grove/       # Default git branch prefix
+  stall_timeout_minutes: 5    # Detect stalled workers after this many minutes
+  max_retries: 2              # Auto-retry failed evaluations
