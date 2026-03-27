@@ -64,7 +64,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   const logWriter = logFile.writer();
 
   const proc = Bun.spawn(
-    ["claude", "-p", prompt, "--output-format", "stream-json"],
+    ["claude", "-p", prompt, "--verbose", "--output-format", "stream-json"],
     {
       cwd: worktreePath,
       env: {

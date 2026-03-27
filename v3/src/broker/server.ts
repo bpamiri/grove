@@ -340,6 +340,18 @@ async function handleApi(
       return json({ ok: true });
     }
 
+    // POST /api/tasks/:id/dispatch — promote to ready and enqueue
+    const dispatchMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/dispatch$/);
+    if (dispatchMatch && req.method === "POST") {
+      const taskId = dispatchMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      db.taskSetStatus(taskId, "ready");
+      const { enqueue } = await import("./dispatch");
+      enqueue(taskId);
+      return json({ ok: true, taskId, status: "ready" });
+    }
+
     // GET /api/events
     if (path === "/api/events" && req.method === "GET") {
       const url = new URL(req.url);

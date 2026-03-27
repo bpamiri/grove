@@ -7,8 +7,6 @@ import { expandHome } from "./worktree";
 // Guard hook generation
 // ---------------------------------------------------------------------------
 
-const ENV_GUARD = '[ -z "$GROVE_TASK_ID" ] && exit 0';
-
 const BLOCKED_BASH_PATTERNS = [
   "git push", "git reset --hard", "rm -rf /", "sudo ",
 ];
@@ -31,35 +29,27 @@ function bashDangerGuard(): string {
   const checks = BLOCKED_BASH_PATTERNS.map(
     (p) => `echo "$CLAUDE_TOOL_INPUT" | grep -qiF '${p}' && echo "BLOCKED: ${p} is not allowed in Grove workers" && exit 2`
   ).join("; ");
-  return `${ENV_GUARD}; ${checks}; exit 0`;
+  return `${checks}; exit 0`;
 }
 
-function bashSafeWhitelist(): string {
-  const checks = SAFE_BASH_PREFIXES.map(
-    (p) => `echo "$CLAUDE_TOOL_INPUT" | grep -qF '"command"' && echo "$CLAUDE_TOOL_INPUT" | grep -qiF '${p}' && exit 0`
-  ).join("; ");
-  return `${ENV_GUARD}; ${checks}`;
-}
-
-function writeEditPathBoundary(): string {
+function writeEditPathBoundary(worktreePath: string): string {
+  // Hardcode the worktree path. Use if/elif instead of case (case breaks with semicolons).
   return [
-    ENV_GUARD,
+    `GROVE_WT="${worktreePath}"`,
     'FILE_PATH=$(echo "$CLAUDE_TOOL_INPUT" | grep -o \'"file_path":"[^"]*"\' | head -1 | sed \'s/"file_path":"//;s/"$//\')',
     '[ -z "$FILE_PATH" ] && exit 0',
-    'case "$FILE_PATH" in',
-    '  "$GROVE_WORKTREE_PATH"*|/tmp/*|/dev/*) exit 0 ;;',
-    '  /*) echo "BLOCKED: file_path $FILE_PATH is outside worktree boundary" && exit 2 ;;',
-    'esac',
-    'exit 0',
+    'echo "$FILE_PATH" | grep -q "^$GROVE_WT" && exit 0',
+    'echo "$FILE_PATH" | grep -q "^/tmp/" && exit 0',
+    'echo "$FILE_PATH" | grep -q "^/private/tmp/" && exit 0',
+    'echo "BLOCKED: $FILE_PATH is outside worktree" && exit 2',
   ].join("; ");
 }
 
-function buildGuardHooks(): GuardHookEntry[] {
+function buildGuardHooks(worktreePath: string): GuardHookEntry[] {
   return [
-    { matcher: "Bash", hooks: [{ type: "command", command: bashSafeWhitelist() }] },
     { matcher: "Bash", hooks: [{ type: "command", command: bashDangerGuard() }] },
-    { matcher: "Write", hooks: [{ type: "command", command: writeEditPathBoundary() }] },
-    { matcher: "Edit", hooks: [{ type: "command", command: writeEditPathBoundary() }] },
+    { matcher: "Write", hooks: [{ type: "command", command: writeEditPathBoundary(worktreePath) }] },
+    { matcher: "Edit", hooks: [{ type: "command", command: writeEditPathBoundary(worktreePath) }] },
   ];
 }
 
@@ -164,9 +154,9 @@ export function deploySandbox(worktreePath: string, ctx: OverlayContext): void {
   const claudeDir = join(worktreePath, ".claude");
   mkdirSync(claudeDir, { recursive: true });
 
-  // Write settings.local.json with guard hooks
+  // Write settings.local.json with guard hooks (worktree path hardcoded into scripts)
   const settingsPath = join(claudeDir, "settings.local.json");
-  const hooks = buildGuardHooks();
+  const hooks = buildGuardHooks(worktreePath);
   let finalSettings: any = {};
 
   if (existsSync(settingsPath)) {

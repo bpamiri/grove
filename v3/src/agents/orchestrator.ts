@@ -2,7 +2,7 @@
 // The orchestrator is a long-running Claude Code session in tmux.
 // The broker spawns it, tails its log, and relays messages.
 import { join } from "node:path";
-import { mkdirSync, statSync, existsSync } from "node:fs";
+import { mkdirSync, statSync, existsSync, writeFileSync } from "node:fs";
 import * as tmux from "../broker/tmux";
 import { bus } from "../broker/event-bus";
 import { tailLog, parseBrokerEvent, isAlive } from "./stream-parser";
@@ -95,8 +95,14 @@ export function spawn(db: Database, logDir: string, contextSummary?: string): Or
     prompt += `\n\n## Recent Conversation\n${msgHistory}`;
   }
 
-  // Create tmux window with claude command
-  const claudeCmd = `claude -p "${prompt.replace(/"/g, '\\"')}" --output-format stream-json > "${logPath}" 2>&1`;
+  // Write orchestrator context to a dedicated directory with CLAUDE.md
+  // The orchestrator runs as an interactive Claude Code session (not -p mode)
+  const orchDir = join(logDir, "orchestrator-workspace");
+  mkdirSync(join(orchDir, ".claude"), { recursive: true });
+  writeFileSync(join(orchDir, ".claude", "CLAUDE.md"), prompt);
+
+  // Launch interactive claude in the orchestrator workspace
+  const claudeCmd = `cd "${orchDir}" && claude`;
   const windowIdx = tmux.runInWindow(WINDOW_NAME, claudeCmd);
 
   if (!windowIdx) {
@@ -115,14 +121,9 @@ export function spawn(db: Database, logDir: string, contextSummary?: string): Or
   db.sessionCreate(sessionId, null, "orchestrator", pid ?? undefined, target, logPath);
   db.addEvent(null, sessionId, "orchestrator_started", `Orchestrator spawned (PID: ${pid})`);
 
-  const stopTailing = tailLog(logPath, (line) => {
-    const event = parseBrokerEvent(line);
-    if (event) {
-      handleOrchestratorEvent(event, db);
-    }
-  });
-
-  state = { sessionId, pid, logPath, logDir, stopTailing };
+  // Note: orchestrator runs interactively — no stdout log tailing.
+  // Messages are sent via tmux send-keys, responses observed via tmux capture-pane.
+  state = { sessionId, pid, logPath, logDir, stopTailing: null };
 
   bus.emit("orchestrator:started", { sessionId, pid: pid ?? 0 });
 
