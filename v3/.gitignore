@@ -1,0 +1,8 @@
+node_modules/
+bin/
+web/dist/
+web/node_modules/
+*.db
+*.db-wal
+*.db-shm
+.superpowers/

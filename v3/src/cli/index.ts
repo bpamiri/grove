@@ -1,0 +1,65 @@
+#!/usr/bin/env bun
+// Grove v3 — CLI entry point and command router
+import pc from "picocolors";
+import { GROVE_VERSION } from "../shared/types";
+
+const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void> }>> = {
+  init:   () => import("./commands/init"),
+  up:     () => import("./commands/up"),
+  down:   () => import("./commands/down"),
+  status: () => import("./commands/status"),
+  trees:  () => import("./commands/trees"),
+  tasks:  () => import("./commands/tasks"),
+  chat:   () => import("./commands/chat"),
+  cost:   () => import("./commands/cost"),
+  help:   () => import("./commands/help"),
+};
+
+async function main() {
+  const args = process.argv.slice(2);
+  const cmdName = args[0];
+
+  if (!cmdName || cmdName === "--help" || cmdName === "-h") {
+    printUsage();
+    return;
+  }
+
+  if (cmdName === "--version" || cmdName === "-v") {
+    console.log(`grove ${GROVE_VERSION}`);
+    return;
+  }
+
+  const loader = commands[cmdName];
+  if (!loader) {
+    console.log(`${pc.red("Unknown command:")} ${cmdName}`);
+    console.log(`Run ${pc.bold("grove help")} for available commands.`);
+    process.exit(1);
+  }
+
+  const cmd = await loader();
+  await cmd.run(args.slice(1));
+}
+
+function printUsage() {
+  console.log(`
+${pc.bold(pc.green("grove"))} ${pc.dim(`v${GROVE_VERSION}`)} — AI development orchestrator
+
+${pc.bold("Usage:")} grove <command> [options]
+
+${pc.bold("Commands:")}
+  ${pc.green("init")}      Initialize Grove (~/.grove)
+  ${pc.green("up")}        Start broker + orchestrator + tunnel
+  ${pc.green("down")}      Stop everything gracefully
+  ${pc.green("status")}    Show system status
+  ${pc.green("trees")}     List configured trees (repos)
+  ${pc.green("tasks")}     List tasks
+  ${pc.green("chat")}      Send a message to the orchestrator
+  ${pc.green("cost")}      Spend breakdown
+  ${pc.green("help")}      Show this help
+`);
+}
+
+main().catch((err) => {
+  console.error(pc.red("Error:"), err.message);
+  process.exit(1);
+});
