@@ -45,21 +45,21 @@ Open the URL in a browser or on your phone. Chat with the orchestrator. Watch wo
 
 ```
 You ─── Browser (GUI) ─── Tunnel ───┐
-  │                                   │
-  ├── tmux attach ──────────────┐     │
-  │                              │     │
-  └── grove CLI ────────────┐    │     │
-                             │    │     │
-                             ▼    ▼     ▼
+  │                                 │
+  ├── tmux attach ──────────────┐   │
+  │                             │   │
+  └── grove CLI ────────────┐   │   │
+                            │   │   │
+                            ▼   ▼   ▼
                    ┌──────────────────────────┐
-                   │    Broker (Bun process)    │
-                   │                           │
-                   │  Web+WS · SQLite · tmux   │
-                   │  Monitor · Merge Manager  │
-                   └───────────┬───────────────┘
+                   │    Broker (Bun process)  │
+                   │                          │
+                   │  Web+WS · SQLite · tmux  │
+                   │  Monitor · Merge Manager │
+                   └───────────┬──────────────┘
                                │
             ┌──────────────────┼──────────────────┐
-            ▼                  ▼                   ▼
+            ▼                  ▼                  ▼
       Orchestrator        Worker(s)           Evaluator
       (Claude Code)     (Claude Code)       (Claude Code)
       persistent        ephemeral           on-demand
