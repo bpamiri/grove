@@ -417,6 +417,28 @@ async function handleApi(
       }
     }
 
+    // POST /api/tasks/:id/retry — reset a failed/stuck task and re-dispatch, preserving worktree
+    const retryMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/retry$/);
+    if (retryMatch && req.method === "POST") {
+      const taskId = retryMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      if (task.status === "running") {
+        // Kill the active worker first
+        const { stopWorker } = await import("../agents/worker");
+        stopWorker(taskId, db);
+      }
+      // Increment retry count, reset status to ready, preserve worktree/branch/artifacts
+      db.run(
+        "UPDATE tasks SET status = 'ready', retry_count = retry_count + 1 WHERE id = ?",
+        [taskId]
+      );
+      db.addEvent(taskId, null, "task_retried", `Task retried (attempt ${(task.retry_count ?? 0) + 2})`);
+      const { enqueue } = await import("./dispatch");
+      enqueue(taskId);
+      return json({ ok: true, taskId, status: "ready" });
+    }
+
     // GET /api/events
     if (path === "/api/events" && req.method === "GET") {
       const url = new URL(req.url);

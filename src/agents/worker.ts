@@ -4,7 +4,7 @@ import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { bus } from "../broker/event-bus";
 import { parseCost, isAlive } from "./stream-parser";
 import { createWorktree, branchName } from "../shared/worktree";
-import { deploySandbox, triggerPrompt } from "../shared/sandbox";
+import { deploySandbox, triggerPrompt, resumeTriggerPrompt } from "../shared/sandbox";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
@@ -30,7 +30,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   const sessionId = `worker-${task.id}-${Date.now()}`;
   const logPath = join(logDir, `${sessionId}.jsonl`);
 
-  // Create worktree
+  // Create or reuse worktree (createWorktree returns existing if present)
   const worktreePath = createWorktree(
     task.id,
     tree.path,
@@ -40,7 +40,12 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
 
   const branch = branchName(task.id, task.title, tree.branch_prefix);
 
-  // Deploy sandbox (guard hooks + CLAUDE.md overlay)
+  // Check for prior session artifacts to carry forward
+  const summaryPath = join(worktreePath, ".grove", "session-summary.md");
+  const priorSummary = existsSync(summaryPath) ? readFileSync(summaryPath, "utf-8") : task.session_summary;
+  const isResumption = !!(priorSummary || task.retry_count > 0);
+
+  // Deploy sandbox (guard hooks + CLAUDE.md overlay with prior context)
   deploySandbox(worktreePath, {
     taskId: task.id,
     title: task.title,
@@ -48,7 +53,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     treePath: tree.path,
     branch,
     pathName: task.path_name,
-    sessionSummary: task.session_summary,
+    sessionSummary: priorSummary,
     filesModified: task.files_modified,
   });
 
@@ -56,8 +61,8 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   db.run("UPDATE tasks SET status = 'running', branch = ?, worktree_path = ?, started_at = datetime('now') WHERE id = ?",
     [branch, worktreePath, task.id]);
 
-  // Build the trigger prompt
-  const prompt = triggerPrompt(task.id);
+  // Use resume prompt if continuing from a prior session
+  const prompt = isResumption ? resumeTriggerPrompt(task.id) : triggerPrompt(task.id);
 
   // Spawn claude in the worktree
   const logFile = Bun.file(logPath);

@@ -70,6 +70,15 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
     }
   };
 
+  const retryTask = async (taskId: string) => {
+    try {
+      await api(`/api/tasks/${taskId}/retry`, { method: "POST" });
+      onRefresh();
+    } catch (err) {
+      console.error("Failed to retry task:", err);
+    }
+  };
+
   const filtered = tasks.filter((t) => {
     if (filter === "active") return ["planned", "ready", "running", "paused", "evaluating"].includes(t.status);
     if (filter === "done") return ["done", "merged", "completed"].includes(t.status);
@@ -193,6 +202,15 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
                       className="text-xs px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 cursor-pointer"
                     >
                       Dispatch
+                    </span>
+                  )}
+                  {["failed", "paused"].includes(task.status) && (
+                    <span
+                      role="button"
+                      onClick={(e) => { e.stopPropagation(); retryTask(task.id); }}
+                      className="text-xs px-2.5 py-1 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 cursor-pointer"
+                    >
+                      Retry
                     </span>
                   )}
                   <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${STATUS_COLORS[task.status] ?? "bg-zinc-800"}`}>
