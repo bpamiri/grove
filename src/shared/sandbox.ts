@@ -75,6 +75,7 @@ export interface OverlayContext {
   pathName?: string;
   sessionSummary?: string | null;
   filesModified?: string | null;
+  stepPrompt?: string;
 }
 
 /** Build the CLAUDE.md overlay content for a worker's worktree */
@@ -101,6 +102,12 @@ export function buildOverlay(ctx: OverlayContext): string {
   parts.push("### Strategy");
   parts.push("You are the sole worker on this task. Complete it end-to-end: implement, test, and commit.");
   parts.push("");
+
+  if (ctx.stepPrompt) {
+    parts.push("### Step Instructions");
+    parts.push(ctx.stepPrompt);
+    parts.push("");
+  }
 
   if (ctx.branch) {
     parts.push("### Git Branch");
