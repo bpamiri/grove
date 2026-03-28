@@ -8,7 +8,7 @@ import * as tmux from "./tmux";
 import * as orchestrator from "../agents/orchestrator";
 import { loadConfig, configTrees, tunnelConfig } from "./config";
 import { bus } from "./event-bus";
-import { wirePipeline } from "./pipeline";
+import { wireStepEngine } from "../engine/step-engine";
 import { initDispatch } from "./dispatch";
 import { startHealthMonitor, stopHealthMonitor } from "../monitor/health";
 import { startCostMonitor, stopCostMonitor } from "../monitor/cost";
@@ -80,8 +80,8 @@ export async function startBroker(): Promise<BrokerInfo> {
 
   const url = `http://localhost:${port}`;
 
-  // Wire the full pipeline (worker → evaluator → merge manager)
-  wirePipeline(db);
+  // Wire step engine
+  wireStepEngine(db);
 
   // Initialize dispatch system (concurrent worker queue)
   initDispatch({ db, maxWorkers: config.settings.max_workers });
