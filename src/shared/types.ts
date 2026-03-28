@@ -185,7 +185,9 @@ export interface ServerConfig {
 export interface TunnelConfig {
   provider: "cloudflare" | "bore" | "ngrok";
   auth: "token" | "none";
-  domain?: string;
+  domain?: string;      // e.g. "grove.cloud" — register with Worker proxy for stable vanity URL
+  subdomain?: string;   // auto-generated on first start, persisted across restarts
+  secret?: string;      // auto-generated, proves subdomain ownership with Worker
 }
 
 export interface SettingsConfig {
