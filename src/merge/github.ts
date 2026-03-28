@@ -143,7 +143,30 @@ export function ghPrList(repo: string, opts?: { head?: string; state?: string; l
 }
 
 // ---------------------------------------------------------------------------
-// Git push
+// Issue operations
+// ---------------------------------------------------------------------------
+
+export interface GhIssue {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  body: string;
+  labels: Array<{ name: string }>;
+}
+
+export function ghIssueList(repo: string, opts?: { state?: string; limit?: number }): GhIssue[] {
+  const args = [
+    "issue", "list", "-R", repo,
+    "--json", "number,title,state,url,body,labels",
+  ];
+  if (opts?.state) args.push("--state", opts.state);
+  args.push("--limit", String(opts?.limit ?? 30));
+  return ghJson<GhIssue[]>(args);
+}
+
+// ---------------------------------------------------------------------------
+// Git push & branch cleanup
 // ---------------------------------------------------------------------------
 
 export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr: string } {
@@ -151,5 +174,15 @@ export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr
   return {
     ok: result.exitCode === 0,
     stderr: result.stderr.toString().trim(),
+  };
+}
+
+/** Delete a branch locally and on the remote (best-effort, won't throw) */
+export function gitDeleteBranch(repoPath: string, branch: string): { localOk: boolean; remoteOk: boolean } {
+  const local = Bun.spawnSync(["git", "-C", repoPath, "branch", "-D", branch]);
+  const remote = Bun.spawnSync(["git", "-C", repoPath, "push", "origin", "--delete", branch]);
+  return {
+    localOk: local.exitCode === 0,
+    remoteOk: remote.exitCode === 0,
   };
 }

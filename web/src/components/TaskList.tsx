@@ -39,8 +39,45 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
   const [filter, setFilter] = useState<"all" | "active" | "done">("all");
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [newTreeId, setNewTreeId] = useState("");
   const [creating, setCreating] = useState(false);
+  const [issues, setIssues] = useState<Array<{ number: number; title: string; body: string; labels: Array<{ name: string }> }>>([]);
+  const [loadingIssues, setLoadingIssues] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<number | null>(null);
+
+  const loadIssues = async (treeId: string) => {
+    if (!treeId) { setIssues([]); return; }
+    setLoadingIssues(true);
+    try {
+      const data = await api<any[]>(`/api/trees/${treeId}/issues`);
+      setIssues(Array.isArray(data) ? data : []);
+    } catch { setIssues([]); }
+    finally { setLoadingIssues(false); }
+  };
+
+  const handleTreeChange = (treeId: string) => {
+    setNewTreeId(treeId);
+    setSelectedIssue(null);
+    setNewTitle("");
+    setNewDescription("");
+    loadIssues(treeId);
+  };
+
+  const handleIssueSelect = (issueNum: number) => {
+    if (issueNum === 0) {
+      setSelectedIssue(null);
+      setNewTitle("");
+      setNewDescription("");
+      return;
+    }
+    const issue = issues.find(i => i.number === issueNum);
+    if (issue) {
+      setSelectedIssue(issue.number);
+      setNewTitle(`${issue.title} Issue #${issue.number}`);
+      setNewDescription(issue.body ?? "");
+    }
+  };
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,9 +86,13 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
     try {
       const body: Record<string, string> = { title: newTitle };
       if (newTreeId) body.tree_id = newTreeId;
+      if (newDescription) body.description = newDescription;
       await api("/api/tasks", { method: "POST", body: JSON.stringify(body) });
       setNewTitle("");
+      setNewDescription("");
       setNewTreeId("");
+      setSelectedIssue(null);
+      setIssues([]);
       setShowNewTask(false);
       onRefresh();
     } catch (err) {
@@ -116,6 +157,35 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
       {/* New task form */}
       {showNewTask && (
         <form onSubmit={handleCreateTask} className="mb-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg space-y-2">
+          <select
+            value={newTreeId}
+            onChange={(e) => handleTreeChange(e.target.value)}
+            className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+          >
+            <option value="">Select a tree...</option>
+            {trees.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}{t.github ? ` (${t.github})` : ""}</option>
+            ))}
+          </select>
+
+          {newTreeId && (
+            <select
+              value={selectedIssue ?? 0}
+              onChange={(e) => handleIssueSelect(Number(e.target.value))}
+              className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+            >
+              <option value={0}>
+                {loadingIssues ? "Loading issues..." : issues.length > 0 ? "Select an issue (or type custom)" : "No open issues — type custom title"}
+              </option>
+              {issues.map((issue) => (
+                <option key={issue.number} value={issue.number}>
+                  #{issue.number} — {issue.title}
+                  {issue.labels?.length > 0 ? ` [${issue.labels.map(l => l.name).join(", ")}]` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+
           <input
             type="text"
             value={newTitle}
@@ -124,30 +194,27 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
             autoFocus
             className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
           />
-          <div className="flex gap-2">
-            <select
-              value={newTreeId}
-              onChange={(e) => setNewTreeId(e.target.value)}
-              className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+
+          {newDescription && (
+            <div className="text-xs text-zinc-500 bg-zinc-800/30 rounded-lg px-3 py-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
+              {newDescription.slice(0, 500)}{newDescription.length > 500 ? "..." : ""}
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => { setShowNewTask(false); setIssues([]); setSelectedIssue(null); }}
+              className="text-zinc-500 px-3 py-2 rounded-lg text-sm hover:text-zinc-300"
             >
-              <option value="">No tree (general)</option>
-              {trees.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+              Cancel
+            </button>
             <button
               type="submit"
               disabled={creating || !newTitle.trim()}
               className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30 disabled:opacity-50"
             >
-              Create
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNewTask(false)}
-              className="text-zinc-500 px-3 py-2 rounded-lg text-sm hover:text-zinc-300"
-            >
-              Cancel
+              {creating ? "Creating..." : "Create Task"}
             </button>
           </div>
         </form>

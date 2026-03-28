@@ -317,6 +317,21 @@ async function handleApi(
       return json(db.treeGet(id), 201);
     }
 
+    // GET /api/trees/:id/issues — fetch open GitHub issues for a tree
+    const issuesMatch = path.match(/^\/api\/trees\/([^/]+)\/issues$/);
+    if (issuesMatch && req.method === "GET") {
+      const tree = db.treeGet(issuesMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      if (!tree.github) return json([]);
+      try {
+        const { ghIssueList } = await import("../merge/github");
+        const issues = ghIssueList(tree.github, { state: "open", limit: 30 });
+        return json(issues);
+      } catch (err: any) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     // GET /api/tasks
     if (path === "/api/tasks" && req.method === "GET") {
       const url = new URL(req.url);
