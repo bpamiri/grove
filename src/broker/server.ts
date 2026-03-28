@@ -96,15 +96,22 @@ export function startServer(opts: ServerOptions) {
         return new Response(null, { headers: corsHeaders });
       }
 
-      // WebSocket upgrade
+      // WebSocket upgrade — local connections are pre-authenticated
       if (path === "/ws") {
-        const upgraded = server.upgrade(req, { data: { authenticated: false } });
+        const isLocal = !isRemoteRequest(req);
+        const upgraded = server.upgrade(req, { data: { authenticated: isLocal } });
         if (upgraded) return undefined as any;
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
-      // API routes
+      // API routes — require auth token for remote (non-localhost) requests
       if (path.startsWith("/api/")) {
+        if (isRemoteRequest(req) && !isAuthorized(req)) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
         return handleApi(path, req, db, onChat, corsHeaders);
       }
 
@@ -132,6 +139,12 @@ export function startServer(opts: ServerOptions) {
               type: "auth_result",
               authenticated: ws.data.authenticated,
             }));
+            return;
+          }
+
+          // Require auth for write operations
+          if (!ws.data.authenticated && data.type !== "auth") {
+            ws.send(JSON.stringify({ type: "error", message: "Not authenticated" }));
             return;
           }
 
@@ -338,6 +351,48 @@ async function handleApi(
       return json(configNormalizedPathsForApi());
     }
 
+    // POST /api/trees/:id/import-issues — create tasks from open GitHub issues
+    const importMatch = path.match(/^\/api\/trees\/([^/]+)\/import-issues$/);
+    if (importMatch && req.method === "POST") {
+      const tree = db.treeGet(importMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      if (!tree.github) return json({ error: "No GitHub repo configured" }, 400);
+
+      try {
+        const { ghIssueList } = await import("../merge/github");
+        const issues = ghIssueList(tree.github, { state: "open", limit: 50 });
+
+        // Find issues that already have tasks (by title match containing "Issue #N")
+        const existingTasks = db.all<{ title: string }>(
+          "SELECT title FROM tasks WHERE tree_id = ?", [tree.id]
+        );
+        const existingIssueNums = new Set<number>();
+        for (const t of existingTasks) {
+          const match = t.title.match(/Issue #(\d+)/);
+          if (match) existingIssueNums.add(parseInt(match[1], 10));
+        }
+
+        let imported = 0;
+        for (const issue of issues) {
+          if (existingIssueNums.has(issue.number)) continue;
+
+          const taskId = db.nextTaskId("W");
+          const title = `${issue.title} Issue #${issue.number}`;
+          const description = issue.body || "";
+          db.run(
+            "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'draft')",
+            [taskId, tree.id, title, description, "development"]
+          );
+          db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
+          imported++;
+        }
+
+        return json({ ok: true, imported, skipped: issues.length - imported, total: issues.length });
+      } catch (err: any) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     // GET /api/tasks
     if (path === "/api/tasks" && req.method === "GET") {
       const url = new URL(req.url);
@@ -366,7 +421,7 @@ async function handleApi(
       const body = await req.json() as { title: string; tree_id?: string; description?: string; path_name?: string };
       const taskId = db.nextTaskId("W");
       db.run(
-        "INSERT INTO tasks (id, tree_id, title, description, path_name) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'draft')",
         [taskId, body.tree_id ?? null, body.title, body.description ?? null, body.path_name ?? "development"],
       );
       db.addEvent(taskId, null, "task_created", `Task created: ${body.title}`);
@@ -438,14 +493,14 @@ async function handleApi(
                   const name = block.name ?? "tool";
                   const inp = block.input ?? {};
                   const detail = typeof inp === "object"
-                    ? (inp.file_path ?? inp.command ?? inp.pattern ?? "").toString().slice(0, 80)
+                    ? (inp.file_path ?? inp.command ?? inp.pattern ?? "").toString().slice(0, 200)
                     : "";
                   activities.push({ ts: obj.timestamp ?? "", msg: `${name}: ${detail}`, kind: "tool" });
                 } else if (block.type === "thinking" && block.thinking) {
-                  const snippet = block.thinking.slice(0, 120).replace(/\n/g, " ");
+                  const snippet = block.thinking.slice(0, 300).replace(/\n/g, " ");
                   activities.push({ ts: obj.timestamp ?? "", msg: `thinking: ${snippet}`, kind: "thinking" });
                 } else if (block.type === "text" && block.text && block.text.length > 10) {
-                  const snippet = block.text.slice(0, 120).replace(/\n/g, " ");
+                  const snippet = block.text.slice(0, 300).replace(/\n/g, " ");
                   activities.push({ ts: obj.timestamp ?? "", msg: snippet, kind: "text" });
                 }
               }
@@ -480,6 +535,62 @@ async function handleApi(
       return json({ ok: true, taskId, status: "queued" });
     }
 
+    // POST /api/rotate-credentials — regenerate auth token + subdomain + secret
+    if (path === "/api/rotate-credentials" && req.method === "POST") {
+      const { rotateToken } = await import("./auth");
+      const { configSet, tunnelConfig: getTunnelConfig, reloadConfig } = await import("./config");
+      const { generateSubdomain, generateSecret } = await import("./subdomain");
+      const { deregisterGrove } = await import("./registry");
+
+      // Rotate the auth token
+      const newToken = rotateToken();
+
+      const tc = getTunnelConfig();
+      let newSubdomain: string | null = null;
+
+      // Deregister old subdomain from Worker, generate new ones
+      if (tc.domain && tc.subdomain && tc.secret) {
+        try {
+          await deregisterGrove({
+            registryUrl: `https://${tc.domain}`,
+            subdomain: tc.subdomain,
+            secret: tc.secret,
+          });
+        } catch {}
+
+        newSubdomain = generateSubdomain();
+        const newSecret = generateSecret();
+        configSet("tunnel.subdomain", newSubdomain);
+        configSet("tunnel.secret", newSecret);
+        reloadConfig();
+      }
+
+      db.addEvent(null, null, "credentials_rotated", "Auth token and tunnel credentials rotated via GUI");
+
+      return json({
+        ok: true,
+        message: "Credentials rotated. Grove will restart to apply new tunnel URL.",
+        token: newToken,
+        subdomain: newSubdomain,
+      });
+    }
+
+    // POST /api/restart — restart the broker process
+    if (path === "/api/restart" && req.method === "POST") {
+      db.addEvent(null, null, "broker_restart", "Restart requested via GUI");
+      // Use a shell script that outlives this process: down, sleep, up
+      const grove = process.execPath;
+      const script = `"${grove}" down; sleep 2; "${grove}" up`;
+      setTimeout(() => {
+        Bun.spawn(["bash", "-c", `nohup bash -c '${script}' &>/dev/null &`], {
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+        // Give the shell a moment to fork, then exit
+        setTimeout(() => process.exit(0), 200);
+      }, 300);
+      return json({ ok: true, message: "Restarting..." });
+    }
+
     // GET /api/events
     if (path === "/api/events" && req.method === "GET") {
       const url = new URL(req.url);
@@ -500,4 +611,34 @@ async function handleApi(
   } catch (err) {
     return json({ error: String(err) }, 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+
+/** Check if a request is coming from a remote origin (not localhost) */
+function isRemoteRequest(req: Request): boolean {
+  const host = req.headers.get("host") || "";
+  return !host.startsWith("localhost") && !host.startsWith("127.0.0.1") && !host.startsWith("[::1]");
+}
+
+/** Validate auth token from Authorization header or ?token= query param */
+function isAuthorized(req: Request): boolean {
+  const { validateToken } = require("./auth");
+
+  // Check Authorization: Bearer <token>
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return validateToken(authHeader.slice(7));
+  }
+
+  // Check ?token= query parameter
+  const url = new URL(req.url);
+  const tokenParam = url.searchParams.get("token");
+  if (tokenParam) {
+    return validateToken(tokenParam);
+  }
+
+  return false;
 }
