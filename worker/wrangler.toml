@@ -1,0 +1,12 @@
+name = "grove-cloud"
+main = "src/index.ts"
+compatibility_date = "2026-03-28"
+
+routes = [
+  { pattern = "grove.cloud/*", zone_name = "grove.cloud" },
+  { pattern = "*.grove.cloud/*", zone_name = "grove.cloud" }
+]
+
+[[kv_namespaces]]
+binding = "GROVE_ROUTES"
+id = "__FILL_AFTER_KV_CREATE__"
