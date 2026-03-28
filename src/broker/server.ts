@@ -285,9 +285,9 @@ async function handleApi(
         wsClients: wsClients.size,
         tasks: {
           total: db.taskCount(),
-          running: db.taskCount("running"),
-          done: db.taskCount("done"),
-          planned: db.taskCount("planned"),
+          active: db.taskCount("active"),
+          completed: db.taskCount("completed"),
+          draft: db.taskCount("draft"),
         },
         cost: {
           today: db.costToday(),
@@ -315,6 +315,12 @@ async function handleApi(
         branch_prefix: body.branch_prefix ?? "grove/",
       });
       return json(db.treeGet(id), 201);
+    }
+
+    // GET /api/paths — normalized pipeline step definitions
+    if (path === "/api/paths" && req.method === "GET") {
+      const { configNormalizedPathsForApi } = await import("./config");
+      return json(configNormalizedPathsForApi());
     }
 
     // GET /api/tasks
@@ -373,10 +379,17 @@ async function handleApi(
       const taskId = dispatchMatch[1];
       const task = db.taskGet(taskId);
       if (!task) return json({ error: "Task not found" }, 404);
-      db.taskSetStatus(taskId, "ready");
+      const { configNormalizedPaths } = await import("./config");
+      const paths = configNormalizedPaths();
+      const pathConfig = paths[task.path_name];
+      if (pathConfig && pathConfig.steps.length > 0) {
+        db.run("UPDATE tasks SET current_step = ?, step_index = 0 WHERE id = ?",
+          [pathConfig.steps[0].id, taskId]);
+      }
+      db.taskSetStatus(taskId, "queued");
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
-      return json({ ok: true, taskId, status: "ready" });
+      return json({ ok: true, taskId, status: "queued" });
     }
 
     // GET /api/tasks/:id/activity — recent tool_use activity from worker log
@@ -436,20 +449,20 @@ async function handleApi(
       const taskId = retryMatch[1];
       const task = db.taskGet(taskId);
       if (!task) return json({ error: "Task not found" }, 404);
-      if (task.status === "running") {
+      if (task.status === "active") {
         // Kill the active worker first
         const { stopWorker } = await import("../agents/worker");
         stopWorker(taskId, db);
       }
-      // Increment retry count, reset status to ready, preserve worktree/branch/artifacts
+      // Increment retry count, reset status to queued, preserve worktree/branch/artifacts
       db.run(
-        "UPDATE tasks SET status = 'ready', retry_count = retry_count + 1 WHERE id = ?",
+        "UPDATE tasks SET status = 'queued', retry_count = retry_count + 1, paused = 0 WHERE id = ?",
         [taskId]
       );
       db.addEvent(taskId, null, "task_retried", `Task retried (attempt ${(task.retry_count ?? 0) + 2})`);
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
-      return json({ ok: true, taskId, status: "ready" });
+      return json({ ok: true, taskId, status: "queued" });
     }
 
     // GET /api/events
