@@ -245,7 +245,7 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
 }
 
 /** Build a prompt for retrying a worker after gate failures */
-export function buildRetryPrompt(gateResults: GateResult[]): string {
+export function buildRetryPrompt(gateResults: GateResult[], seedSpec?: string | null): string {
   const failures = gateResults.filter(r => !r.passed);
   if (failures.length === 0) return "";
 
@@ -256,5 +256,10 @@ export function buildRetryPrompt(gateResults: GateResult[]): string {
   }
   lines.push("", "Fix these issues. The worktree still contains your previous work.");
   lines.push("Run tests before finishing to confirm they pass.");
+
+  if (seedSpec) {
+    lines.push("", "## Seed (Design Spec)", "Ensure your fix still aligns with the original design:", "", seedSpec);
+  }
+
   return lines.join("\n");
 }

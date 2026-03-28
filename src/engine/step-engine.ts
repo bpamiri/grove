@@ -30,9 +30,20 @@ export function startPipeline(task: Task, tree: Tree, db: Database): void {
 
   const firstStep = pathConfig.steps[0];
 
+  // If task has a seed and first step is a "plan" worker, skip to next step
+  const seed = db.seedGet(task.id);
+  let startStep = firstStep;
+  let startIndex = 0;
+
+  if (seed?.spec && firstStep.type === "worker" && firstStep.id === "plan" && pathConfig.steps.length > 1) {
+    startStep = pathConfig.steps[1];
+    startIndex = 1;
+    db.addEvent(task.id, null, "step_skipped", `Skipped "${firstStep.id}" — seed spec provides the plan`);
+  }
+
   db.run(
-    "UPDATE tasks SET status = 'active', current_step = ?, step_index = 0 WHERE id = ?",
-    [firstStep.id, task.id],
+    "UPDATE tasks SET status = 'active', current_step = ?, step_index = ? WHERE id = ?",
+    [startStep.id, startIndex, task.id],
   );
   bus.emit("task:status", { taskId: task.id, status: "active" });
 
@@ -40,7 +51,7 @@ export function startPipeline(task: Task, tree: Tree, db: Database): void {
   const updated = db.taskGet(task.id);
   if (!updated) return;
 
-  executeStep(updated, firstStep, tree, db);
+  executeStep(updated, startStep, tree, db);
 }
 
 /**

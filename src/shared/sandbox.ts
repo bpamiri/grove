@@ -76,6 +76,7 @@ export interface OverlayContext {
   sessionSummary?: string | null;
   filesModified?: string | null;
   stepPrompt?: string;
+  seedSpec?: string | null;
 }
 
 /** Build the CLAUDE.md overlay content for a worker's worktree */
@@ -90,6 +91,14 @@ export function buildOverlay(ctx: OverlayContext): string {
   if (ctx.description) {
     parts.push("### Description");
     parts.push(ctx.description);
+    parts.push("");
+  }
+
+  if (ctx.seedSpec) {
+    parts.push("### Seed (Design Spec)");
+    parts.push("The following design spec was produced during a brainstorming session. Follow it closely.");
+    parts.push("");
+    parts.push(ctx.seedSpec);
     parts.push("");
   }
 

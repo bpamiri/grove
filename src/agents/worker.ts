@@ -49,6 +49,10 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   const priorSummary = existsSync(summaryPath) ? readFileSync(summaryPath, "utf-8") : task.session_summary;
   const isResumption = !!(priorSummary || task.retry_count > 0);
 
+  // Look up seed spec for this task
+  const seed = db.seedGet(task.id);
+  const seedSpec = seed?.spec ?? null;
+
   // Deploy sandbox (guard hooks + CLAUDE.md overlay with prior context)
   deploySandbox(worktreePath, {
     taskId: task.id,
@@ -60,6 +64,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     sessionSummary: priorSummary,
     filesModified: task.files_modified,
     stepPrompt,
+    seedSpec,
   });
 
   // Update task in DB
@@ -142,16 +147,16 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
                 const tool = block.name ?? "tool";
                 const input = block.input ?? {};
                 const file = input.file_path ?? input.command ?? input.pattern ?? "";
-                const activity = `${tool}: ${String(file).slice(0, 60)}`;
+                const activity = `${tool}: ${String(file).slice(0, 200)}`;
                 if (activity !== lastActivity) {
                   lastActivity = activity;
                   bus.emit("worker:activity", { taskId, msg: activity });
                 }
               } else if (block.type === "thinking" && block.thinking) {
-                const snippet = block.thinking.slice(0, 120).replace(/\n/g, " ");
+                const snippet = block.thinking.slice(0, 300).replace(/\n/g, " ");
                 bus.emit("worker:activity", { taskId, msg: `thinking: ${snippet}`, kind: "thinking" });
               } else if (block.type === "text" && block.text && block.text.length > 10) {
-                const snippet = block.text.slice(0, 120).replace(/\n/g, " ");
+                const snippet = block.text.slice(0, 300).replace(/\n/g, " ");
                 bus.emit("worker:activity", { taskId, msg: `${snippet}`, kind: "text" });
               }
             }
