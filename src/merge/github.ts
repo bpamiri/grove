@@ -100,6 +100,31 @@ export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
   return { state, total, passing, failing, pending };
 }
 
+export interface PrCheckDetail {
+  name: string;
+  conclusion: string;
+  link: string;
+}
+
+/** Get details of failed CI checks on a PR */
+export function ghPrCheckDetails(repo: string, prNumber: number): PrCheckDetail[] {
+  const result = gh(["pr", "checks", String(prNumber), "-R", repo]);
+  if (!result.ok || !result.stdout) return [];
+  // Output format: name\tstate\tduration\tlink (tab-separated)
+  const failures: PrCheckDetail[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length >= 2 && parts[1] === "fail") {
+      failures.push({
+        name: parts[0].trim(),
+        conclusion: "failure",
+        link: parts[3]?.trim() ?? "",
+      });
+    }
+  }
+  return failures;
+}
+
 export function ghPrList(repo: string, opts?: { head?: string; state?: string; limit?: number }): GhPr[] {
   const args = [
     "pr", "list", "-R", repo,

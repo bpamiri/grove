@@ -1,8 +1,8 @@
 // Grove v3 — Merge Manager: PR lifecycle management
 // Handles: push branch → create PR → watch CI → merge on green
-// Sequential per-tree queue to avoid merge conflicts.
+// On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
-import { ghPrCreate, ghPrMerge, ghPrChecks, gitPush, type PrCheckStatus } from "./github";
+import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, gitPush, type PrCheckStatus } from "./github";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
@@ -40,56 +40,66 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     return;
   }
 
-  // 2. Create PR
-  let prNumber: number;
-  let prUrl: string;
-  try {
-    const filesModified = task.files_modified?.split("\n").filter(Boolean).length ?? 0;
-    const gateResults = task.gate_results ? JSON.parse(task.gate_results) : [];
-    const gatesSummary = gateResults
-      .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
-      .join("\n");
+  // 2. Create PR (or reuse existing one)
+  // Re-read task to get latest pr_number (may already have a PR from a previous attempt)
+  const freshTask = db.taskGet(task.id) ?? task;
+  let prNumber = freshTask.pr_number ?? 0;
+  let prUrl = freshTask.pr_url ?? "";
 
-    const body = [
-      `## ${task.title}`,
-      "",
-      task.description ?? "",
-      "",
-      `**Task:** ${task.id}`,
-      `**Path:** ${task.path_name}`,
-      `**Cost:** $${task.cost_usd.toFixed(2)}`,
-      `**Files changed:** ${filesModified}`,
-      "",
-      "### Quality Gates",
-      gatesSummary || "No gates run",
-      "",
-      "---",
-      "*Created by [Grove](https://grove.cloud)*",
-    ].join("\n");
+  if (!prNumber) {
+    try {
+      const filesModified = freshTask.files_modified?.split("\n").filter(Boolean).length ?? 0;
+      const gateResults = freshTask.gate_results ? JSON.parse(freshTask.gate_results) : [];
+      const gatesSummary = gateResults
+        .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
+        .join("\n");
 
-    // Determine base branch from tree config
-    const treeConfig = tree.config ? JSON.parse(tree.config) : {};
-    const baseBranch = treeConfig.default_branch ?? undefined;
+      const titleSlug = freshTask.title.length > 60
+        ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
+        : freshTask.title;
 
-    const pr = ghPrCreate(tree.github, {
-      title: `grove(${task.id}): ${task.title}`,
-      body,
-      head: task.branch,
-      base: baseBranch,
-    });
+      const body = [
+        `## ${freshTask.title}`,
+        "",
+        freshTask.description ?? "",
+        "",
+        `**Task:** ${freshTask.id}`,
+        `**Path:** ${freshTask.path_name}`,
+        `**Cost:** $${freshTask.cost_usd.toFixed(2)}`,
+        `**Files changed:** ${filesModified}`,
+        "",
+        "### Quality Gates",
+        gatesSummary || "No gates run",
+        "",
+        "---",
+        "*Created by [Grove](https://grove.cloud)*",
+      ].join("\n");
 
-    prNumber = pr.number;
-    prUrl = pr.url;
-  } catch (err: any) {
-    db.addEvent(task.id, null, "merge_failed", `PR creation failed: ${err.message}`);
-    bus.emit("merge:ci_failed", { taskId: task.id, prNumber: 0 });
-    return;
+      const treeConfig = tree.config ? JSON.parse(tree.config) : {};
+      const baseBranch = treeConfig.default_branch ?? undefined;
+
+      const pr = ghPrCreate(tree.github!, {
+        title: `grove(${freshTask.id}): ${titleSlug}`,
+        body,
+        head: freshTask.branch!,
+        base: baseBranch,
+      });
+
+      prNumber = pr.number;
+      prUrl = pr.url;
+
+      db.run("UPDATE tasks SET pr_url = ?, pr_number = ? WHERE id = ?", [prUrl, prNumber, freshTask.id]);
+      db.addEvent(freshTask.id, null, "pr_created", `PR #${prNumber} created`);
+      bus.emit("merge:pr_created", { taskId: freshTask.id, prNumber, prUrl });
+    } catch (err: any) {
+      db.addEvent(freshTask.id, null, "merge_failed", `PR creation failed: ${err.message}`);
+      bus.emit("merge:ci_failed", { taskId: freshTask.id, prNumber: 0 });
+      return;
+    }
+  } else {
+    // PR already exists — push triggered new CI checks
+    db.addEvent(freshTask.id, null, "ci_recheck", `Re-checking CI on existing PR #${prNumber}`);
   }
-
-  // Update task with PR info
-  db.run("UPDATE tasks SET pr_url = ?, pr_number = ? WHERE id = ?", [prUrl, prNumber, task.id]);
-  db.addEvent(task.id, null, "pr_created", `PR #${prNumber} created`);
-  bus.emit("merge:pr_created", { taskId: task.id, prNumber, prUrl });
 
   // 3. Watch CI
   const ciResult = await watchCI(tree.github, prNumber, task.id, db);
@@ -107,10 +117,39 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
     }
   } else {
-    // CI failed — notify orchestrator
-    db.taskSetStatus(task.id, "ci_failed");
-    db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}`);
+    // CI failed — get failure details and send back to worker for fixes
+    const failDetails = ghPrCheckDetails(tree.github!, prNumber);
+    const failSummary = failDetails.length > 0
+      ? failDetails.map(c => `- ${c.name}: ${c.conclusion} (${c.link})`).join("\n")
+      : `CI failed on PR #${prNumber} (no details available)`;
+
+    db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}: ${failDetails.length} check(s) failed`);
     bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
+
+    // Check retry budget
+    const maxRetries = db.get<{ max_retries: number }>(
+      "SELECT max_retries FROM tasks WHERE id = ?", [task.id]
+    )?.max_retries ?? 2;
+
+    if ((task.retry_count ?? 0) >= maxRetries + 3) {
+      // Too many retries — give up
+      db.taskSetStatus(task.id, "ci_failed");
+      db.addEvent(task.id, null, "retry_exhausted", `CI fix retries exhausted`);
+      return;
+    }
+
+    // Store CI failure context so the worker knows what to fix
+    db.run(
+      "UPDATE tasks SET session_summary = COALESCE(session_summary, '') || ? WHERE id = ?",
+      [`\n\n## CI Failure (PR #${prNumber})\n${failSummary}\n\nFix these CI failures, commit, and the PR will be re-checked automatically.`, task.id]
+    );
+
+    // Send back to worker
+    db.run("UPDATE tasks SET status = 'ready', retry_count = retry_count + 1 WHERE id = ?", [task.id]);
+    db.addEvent(task.id, null, "ci_fix_dispatched", `Sent back to worker to fix ${failDetails.length} CI failure(s)`);
+
+    const { enqueue } = await import("../broker/dispatch");
+    enqueue(task.id);
   }
 }
 
