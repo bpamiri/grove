@@ -34,8 +34,21 @@ function capOutput(buf: Buffer): string {
 // Quality gate checks (run in-process, not via Claude)
 // ---------------------------------------------------------------------------
 
-function checkCommits(worktreePath: string): GateResult {
-  const result = Bun.spawnSync(["git", "log", "main..HEAD", "--oneline"], {
+/** Resolve the base git ref for a worktree (origin/main, main, origin/master, etc.) */
+function resolveBaseRef(worktreePath: string, configRef?: string): string {
+  if (configRef) return configRef;
+  // Try common refs in order of preference
+  for (const ref of ["origin/main", "main", "origin/master", "master"]) {
+    const check = Bun.spawnSync(["git", "rev-parse", "--verify", ref], {
+      cwd: worktreePath, stdin: "ignore", stderr: "pipe",
+    });
+    if (check.exitCode === 0) return ref;
+  }
+  return "origin/main"; // fallback
+}
+
+function checkCommits(worktreePath: string, baseRef: string): GateResult {
+  const result = Bun.spawnSync(["git", "log", `${baseRef}..HEAD`, "--oneline"], {
     cwd: worktreePath, stdin: "ignore",
   });
   const lines = result.stdout.toString().trim().split("\n").filter(Boolean);
@@ -47,20 +60,13 @@ function checkCommits(worktreePath: string): GateResult {
   };
 }
 
-function checkTests(worktreePath: string, timeoutSec: number = 60): GateResult {
-  // Detect test runner
-  let cmd: string[];
-  if (existsSync(join(worktreePath, "bunfig.toml")) || existsSync(join(worktreePath, "bun.lockb"))) {
-    cmd = ["bun", "test"];
-  } else if (existsSync(join(worktreePath, "package.json"))) {
-    cmd = ["npm", "test"];
-  } else if (existsSync(join(worktreePath, "pytest.ini")) || existsSync(join(worktreePath, "pyproject.toml"))) {
-    cmd = ["pytest"];
-  } else {
-    return { gate: "tests", passed: true, tier: "hard", message: "No test runner detected — skipped" };
+function checkTests(worktreePath: string, timeoutSec: number = 60, testCommand?: string): GateResult {
+  if (!testCommand) {
+    // No test command configured — skip rather than guess wrong
+    return { gate: "tests", passed: true, tier: "hard", message: "No test command configured — skipped" };
   }
 
-  const result = Bun.spawnSync(cmd, {
+  const result = Bun.spawnSync(["sh", "-c", testCommand], {
     cwd: worktreePath, timeout: timeoutSec * 1000, stdin: "ignore",
   });
 
@@ -76,17 +82,12 @@ function checkTests(worktreePath: string, timeoutSec: number = 60): GateResult {
   };
 }
 
-function checkLint(worktreePath: string, timeoutSec: number = 30): GateResult {
-  let cmd: string[];
-  if (existsSync(join(worktreePath, ".eslintrc.js")) || existsSync(join(worktreePath, ".eslintrc.json")) || existsSync(join(worktreePath, "eslint.config.js"))) {
-    cmd = ["npx", "eslint", "."];
-  } else if (existsSync(join(worktreePath, "ruff.toml")) || existsSync(join(worktreePath, "pyproject.toml"))) {
-    cmd = ["ruff", "check", "."];
-  } else {
-    return { gate: "lint", passed: true, tier: "soft", message: "No linter detected — skipped" };
+function checkLint(worktreePath: string, timeoutSec: number = 30, lintCommand?: string): GateResult {
+  if (!lintCommand) {
+    return { gate: "lint", passed: true, tier: "soft", message: "No lint command configured — skipped" };
   }
 
-  const result = Bun.spawnSync(cmd, {
+  const result = Bun.spawnSync(["sh", "-c", lintCommand], {
     cwd: worktreePath, timeout: timeoutSec * 1000, stdin: "ignore",
   });
 
@@ -102,8 +103,8 @@ function checkLint(worktreePath: string, timeoutSec: number = 30): GateResult {
   };
 }
 
-function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000): GateResult {
-  const result = Bun.spawnSync(["git", "diff", "--stat", "main..HEAD"], {
+function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000, baseRef: string = "origin/main"): GateResult {
+  const result = Bun.spawnSync(["git", "diff", "--stat", `${baseRef}..HEAD`], {
     cwd: worktreePath, stdin: "ignore",
   });
 
@@ -132,6 +133,9 @@ interface GateConfig {
   lint_timeout: number;
   min_diff_lines: number;
   max_diff_lines: number;
+  test_command?: string;
+  lint_command?: string;
+  base_ref?: string;
 }
 
 const DEFAULT_GATE_CONFIG: GateConfig = {
@@ -150,11 +154,12 @@ function resolveGateConfig(treeConfig: string | null): GateConfig {
 }
 
 function runGates(worktreePath: string, config: GateConfig): GateResult[] {
+  const baseRef = resolveBaseRef(worktreePath, config.base_ref);
   const results: GateResult[] = [];
-  if (config.commits) results.push(checkCommits(worktreePath));
-  if (config.tests) results.push(checkTests(worktreePath, config.test_timeout));
-  if (config.lint) results.push(checkLint(worktreePath, config.lint_timeout));
-  if (config.diff_size) results.push(checkDiffSize(worktreePath, config.min_diff_lines, config.max_diff_lines));
+  if (config.commits) results.push(checkCommits(worktreePath, baseRef));
+  if (config.tests) results.push(checkTests(worktreePath, config.test_timeout, config.test_command));
+  if (config.lint) results.push(checkLint(worktreePath, config.lint_timeout, config.lint_command));
+  if (config.diff_size) results.push(checkDiffSize(worktreePath, config.min_diff_lines, config.max_diff_lines, baseRef));
   return results;
 }
 

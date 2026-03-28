@@ -216,6 +216,9 @@ export interface QualityGatesConfig {
   max_diff_lines?: number;
   test_timeout?: number;
   lint_timeout?: number;
+  test_command?: string;  // e.g. "npm test", "pytest", "wheels test run"
+  lint_command?: string;  // e.g. "npx eslint .", "ruff check ."
+  base_ref?: string;      // git ref to diff against (default: auto-detect origin/main or main)
 }
 
 // ---------------------------------------------------------------------------
