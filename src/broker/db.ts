@@ -41,6 +41,8 @@ export class Database {
       this.run("UPDATE tasks SET status = 'completed', current_step = '$done' WHERE status IN ('merged', 'completed', 'done')");
       this.run("UPDATE tasks SET status = 'failed', current_step = '$fail' WHERE status IN ('failed', 'ci_failed')");
     }
+    // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
+    this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }
 
   close(): void {
@@ -234,6 +236,50 @@ export class Database {
 
   clearMessages(): void {
     this.run("DELETE FROM messages");
+  }
+
+  // ---- Seed operations ----
+
+  seedCreate(taskId: string): void {
+    this.run(
+      "INSERT OR REPLACE INTO seeds (task_id, status) VALUES (?, 'active')",
+      [taskId],
+    );
+  }
+
+  seedGet(taskId: string): {
+    id: number; task_id: string; summary: string | null; spec: string | null;
+    conversation: string | null; status: string; created_at: string; completed_at: string | null;
+  } | null {
+    return this.get(
+      "SELECT * FROM seeds WHERE task_id = ? AND status != 'discarded'",
+      [taskId],
+    );
+  }
+
+  seedComplete(taskId: string, summary: string, spec: string): void {
+    this.run(
+      "UPDATE seeds SET summary = ?, spec = ?, status = 'completed', completed_at = datetime('now') WHERE task_id = ? AND status = 'active'",
+      [summary, spec, taskId],
+    );
+  }
+
+  seedUpdateConversation(taskId: string, messages: any[]): void {
+    this.run(
+      "UPDATE seeds SET conversation = ? WHERE task_id = ? AND status = 'active'",
+      [JSON.stringify(messages), taskId],
+    );
+  }
+
+  seedDiscard(taskId: string): void {
+    this.run(
+      "UPDATE seeds SET status = 'discarded' WHERE task_id = ? AND status IN ('active', 'completed')",
+      [taskId],
+    );
+  }
+
+  seedDelete(taskId: string): void {
+    this.run("DELETE FROM seeds WHERE task_id = ?", [taskId]);
   }
 
   // ---- Cost helpers ----
