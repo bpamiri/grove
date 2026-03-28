@@ -67,10 +67,15 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       "*Created by [Grove](https://grove.cloud)*",
     ].join("\n");
 
+    // Determine base branch from tree config
+    const treeConfig = tree.config ? JSON.parse(tree.config) : {};
+    const baseBranch = treeConfig.default_branch ?? undefined;
+
     const pr = ghPrCreate(tree.github, {
       title: `grove(${task.id}): ${task.title}`,
       body,
       head: task.branch,
+      base: baseBranch,
     });
 
     prNumber = pr.number;

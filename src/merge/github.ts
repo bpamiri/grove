@@ -43,6 +43,7 @@ export function ghPrCreate(repo: string, opts: {
   title: string;
   body: string;
   head: string;
+  base?: string;
   draft?: boolean;
 }): { number: number; url: string } {
   const args = [
@@ -51,13 +52,18 @@ export function ghPrCreate(repo: string, opts: {
     "--body", opts.body,
     "--head", opts.head,
   ];
+  if (opts.base) args.push("--base", opts.base);
   if (opts.draft) args.push("--draft");
 
-  const result = gh([...args, "--json", "number,url"]);
+  const result = gh(args);
   if (!result.ok) {
     throw new Error(`gh pr create failed: ${result.stderr}`);
   }
-  return JSON.parse(result.stdout) as { number: number; url: string };
+  // gh pr create outputs the PR URL to stdout (e.g. https://github.com/owner/repo/pull/123)
+  const url = result.stdout.trim();
+  const prNumberMatch = url.match(/\/pull\/(\d+)/);
+  const number = prNumberMatch ? parseInt(prNumberMatch[1], 10) : 0;
+  return { number, url };
 }
 
 export function ghPrMerge(repo: string, prNumber: number): void {
