@@ -2,7 +2,8 @@
 // Handles: push branch → create PR → watch CI → merge on green
 // On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
-import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, gitPush, type PrCheckStatus } from "./github";
+import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, gitPush, gitDeleteBranch, type PrCheckStatus } from "./github";
+import { cleanupWorktree } from "../shared/worktree";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
@@ -114,6 +115,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     try {
       ghPrMerge(tree.github, prNumber);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
+      postMergeCleanup(task, tree, db);
       const { onStepComplete } = await import("../engine/step-engine");
       onStepComplete(task.id, "success");
     } catch (err: any) {
@@ -150,6 +152,31 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
 
     const { onStepComplete } = await import("../engine/step-engine");
     onStepComplete(task.id, "failure");
+  }
+}
+
+/** Clean up worktree and branches after a successful merge (best-effort) */
+function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
+  const cleaned: string[] = [];
+
+  if (task.worktree_path) {
+    try {
+      cleanupWorktree(task.id, tree.path);
+      cleaned.push("worktree");
+    } catch { /* best-effort */ }
+  }
+
+  if (task.branch) {
+    const repoPath = tree.path.startsWith("~/")
+      ? tree.path.replace("~", process.env.HOME || "~")
+      : tree.path;
+    const { localOk, remoteOk } = gitDeleteBranch(repoPath, task.branch);
+    if (localOk) cleaned.push("local branch");
+    if (remoteOk) cleaned.push("remote branch");
+  }
+
+  if (cleaned.length > 0) {
+    db.addEvent(task.id, null, "cleanup", `Post-merge cleanup: removed ${cleaned.join(", ")}`);
   }
 }
 
