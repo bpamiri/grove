@@ -182,7 +182,6 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
   const sessionId = `eval-${task.id}-${Date.now()}`;
 
   db.sessionCreate(sessionId, task.id, "evaluator");
-  db.taskSetStatus(task.id, "evaluating");
   db.addEvent(task.id, sessionId, "eval_started", "Evaluator started");
   bus.emit("eval:started", { taskId: task.id, sessionId });
 
