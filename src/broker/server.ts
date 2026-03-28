@@ -5,6 +5,7 @@ import type { Database } from "./db";
 import { bus } from "./event-bus";
 import type { EventBusMap } from "../shared/types";
 import { EMBEDDED_ASSETS } from "./web-assets.generated";
+import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
 
 export interface ServerOptions {
   db: Database;
@@ -78,6 +79,7 @@ export function startServer(opts: ServerOptions) {
   const { db, port, onChat, staticDir } = opts;
 
   wireEventBus();
+  setSeedBroadcast(broadcast);
 
   server = Bun.serve<WSData>({
     port,
@@ -167,6 +169,27 @@ export function startServer(opts: ServerOptions) {
           // Handle task actions from GUI
           if (data.type === "action") {
             handleWsAction(data, db);
+            return;
+          }
+
+          // Handle seed session messages
+          if (data.type === "seed" && data.taskId && data.text) {
+            sendSeedMessage(data.taskId, data.text, db);
+            return;
+          }
+
+          if (data.type === "seed_start" && data.taskId) {
+            const task = db.taskGet(data.taskId);
+            if (!task || !task.tree_id) return;
+            const tree = db.treeGet(task.tree_id);
+            if (!tree) return;
+            const { getEnv } = require("./db");
+            startSeedSession(task, tree, db, getEnv().GROVE_LOG_DIR);
+            return;
+          }
+
+          if (data.type === "seed_stop" && data.taskId) {
+            stopSeedSession(data.taskId, db);
             return;
           }
         } catch {
@@ -403,7 +426,19 @@ async function handleApi(
       if (tree) tasks = db.tasksByTree(tree);
       else if (status) tasks = db.tasksByStatus(status);
       else tasks = db.all("SELECT * FROM tasks ORDER BY created_at DESC LIMIT 50");
-      return json(tasks);
+
+      // Annotate tasks with seed status
+      const seedStatuses = db.all<{ task_id: string; status: string }>(
+        "SELECT task_id, status FROM seeds WHERE status IN ('active', 'completed')"
+      );
+      const seedMap = new Map(seedStatuses.map(s => [s.task_id, s.status]));
+      const annotated = (tasks as any[]).map(t => ({
+        ...t,
+        has_seed: seedMap.has(t.id),
+        seed_status: seedMap.get(t.id) ?? null,
+      }));
+
+      return json(annotated);
     }
 
     // GET /api/tasks/:id
@@ -605,6 +640,47 @@ async function handleApi(
       const channel = url.searchParams.get("channel") ?? "main";
       const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
       return json(db.recentMessages(channel, limit));
+    }
+
+    // GET /api/tasks/:id/seed — get seed for a task
+    const seedGetMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed$/);
+    if (seedGetMatch && req.method === "GET") {
+      const seed = db.seedGet(seedGetMatch[1]);
+      if (!seed) return json(null);
+      return json({
+        ...seed,
+        active: isSeedSessionActive(seedGetMatch[1]),
+        conversation: seed.conversation ? JSON.parse(seed.conversation) : [],
+      });
+    }
+
+    // POST /api/tasks/:id/seed/start — start a seed session
+    const seedStartMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed\/start$/);
+    if (seedStartMatch && req.method === "POST") {
+      const taskId = seedStartMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      if (!task.tree_id) return json({ error: "Task has no tree" }, 400);
+      const tree = db.treeGet(task.tree_id);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      const { getEnv } = await import("./db");
+      startSeedSession(task, tree, db, getEnv().GROVE_LOG_DIR);
+      return json({ ok: true, taskId });
+    }
+
+    // POST /api/tasks/:id/seed/stop — stop a seed session
+    const seedStopMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed\/stop$/);
+    if (seedStopMatch && req.method === "POST") {
+      stopSeedSession(seedStopMatch[1], db);
+      return json({ ok: true });
+    }
+
+    // DELETE /api/tasks/:id/seed — discard a seed (for re-seed)
+    const seedDeleteMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed$/);
+    if (seedDeleteMatch && req.method === "DELETE") {
+      stopSeedSession(seedDeleteMatch[1], db);
+      db.seedDiscard(seedDeleteMatch[1]);
+      return json({ ok: true });
     }
 
     return json({ error: "Not found" }, 404);
