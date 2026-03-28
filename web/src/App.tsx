@@ -99,6 +99,7 @@ export default function App() {
               <TaskList
                 tasks={taskState.tasks}
                 trees={taskState.trees}
+                paths={taskState.paths}
                 getActivity={taskState.getActivity}
                 getActivityLog={taskState.getActivityLog}
                 loadActivityLog={taskState.loadActivityLog}
@@ -176,6 +177,7 @@ export default function App() {
           <TaskList
             tasks={taskState.tasks}
             trees={taskState.trees}
+            paths={taskState.paths}
             getActivity={taskState.getActivity}
             getActivityLog={taskState.getActivityLog}
             loadActivityLog={taskState.loadActivityLog}

@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
 import type { Task } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
+import type { PathStep } from "./Pipeline";
 
 interface Props {
   task: Task;
   activityLog?: Array<{ ts: number; msg: string }>;
+  steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
 }
 
-export default function TaskDetail({ task, activityLog }: Props) {
+export default function TaskDetail({ task, activityLog, steps }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -26,12 +28,12 @@ export default function TaskDetail({ task, activityLog }: Props) {
       {/* Pipeline */}
       <div>
         <Label>Pipeline</Label>
-        <Pipeline pathName={task.path_name} status={task.status} />
+        <Pipeline task={task} steps={steps} />
       </div>
 
       {/* Activity feed — live when running, historical for completed/failed */}
       {(activityLog ?? []).length > 0 && (
-        <ActivityFeed log={activityLog!} live={task.status === "running"} />
+        <ActivityFeed log={activityLog!} live={task.status === "active" && !task.paused} />
       )}
 
       {/* Description */}
@@ -100,10 +102,10 @@ export default function TaskDetail({ task, activityLog }: Props) {
 
       {/* Actions */}
       <div className="flex gap-2 pt-2 border-t border-zinc-800">
-        {task.status === "running" && (
+        {task.status === "active" && !task.paused && (
           <ActionButton label="Pause" />
         )}
-        {task.status !== "completed" && task.status !== "merged" && task.status !== "failed" && (
+        {task.status !== "completed" && task.status !== "failed" && (
           <ActionButton label="Cancel" variant="danger" />
         )}
       </div>
