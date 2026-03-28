@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
+
 import { useTasks } from "./hooks/useTasks";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
@@ -62,11 +63,13 @@ export default function App() {
   const [view, setView] = useState<View>("tasks");
   const [mobileTab, setMobileTab] = useState<MobileTab>("tasks");
   const isMobile = useIsMobile();
+  const [lastWsMsg, setLastWsMsg] = useState<WsMessage | null>(null);
   const taskState = useTasks();
   const { connected, send } = useWebSocket({
     onMessage: useCallback((msg: WsMessage) => {
       taskState.handleWsMessage(msg);
       chatState.handleWsMessage(msg);
+      setLastWsMsg(msg);
     }, []),
   });
   const chatState = useChat(send);
@@ -74,15 +77,20 @@ export default function App() {
   const sidebar = useDragResize(240, 160, 400, "left");
   const chat = useDragResize(320, 200, 600, "right");
 
+  const activeTaskCount = taskState.tasks.filter(t =>
+    ["draft", "queued", "active"].includes(t.status)
+  ).length || taskState.tasks.length;
+
   if (isMobile) {
     return (
-      <div className="flex flex-col h-screen overflow-hidden">
+      <div className="flex flex-col fixed inset-0 overflow-hidden">
         {/* Mobile content area */}
         <div className="flex-1 overflow-y-auto">
           {mobileTab === "trees" && (
             <Sidebar
               trees={taskState.trees}
               status={taskState.status}
+              taskCount={activeTaskCount}
               selectedTree={taskState.selectedTree}
               onSelectTree={(id) => {
                 taskState.setSelectedTree(id);
@@ -90,8 +98,7 @@ export default function App() {
                 setMobileTab("tasks");
               }}
               connected={connected}
-              view={view}
-              onViewChange={(v) => { setView(v); setMobileTab("tasks"); }}
+              onSettingsClick={() => { setView("settings"); setMobileTab("tasks"); }}
             />
           )}
           {mobileTab === "tasks" && (
@@ -104,6 +111,8 @@ export default function App() {
                 getActivityLog={taskState.getActivityLog}
                 loadActivityLog={taskState.loadActivityLog}
                 onRefresh={taskState.refresh}
+                send={send}
+                wsMessage={lastWsMsg}
               />
             ) : (
               <Settings
@@ -148,20 +157,20 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex fixed inset-0 overflow-hidden">
       {/* Left Sidebar */}
       <div style={{ width: sidebar.width, minWidth: sidebar.width }} className="flex-shrink-0">
         <Sidebar
           trees={taskState.trees}
           status={taskState.status}
+          taskCount={activeTaskCount}
           selectedTree={taskState.selectedTree}
           onSelectTree={(id) => {
             taskState.setSelectedTree(id);
             setView("tasks");
           }}
           connected={connected}
-          view={view}
-          onViewChange={setView}
+          onSettingsClick={() => setView("settings")}
         />
       </div>
 
@@ -182,6 +191,8 @@ export default function App() {
             getActivityLog={taskState.getActivityLog}
             loadActivityLog={taskState.loadActivityLog}
             onRefresh={taskState.refresh}
+            send={send}
+            wsMessage={lastWsMsg}
           />
         ) : (
           <Settings

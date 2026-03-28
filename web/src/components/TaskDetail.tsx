@@ -2,14 +2,25 @@ import { useEffect, useRef } from "react";
 import type { Task } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
 import type { PathStep } from "./Pipeline";
+import SeedChat from "./SeedChat";
+import type { Seed, SeedMessage } from "../hooks/useSeed";
 
 interface Props {
   task: Task;
   activityLog?: Array<{ ts: number; msg: string }>;
   steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
+  seed?: Seed | null;
+  seedMessages?: SeedMessage[];
+  seedActive?: boolean;
+  seedComplete?: boolean;
+  seedBottomRef?: React.RefObject<HTMLDivElement | null>;
+  onSeedSend?: (text: string) => void;
+  onSeedStart?: () => void;
+  onSeedStop?: () => void;
+  onSeedDiscard?: () => void;
 }
 
-export default function TaskDetail({ task, activityLog, steps }: Props) {
+export default function TaskDetail({ task, activityLog, steps, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -40,7 +51,43 @@ export default function TaskDetail({ task, activityLog, steps }: Props) {
       {task.description && (
         <div>
           <Label>Description</Label>
-          <p className="text-zinc-400">{task.description}</p>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 max-h-48 overflow-y-auto text-sm text-zinc-400 whitespace-pre-wrap">{task.description}</div>
+        </div>
+      )}
+
+      {/* Seed — brainstorming */}
+      {task.status === "draft" && onSeedStart && (
+        <div>
+          <Label>Brainstorm</Label>
+          <SeedChat
+            seed={seed ?? null}
+            messages={seedMessages ?? []}
+            isActive={seedActive ?? false}
+            isSeeded={seedComplete ?? false}
+            bottomRef={seedBottomRef ?? { current: null }}
+            onSend={onSeedSend ?? (() => {})}
+            onStart={onSeedStart}
+            onStop={onSeedStop ?? (() => {})}
+            onDiscard={onSeedDiscard ?? (() => {})}
+          />
+        </div>
+      )}
+
+      {/* Show completed seed on non-draft tasks too */}
+      {task.status !== "draft" && seedComplete && (
+        <div>
+          <Label>Seed</Label>
+          <SeedChat
+            seed={seed ?? null}
+            messages={[]}
+            isActive={false}
+            isSeeded={true}
+            bottomRef={{ current: null }}
+            onSend={() => {}}
+            onStart={() => {}}
+            onStop={() => {}}
+            onDiscard={() => {}}
+          />
         </div>
       )}
 
@@ -82,7 +129,7 @@ export default function TaskDetail({ task, activityLog, steps }: Props) {
       {task.session_summary && (
         <div>
           <Label>Session Summary</Label>
-          <p className="text-zinc-400 text-xs whitespace-pre-wrap">{task.session_summary}</p>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 max-h-48 overflow-y-auto text-xs text-zinc-400 whitespace-pre-wrap">{task.session_summary}</div>
         </div>
       )}
 
@@ -131,7 +178,7 @@ function ActivityFeed({ log, live }: { log: Array<{ ts: number; msg: string }>; 
           return (
             <div key={i} className="flex gap-2 hover:bg-zinc-900/50 px-1 rounded">
               <span className="text-zinc-600 flex-shrink-0">{time}</span>
-              <span className={activityColor(entry.msg)}>{entry.msg}</span>
+              <span className={`${activityColor(entry.msg)} break-all`}>{entry.msg}</span>
             </div>
           );
         })}

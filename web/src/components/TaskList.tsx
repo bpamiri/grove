@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
 import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
+import SeedBadge from "./SeedBadge";
+import { useSeed } from "../hooks/useSeed";
+import type { WsMessage } from "../hooks/useWebSocket";
 
 interface Props {
   tasks: Task[];
@@ -12,6 +15,8 @@ interface Props {
   getActivityLog: (taskId: string) => Array<{ ts: number; msg: string }>;
   loadActivityLog: (taskId: string) => void;
   onRefresh: () => void;
+  send: (data: any) => void;
+  wsMessage?: WsMessage | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -28,9 +33,14 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh }: Props) {
+export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "active" | "done">("all");
+  const seedState = useSeed(expandedId, send);
+
+  useEffect(() => {
+    if (wsMessage) seedState.handleWsMessage(wsMessage);
+  }, [wsMessage, seedState.handleWsMessage]);
+  const [filter, setFilter] = useState<"all" | "active" | "done">("active");
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -237,7 +247,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
             >
               <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium truncate">{task.title}</div>
+                  <div className="font-medium truncate flex items-center gap-1.5">{task.title}{task.has_seed && <SeedBadge />}</div>
                   <div className="flex gap-2 text-xs text-zinc-500 mt-1">
                     {task.tree_id && <span>{task.tree_id}</span>}
                     <span>{task.id}</span>
@@ -291,7 +301,22 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
             </button>
 
             {/* Expanded detail */}
-            {expandedId === task.id && <TaskDetail task={task} activityLog={getActivityLog(task.id)} steps={paths[task.path_name]?.steps ?? []} />}
+            {expandedId === task.id && (
+              <TaskDetail
+                task={task}
+                activityLog={getActivityLog(task.id)}
+                steps={paths[task.path_name]?.steps ?? []}
+                seed={seedState.seed}
+                seedMessages={seedState.messages}
+                seedActive={seedState.isActive}
+                seedComplete={seedState.isSeeded}
+                seedBottomRef={seedState.bottomRef}
+                onSeedSend={seedState.sendMessage}
+                onSeedStart={seedState.startSeed}
+                onSeedStop={seedState.stopSeed}
+                onSeedDiscard={seedState.discardSeed}
+              />
+            )}
           </div>
         ))}
       </div>
