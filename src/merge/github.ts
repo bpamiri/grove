@@ -82,15 +82,15 @@ export interface PrCheckStatus {
 }
 
 export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
-  const result = gh(["pr", "checks", String(prNumber), "-R", repo, "--json", "name,state,conclusion"]);
+  const result = gh(["pr", "checks", String(prNumber), "-R", repo, "--json", "name,state"]);
   if (!result.ok) {
     return { state: "pending", total: 0, passing: 0, failing: 0, pending: 0 };
   }
 
-  const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string; conclusion: string }>;
+  const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string }>;
   const total = checks.length;
-  const passing = checks.filter(c => c.conclusion === "SUCCESS" || c.conclusion === "success").length;
-  const failing = checks.filter(c => c.conclusion === "FAILURE" || c.conclusion === "failure").length;
+  const passing = checks.filter(c => c.state === "SUCCESS").length;
+  const failing = checks.filter(c => c.state === "FAILURE").length;
   const pending = total - passing - failing;
 
   let state: "pending" | "success" | "failure" = "pending";
