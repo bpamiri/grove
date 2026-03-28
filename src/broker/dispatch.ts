@@ -2,7 +2,7 @@
 // Manages the queue of tasks waiting to be dispatched, respects max_workers limit,
 // handles dependency ordering, and integrates with budget checks.
 import { bus } from "./event-bus";
-import { spawnWorker, activeWorkerCount } from "../agents/worker";
+import { activeWorkerCount } from "../agents/worker";
 import { isSpawningPaused } from "../monitor/cost";
 import type { Database } from "./db";
 import type { Task, Tree } from "../shared/types";
@@ -21,7 +21,7 @@ export function initDispatch(options: DispatchOptions): void {
 
   // Listen for task creation events to queue dispatch
   bus.on("task:created", ({ task }) => {
-    if (task.status === "ready") {
+    if (task.status === "queued") {
       enqueue(task.id);
     }
   });
@@ -35,7 +35,7 @@ export function initDispatch(options: DispatchOptions): void {
   bus.on("merge:completed", ({ taskId }) => {
     const unblocked = opts!.db.getNewlyUnblocked(taskId);
     for (const task of unblocked) {
-      opts!.db.taskSetStatus(task.id, "ready");
+      opts!.db.taskSetStatus(task.id, "queued");
       enqueue(task.id);
     }
   });
@@ -75,7 +75,7 @@ function processQueue(): void {
     }
 
     // Skip if task is no longer in a dispatchable state
-    if (task.status !== "ready" && task.status !== "planned") {
+    if (task.status !== "queued") {
       pendingQueue.shift();
       continue;
     }
@@ -105,8 +105,8 @@ function processQueue(): void {
     // Dispatch!
     pendingQueue.shift();
     try {
-      const logDir = require("./db").getEnv().GROVE_LOG_DIR;
-      spawnWorker(task, tree, db, logDir);
+      const { startPipeline } = require("../engine/step-engine");
+      startPipeline(task, tree, db);
     } catch (err: any) {
       db.addEvent(taskId, null, "dispatch_failed", `Spawn failed: ${err.message}`);
       db.taskSetStatus(taskId, "failed");
