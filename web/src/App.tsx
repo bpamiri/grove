@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 import { useTasks } from "./hooks/useTasks";
 import { useChat } from "./hooks/useChat";
@@ -8,6 +8,17 @@ import Chat from "./components/Chat";
 import Settings from "./components/Settings";
 
 type View = "tasks" | "settings";
+type MobileTab = "trees" | "tasks" | "chat";
+
+function useIsMobile(breakpoint = 768) {
+  const [mobile, setMobile] = useState(window.innerWidth < breakpoint);
+  useEffect(() => {
+    const handler = () => setMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return mobile;
+}
 
 function useDragResize(initial: number, min: number, max: number, direction: "left" | "right") {
   const [width, setWidth] = useState(initial);
@@ -49,6 +60,8 @@ function useDragResize(initial: number, min: number, max: number, direction: "le
 
 export default function App() {
   const [view, setView] = useState<View>("tasks");
+  const [mobileTab, setMobileTab] = useState<MobileTab>("tasks");
+  const isMobile = useIsMobile();
   const taskState = useTasks();
   const { connected, send } = useWebSocket({
     onMessage: useCallback((msg: WsMessage) => {
@@ -60,6 +73,78 @@ export default function App() {
 
   const sidebar = useDragResize(240, 160, 400, "left");
   const chat = useDragResize(320, 200, 600, "right");
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-screen overflow-hidden">
+        {/* Mobile content area */}
+        <div className="flex-1 overflow-y-auto">
+          {mobileTab === "trees" && (
+            <Sidebar
+              trees={taskState.trees}
+              status={taskState.status}
+              selectedTree={taskState.selectedTree}
+              onSelectTree={(id) => {
+                taskState.setSelectedTree(id);
+                setView("tasks");
+                setMobileTab("tasks");
+              }}
+              connected={connected}
+              view={view}
+              onViewChange={(v) => { setView(v); setMobileTab("tasks"); }}
+            />
+          )}
+          {mobileTab === "tasks" && (
+            view === "tasks" ? (
+              <TaskList
+                tasks={taskState.tasks}
+                trees={taskState.trees}
+                getActivity={taskState.getActivity}
+                getActivityLog={taskState.getActivityLog}
+                loadActivityLog={taskState.loadActivityLog}
+                onRefresh={taskState.refresh}
+              />
+            ) : (
+              <Settings
+                trees={taskState.trees}
+                status={taskState.status}
+                onRefresh={taskState.refresh}
+              />
+            )
+          )}
+          {mobileTab === "chat" && (
+            <Chat
+              messages={chatState.messages}
+              onSend={chatState.sendMessage}
+              bottomRef={chatState.bottomRef}
+              connected={connected}
+            />
+          )}
+        </div>
+
+        {/* Mobile tab bar */}
+        <nav className="flex border-t border-zinc-800 bg-zinc-900">
+          {([
+            { id: "trees" as const, label: "Trees" },
+            { id: "tasks" as const, label: "Tasks" },
+            { id: "chat" as const, label: "Chat" },
+          ]).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setMobileTab(tab.id)}
+              className={`flex-1 py-3 text-xs font-medium uppercase tracking-wider ${
+                mobileTab === tab.id
+                  ? "text-emerald-400 border-t-2 border-emerald-400 -mt-px"
+                  : "text-zinc-500"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">
