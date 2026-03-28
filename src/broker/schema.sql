@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   parent_task_id TEXT REFERENCES tasks(id),
   title TEXT NOT NULL,
   description TEXT,
-  status TEXT NOT NULL DEFAULT 'planned',
+  status TEXT NOT NULL DEFAULT 'draft',
   path_name TEXT DEFAULT 'development',
   priority INTEGER DEFAULT 0,
   depends_on TEXT,
@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   max_retries INTEGER DEFAULT 2,
   created_at TEXT DEFAULT (datetime('now')),
   started_at TEXT,
-  completed_at TEXT
+  completed_at TEXT,
+  current_step TEXT,
+  step_index INTEGER DEFAULT 0,
+  paused INTEGER DEFAULT 0
 );
 
 -- Sessions: one per agent spawn (orchestrator, worker, evaluator)
