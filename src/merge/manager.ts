@@ -2,7 +2,7 @@
 // Handles: push branch → create PR → watch CI → merge on green
 // On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
-import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, gitPush, type PrCheckStatus } from "./github";
+import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, gitPush, type PrCheckStatus } from "./github";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
@@ -57,6 +57,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       const titleSlug = freshTask.title.length > 60
         ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
         : freshTask.title;
+      const prTitle = `feat(${freshTask.id}): ${titleSlug}`;
 
       const body = [
         `## ${freshTask.title}`,
@@ -79,7 +80,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       const baseBranch = treeConfig.default_branch ?? undefined;
 
       const pr = ghPrCreate(tree.github!, {
-        title: `grove(${freshTask.id}): ${titleSlug}`,
+        title: prTitle,
         body,
         head: freshTask.branch!,
         base: baseBranch,
@@ -97,7 +98,11 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       return;
     }
   } else {
-    // PR already exists — push triggered new CI checks
+    // PR already exists — update title to latest format and re-check CI
+    const titleSlug = freshTask.title.length > 60
+      ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
+      : freshTask.title;
+    ghPrEditTitle(tree.github!, prNumber, `feat(${freshTask.id}): ${titleSlug}`);
     db.addEvent(freshTask.id, null, "ci_recheck", `Re-checking CI on existing PR #${prNumber}`);
   }
 

@@ -105,7 +105,7 @@ export function buildOverlay(ctx: OverlayContext): string {
   if (ctx.branch) {
     parts.push("### Git Branch");
     parts.push(`Work on branch: \`${ctx.branch}\``);
-    parts.push(`Commit message format: \`grove(${ctx.taskId}): description of change\``);
+    parts.push(`Commit message format: \`feat(${ctx.taskId}): description of change\` (use fix/refactor/docs as appropriate)`);
     parts.push("");
   }
 
@@ -136,7 +136,7 @@ export function buildOverlay(ctx: OverlayContext): string {
 
   parts.push("### Working Guidelines");
   if (ctx.branch) {
-    parts.push(`- Make atomic commits: \`grove(${ctx.taskId}): description\``);
+    parts.push(`- Make atomic commits using conventional format: \`feat(${ctx.taskId}): description\``);
   }
   parts.push("- Run tests if available before marking done");
   parts.push("- Write the session summary file before finishing");

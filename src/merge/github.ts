@@ -125,6 +125,12 @@ export function ghPrCheckDetails(repo: string, prNumber: number): PrCheckDetail[
   return failures;
 }
 
+/** Update a PR title */
+export function ghPrEditTitle(repo: string, prNumber: number, title: string): boolean {
+  const result = gh(["pr", "edit", String(prNumber), "-R", repo, "--title", title]);
+  return result.ok;
+}
+
 export function ghPrList(repo: string, opts?: { head?: string; state?: string; limit?: number }): GhPr[] {
   const args = [
     "pr", "list", "-R", repo,
