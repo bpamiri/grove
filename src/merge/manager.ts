@@ -57,7 +57,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       const titleSlug = freshTask.title.length > 60
         ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
         : freshTask.title;
-      const prTitle = `feat(${freshTask.id}): ${titleSlug}`;
+      const prTitle = `feat: ${titleSlug}`;
 
       const body = [
         `## ${freshTask.title}`,
@@ -102,7 +102,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     const titleSlug = freshTask.title.length > 60
       ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
       : freshTask.title;
-    ghPrEditTitle(tree.github!, prNumber, `feat(${freshTask.id}): ${titleSlug}`);
+    ghPrEditTitle(tree.github!, prNumber, `feat: ${titleSlug}`);
     db.addEvent(freshTask.id, null, "ci_recheck", `Re-checking CI on existing PR #${prNumber}`);
   }
 
@@ -150,7 +150,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       "",
       "### Instructions",
       "Fix these CI failures. Common issues:",
-      "- **Validate Commit Messages**: Amend the commit to use conventional format: `feat(TASK-ID): description`, `fix(TASK-ID): description`, etc. Use `git commit --amend -m 'new message'`.",
+      "- **Validate Commit Messages**: Amend the commit to use conventional commit format: `feat: description`, `fix: description`, etc. Do NOT put the task ID in the scope — the repo's commitlint may reject it. Use `git commit --amend -m 'new message'`.",
       "- **Test failures**: Read the test output, fix the code, commit the fix.",
       "- **Lint failures**: Run the linter, fix violations, commit.",
       "",
