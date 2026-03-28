@@ -30,12 +30,16 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   const sessionId = `worker-${task.id}-${Date.now()}`;
   const logPath = join(logDir, `${sessionId}.jsonl`);
 
+  // Parse tree config for default_branch
+  const treeConfig = tree.config ? JSON.parse(tree.config) : {};
+
   // Create or reuse worktree (createWorktree returns existing if present)
   const worktreePath = createWorktree(
     task.id,
     tree.path,
     tree.branch_prefix,
     task.title,
+    treeConfig.default_branch,
   );
 
   const branch = branchName(task.id, task.title, tree.branch_prefix);

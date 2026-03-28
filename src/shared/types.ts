@@ -163,6 +163,7 @@ export interface TreeConfig {
   path: string;
   github?: string;
   branch_prefix?: string;
+  default_branch?: string; // e.g. "develop", "main" — branch to fork worktrees from
   quality_gates?: QualityGatesConfig;
 }
 

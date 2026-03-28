@@ -147,7 +147,14 @@ function resolveGateConfig(treeConfig: string | null): GateConfig {
   if (!treeConfig) return DEFAULT_GATE_CONFIG;
   try {
     const parsed = JSON.parse(treeConfig);
-    return { ...DEFAULT_GATE_CONFIG, ...parsed };
+    // tree.config may be { quality_gates: {...}, default_branch: "..." } or just gate config directly
+    const gates = parsed.quality_gates ?? parsed;
+    const config = { ...DEFAULT_GATE_CONFIG, ...gates };
+    // Use default_branch as base_ref fallback if not set in quality_gates
+    if (!config.base_ref && parsed.default_branch) {
+      config.base_ref = `origin/${parsed.default_branch}`;
+    }
+    return config;
   } catch {
     return DEFAULT_GATE_CONFIG;
   }
