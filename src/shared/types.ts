@@ -5,15 +5,10 @@
 // ---------------------------------------------------------------------------
 
 export enum TaskStatus {
-  Planned = "planned",
-  Ready = "ready",
-  Running = "running",
-  Paused = "paused",
-  Done = "done",
-  Evaluating = "evaluating",
-  Merged = "merged",
+  Draft = "draft",
+  Queued = "queued",
+  Active = "active",
   Completed = "completed",
-  CiFailed = "ci_failed",
   Failed = "failed",
 }
 
@@ -104,6 +99,9 @@ export interface Task {
   title: string;
   description: string | null;
   status: string;
+  current_step: string | null;
+  step_index: number;
+  paused: number;
   path_name: string;
   priority: number;
   depends_on: string | null;
@@ -169,7 +167,7 @@ export interface TreeConfig {
 
 export interface PathConfig {
   description: string;
-  steps: string[];
+  steps: Array<string | Record<string, any>>;
 }
 
 export interface BudgetConfig {
@@ -220,6 +218,21 @@ export interface QualityGatesConfig {
   test_command?: string;  // e.g. "npm test", "pytest", "wheels test run"
   lint_command?: string;  // e.g. "npx eslint .", "ruff check ."
   base_ref?: string;      // git ref to diff against (default: auto-detect origin/main or main)
+}
+
+export interface PipelineStep {
+  id: string;
+  type: "worker" | "gate" | "merge";
+  prompt?: string;
+  on_success: string;
+  on_failure: string;
+  max_retries?: number;
+  label?: string;
+}
+
+export interface NormalizedPathConfig {
+  description: string;
+  steps: PipelineStep[];
 }
 
 // ---------------------------------------------------------------------------
@@ -280,15 +293,29 @@ export const GROVE_VERSION = "3.0.0-alpha.0";
 export const DEFAULT_PATHS: Record<string, PathConfig> = {
   development: {
     description: "Standard dev workflow with QA",
-    steps: ["plan", "implement", "evaluate", "merge"],
+    steps: [
+      { id: "plan", type: "worker", prompt: "Analyze the task requirements. Identify which files need changes and outline your implementation approach." },
+      { id: "implement", type: "worker", prompt: "Implement the task. Commit your changes with conventional commit messages." },
+      { id: "evaluate", type: "gate", on_failure: "implement" },
+      { id: "merge", type: "merge" },
+    ],
   },
   research: {
     description: "Research task — produces a report, no code changes",
-    steps: ["plan", "research", "report"],
+    steps: [
+      { id: "plan", type: "worker", prompt: "Analyze what needs to be researched. Identify sources and outline your approach." },
+      { id: "research", type: "worker", prompt: "Conduct the research. Document findings as you go." },
+      { id: "report", type: "worker", prompt: "Write a clear summary report of your findings in .grove/report.md in the worktree.", on_success: "$done" },
+    ],
   },
   content: {
     description: "Documentation and content creation",
-    steps: ["plan", "implement", "evaluate", "publish"],
+    steps: [
+      { id: "plan", type: "worker", prompt: "Outline the content structure, audience, and key points." },
+      { id: "implement", type: "worker", prompt: "Write the content following the plan." },
+      { id: "evaluate", type: "gate", on_failure: "implement" },
+      { id: "publish", type: "merge" },
+    ],
   },
 };
 
