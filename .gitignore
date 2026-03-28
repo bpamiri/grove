@@ -32,3 +32,4 @@ src/broker/web-assets.generated.ts
 # OS
 .DS_Store
 Thumbs.db
+.grove-worktree/
