@@ -412,7 +412,13 @@ async function handleApi(
                   const detail = typeof inp === "object"
                     ? (inp.file_path ?? inp.command ?? inp.pattern ?? "").toString().slice(0, 80)
                     : "";
-                  activities.push({ ts: obj.timestamp ?? "", msg: `${name}: ${detail}` });
+                  activities.push({ ts: obj.timestamp ?? "", msg: `${name}: ${detail}`, kind: "tool" });
+                } else if (block.type === "thinking" && block.thinking) {
+                  const snippet = block.thinking.slice(0, 120).replace(/\n/g, " ");
+                  activities.push({ ts: obj.timestamp ?? "", msg: `thinking: ${snippet}`, kind: "thinking" });
+                } else if (block.type === "text" && block.text && block.text.length > 10) {
+                  const snippet = block.text.slice(0, 120).replace(/\n/g, " ");
+                  activities.push({ ts: obj.timestamp ?? "", msg: snippet, kind: "text" });
                 }
               }
             }

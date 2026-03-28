@@ -140,9 +140,12 @@ function ActivityFeed({ log, live }: { log: Array<{ ts: number; msg: string }>; 
 }
 
 function activityColor(msg: string): string {
+  if (msg.startsWith("thinking:")) return "text-purple-400/70 italic";
   if (msg.startsWith("Read") || msg.startsWith("Grep") || msg.startsWith("Glob")) return "text-zinc-400";
   if (msg.startsWith("Edit") || msg.startsWith("Write")) return "text-amber-400";
   if (msg.startsWith("Bash")) return "text-cyan-400";
+  // Text output from Claude (not a tool call)
+  if (!msg.includes(":") || msg.indexOf(":") > 20) return "text-zinc-300/80";
   return "text-zinc-300";
 }
 

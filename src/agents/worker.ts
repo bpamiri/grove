@@ -134,7 +134,7 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
         if (!trimmed) continue;
         try {
           const obj = JSON.parse(trimmed);
-          // stream-json nests tool_use in assistant message content blocks
+          // stream-json nests content blocks in assistant messages
           if (obj.type === "assistant") {
             for (const block of obj.message?.content ?? []) {
               if (block.type === "tool_use") {
@@ -146,6 +146,12 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
                   lastActivity = activity;
                   bus.emit("worker:activity", { taskId, msg: activity });
                 }
+              } else if (block.type === "thinking" && block.thinking) {
+                const snippet = block.thinking.slice(0, 120).replace(/\n/g, " ");
+                bus.emit("worker:activity", { taskId, msg: `thinking: ${snippet}`, kind: "thinking" });
+              } else if (block.type === "text" && block.text && block.text.length > 10) {
+                const snippet = block.text.slice(0, 120).replace(/\n/g, " ");
+                bus.emit("worker:activity", { taskId, msg: `${snippet}`, kind: "text" });
               }
             }
           }
