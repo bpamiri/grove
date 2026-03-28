@@ -144,9 +144,21 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     }
 
     // Store CI failure context so the worker knows what to fix
+    const fixInstructions = [
+      `\n\n## CI Failure (PR #${prNumber})`,
+      failSummary,
+      "",
+      "### Instructions",
+      "Fix these CI failures. Common issues:",
+      "- **Validate Commit Messages**: Amend the commit to use conventional format: `feat(TASK-ID): description`, `fix(TASK-ID): description`, etc. Use `git commit --amend -m 'new message'`.",
+      "- **Test failures**: Read the test output, fix the code, commit the fix.",
+      "- **Lint failures**: Run the linter, fix violations, commit.",
+      "",
+      "After fixing, commit (or amend) and the PR will be re-checked automatically.",
+    ].join("\n");
     db.run(
       "UPDATE tasks SET session_summary = COALESCE(session_summary, '') || ? WHERE id = ?",
-      [`\n\n## CI Failure (PR #${prNumber})\n${failSummary}\n\nFix these CI failures, commit, and the PR will be re-checked automatically.`, task.id]
+      [fixInstructions, task.id]
     );
 
     // Send back to worker
