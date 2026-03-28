@@ -20,7 +20,7 @@ export interface WorkerHandle {
 const activeWorkers = new Map<string, WorkerHandle>();
 
 /** Spawn a worker for a task. Creates worktree, deploys sandbox, launches claude. */
-export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string): WorkerHandle {
+export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string, stepPrompt?: string): WorkerHandle {
   if (activeWorkers.has(task.id)) {
     throw new Error(`Worker already active for task ${task.id}`);
   }
@@ -59,10 +59,11 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     pathName: task.path_name,
     sessionSummary: priorSummary,
     filesModified: task.files_modified,
+    stepPrompt,
   });
 
   // Update task in DB
-  db.run("UPDATE tasks SET status = 'running', branch = ?, worktree_path = ?, started_at = datetime('now') WHERE id = ?",
+  db.run("UPDATE tasks SET status = 'active', branch = ?, worktree_path = ?, started_at = datetime('now') WHERE id = ?",
     [branch, worktreePath, task.id]);
 
   // Use resume prompt if continuing from a prior session
@@ -197,19 +198,16 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
       }
     }
 
-    // Update task status
-    if (exitCode === 0) {
-      db.taskSetStatus(taskId, "done");
-      bus.emit("worker:ended", { taskId, sessionId, status: "done" });
-    } else {
-      db.taskSetStatus(taskId, "failed");
-      bus.emit("worker:ended", { taskId, sessionId, status: "failed" });
-    }
+    // Report completion to step engine
+    bus.emit("worker:ended", { taskId, sessionId, status: exitCode === 0 ? "done" : "failed" });
+    const { onStepComplete } = await import("../engine/step-engine");
+    onStepComplete(taskId, exitCode === 0 ? "success" : "failure");
   } catch (err) {
     db.sessionEnd(sessionId, "crashed");
-    db.taskSetStatus(taskId, "failed");
     db.addEvent(taskId, sessionId, "worker_crashed", `Worker crashed: ${err}`);
     bus.emit("worker:ended", { taskId, sessionId, status: "crashed" });
+    const { onStepComplete } = await import("../engine/step-engine");
+    onStepComplete(taskId, "failure");
   } finally {
     activeWorkers.delete(taskId);
   }
@@ -237,7 +235,8 @@ export function stopWorker(taskId: string, db: Database): boolean {
   } catch {}
 
   db.sessionEnd(handle.sessionId, "stopped");
-  db.taskSetStatus(taskId, "paused");
+  db.run("UPDATE tasks SET paused = 1 WHERE id = ?", [taskId]);
+  db.addEvent(taskId, null, "task_paused", "Task paused by user");
   activeWorkers.delete(taskId);
 
   bus.emit("worker:ended", { taskId, sessionId: handle.sessionId, status: "stopped" });

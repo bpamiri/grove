@@ -16,11 +16,31 @@ export class Database {
   init(schemaPath: string): void {
     const sql = readFileSync(schemaPath, "utf-8");
     this.db.exec(sql);
+    this.migrate();
   }
 
   /** Initialize from an embedded SQL string (for compiled binary) */
   initFromString(sql: string): void {
     this.db.exec(sql);
+    this.migrate();
+  }
+
+  private migrate(): void {
+    const cols = this.all<{ name: string }>("PRAGMA table_info(tasks)");
+    const hasCurrentStep = cols.some(c => c.name === "current_step");
+    if (!hasCurrentStep) {
+      this.run("ALTER TABLE tasks ADD COLUMN current_step TEXT");
+      this.run("ALTER TABLE tasks ADD COLUMN step_index INTEGER DEFAULT 0");
+      this.run("ALTER TABLE tasks ADD COLUMN paused INTEGER DEFAULT 0");
+
+      this.run("UPDATE tasks SET status = 'draft', current_step = NULL WHERE status = 'planned'");
+      this.run("UPDATE tasks SET status = 'queued', current_step = 'plan' WHERE status = 'ready'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'implement' WHERE status = 'running'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'evaluate' WHERE status = 'evaluating'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'implement', paused = 1 WHERE status = 'paused'");
+      this.run("UPDATE tasks SET status = 'completed', current_step = '$done' WHERE status IN ('merged', 'completed', 'done')");
+      this.run("UPDATE tasks SET status = 'failed', current_step = '$fail' WHERE status IN ('failed', 'ci_failed')");
+    }
   }
 
   close(): void {
@@ -121,7 +141,7 @@ export class Database {
     const deps = task.depends_on.split(",").map(d => d.trim()).filter(Boolean);
     return deps.some(dep => {
       const depTask = this.taskGet(dep);
-      return !depTask || (depTask.status !== "done" && depTask.status !== "completed" && depTask.status !== "merged");
+      return !depTask || depTask.status !== "completed";
     });
   }
 
@@ -129,7 +149,7 @@ export class Database {
     const candidates = this.all<Task>(
       `SELECT * FROM tasks
        WHERE (',' || depends_on || ',') LIKE ?
-         AND status NOT IN ('done', 'completed', 'merged', 'failed')`,
+         AND status NOT IN ('completed', 'failed')`,
       [`%,${completedTaskId},%`]
     );
     return candidates.filter(t => !this.isTaskBlocked(t.id));

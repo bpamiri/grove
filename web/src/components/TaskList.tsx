@@ -7,6 +7,7 @@ import Pipeline from "./Pipeline";
 interface Props {
   tasks: Task[];
   trees: Tree[];
+  paths: Record<string, { steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>;
   getActivity: (taskId: string) => string | undefined;
   getActivityLog: (taskId: string) => Array<{ ts: number; msg: string }>;
   loadActivityLog: (taskId: string) => void;
@@ -14,27 +15,20 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  planned: "bg-zinc-700 text-zinc-300",
-  ready: "bg-cyan-900/50 text-cyan-400",
-  running: "bg-blue-900/50 text-blue-400",
-  paused: "bg-yellow-900/50 text-yellow-400",
-  done: "bg-emerald-900/50 text-emerald-400",
-  evaluating: "bg-purple-900/50 text-purple-400",
-  merged: "bg-emerald-900/50 text-emerald-400",
+  draft: "bg-zinc-700 text-zinc-300",
+  queued: "bg-cyan-900/50 text-cyan-400",
+  active: "bg-blue-900/50 text-blue-400",
   completed: "bg-emerald-900/50 text-emerald-400",
-  ci_failed: "bg-red-900/50 text-red-400",
   failed: "bg-red-900/50 text-red-400",
 };
 
 const STATUS_BORDER: Record<string, string> = {
-  running: "border-blue-500/30",
-  evaluating: "border-purple-500/30",
-  done: "border-emerald-500/30",
-  merged: "border-emerald-500/30",
+  active: "border-blue-500/30",
+  completed: "border-emerald-500/30",
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, trees, getActivity, getActivityLog, loadActivityLog, onRefresh }: Props) {
+export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "done">("all");
   const [showNewTask, setShowNewTask] = useState(false);
@@ -121,8 +115,8 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
   };
 
   const filtered = tasks.filter((t) => {
-    if (filter === "active") return ["planned", "ready", "running", "paused", "evaluating"].includes(t.status);
-    if (filter === "done") return ["done", "merged", "completed"].includes(t.status);
+    if (filter === "active") return ["draft", "queued", "active"].includes(t.status);
+    if (filter === "done") return ["completed"].includes(t.status);
     return true;
   });
 
@@ -249,7 +243,7 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
                     <span>{task.id}</span>
                     <span>{task.path_name}</span>
                   </div>
-                  {task.status === "running" && (
+                  {task.status === "active" && !task.paused && (
                     <div className="text-xs text-blue-400 mt-1.5">
                       {getActivity(task.id) ?? "working..."}
                     </div>
@@ -262,7 +256,7 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {task.status === "planned" && (
+                  {task.status === "draft" && (
                     <span
                       role="button"
                       onClick={(e) => { e.stopPropagation(); dispatchTask(task.id); }}
@@ -271,7 +265,7 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
                       Dispatch
                     </span>
                   )}
-                  {["failed", "paused", "evaluating"].includes(task.status) && (
+                  {(task.status === "failed" || (task.status === "active" && !!task.paused)) && (
                     <span
                       role="button"
                       onClick={(e) => { e.stopPropagation(); retryTask(task.id); }}
@@ -281,21 +275,23 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
                     </span>
                   )}
                   <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${STATUS_COLORS[task.status] ?? "bg-zinc-800"}`}>
-                    {task.status}
+                    {task.status === "active" && task.current_step && task.current_step !== "$done" && task.current_step !== "$fail"
+                      ? (task.paused ? `paused: ${task.current_step}` : task.current_step)
+                      : task.status}
                   </span>
                 </div>
               </div>
 
               {/* Pipeline mini (hidden when expanded to avoid duplicate) */}
-              {expandedId !== task.id && ["running", "evaluating", "done", "merged"].includes(task.status) && (
+              {expandedId !== task.id && ["active", "completed"].includes(task.status) && (
                 <div className="mt-3">
-                  <Pipeline pathName={task.path_name} status={task.status} />
+                  <Pipeline task={task} steps={paths[task.path_name]?.steps ?? []} />
                 </div>
               )}
             </button>
 
             {/* Expanded detail */}
-            {expandedId === task.id && <TaskDetail task={task} activityLog={getActivityLog(task.id)} />}
+            {expandedId === task.id && <TaskDetail task={task} activityLog={getActivityLog(task.id)} steps={paths[task.path_name]?.steps ?? []} />}
           </div>
         ))}
       </div>

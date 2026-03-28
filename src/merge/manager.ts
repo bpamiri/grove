@@ -114,19 +114,16 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     // 4. Merge
     try {
       ghPrMerge(tree.github, prNumber);
-      db.taskSetStatus(task.id, "merged");
-      db.run("UPDATE tasks SET completed_at = datetime('now') WHERE id = ?", [task.id]);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
-      bus.emit("merge:completed", { taskId: task.id, prNumber });
-
-      // 5. Post-merge cleanup: worktree, local branch, remote branch
       postMergeCleanup(task, tree, db);
+      const { onStepComplete } = await import("../engine/step-engine");
+      onStepComplete(task.id, "success");
     } catch (err: any) {
       db.addEvent(task.id, null, "merge_failed", `Merge failed: ${err.message}`);
       bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
     }
   } else {
-    // CI failed — get failure details and send back to worker for fixes
+    // CI failed — get failure details and store for worker
     const failDetails = ghPrCheckDetails(tree.github!, prNumber);
     const failSummary = failDetails.length > 0
       ? failDetails.map(c => `- ${c.name}: ${c.conclusion} (${c.link})`).join("\n")
@@ -135,19 +132,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}: ${failDetails.length} check(s) failed`);
     bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
 
-    // Check retry budget
-    const maxRetries = db.get<{ max_retries: number }>(
-      "SELECT max_retries FROM tasks WHERE id = ?", [task.id]
-    )?.max_retries ?? 2;
-
-    if ((task.retry_count ?? 0) >= maxRetries + 3) {
-      // Too many retries — give up
-      db.taskSetStatus(task.id, "ci_failed");
-      db.addEvent(task.id, null, "retry_exhausted", `CI fix retries exhausted`);
-      return;
-    }
-
-    // Store CI failure context so the worker knows what to fix
+    // Store CI failure context so the worker knows what to fix when re-dispatched
     const fixInstructions = [
       `\n\n## CI Failure (PR #${prNumber})`,
       failSummary,
@@ -165,12 +150,33 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       [fixInstructions, task.id]
     );
 
-    // Send back to worker
-    db.run("UPDATE tasks SET status = 'ready', retry_count = retry_count + 1 WHERE id = ?", [task.id]);
-    db.addEvent(task.id, null, "ci_fix_dispatched", `Sent back to worker to fix ${failDetails.length} CI failure(s)`);
+    const { onStepComplete } = await import("../engine/step-engine");
+    onStepComplete(task.id, "failure");
+  }
+}
 
-    const { enqueue } = await import("../broker/dispatch");
-    enqueue(task.id);
+/** Clean up worktree and branches after a successful merge (best-effort) */
+function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
+  const cleaned: string[] = [];
+
+  if (task.worktree_path) {
+    try {
+      cleanupWorktree(task.id, tree.path);
+      cleaned.push("worktree");
+    } catch { /* best-effort */ }
+  }
+
+  if (task.branch) {
+    const repoPath = tree.path.startsWith("~/")
+      ? tree.path.replace("~", process.env.HOME || "~")
+      : tree.path;
+    const { localOk, remoteOk } = gitDeleteBranch(repoPath, task.branch);
+    if (localOk) cleaned.push("local branch");
+    if (remoteOk) cleaned.push("remote branch");
+  }
+
+  if (cleaned.length > 0) {
+    db.addEvent(task.id, null, "cleanup", `Post-merge cleanup: removed ${cleaned.join(", ")}`);
   }
 }
 

@@ -9,6 +9,9 @@ export interface Task {
   title: string;
   description: string | null;
   status: string;
+  current_step: string | null;
+  step_index: number;
+  paused: number;
   path_name: string;
   priority: number;
   depends_on: string | null;
@@ -43,7 +46,7 @@ export interface Status {
   orchestrator: string;
   workers: number;
   wsClients: number;
-  tasks: { total: number; running: number; done: number; planned: number };
+  tasks: { total: number; active: number; completed: number; draft: number };
   cost: { today: number; week: number };
 }
 
@@ -57,17 +60,20 @@ export function useTasks() {
   const [trees, setTrees] = useState<Tree[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
   const [selectedTree, setSelectedTree] = useState<string | null>(null);
+  const [paths, setPaths] = useState<Record<string, { description: string; steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>>({});
 
   const refresh = useCallback(async () => {
     try {
-      const [tasksData, treesData, statusData] = await Promise.all([
+      const [tasksData, treesData, statusData, pathsData] = await Promise.all([
         api<Task[]>(selectedTree ? `/api/tasks?tree=${selectedTree}` : "/api/tasks"),
         api<Tree[]>("/api/trees"),
         api<Status>("/api/status"),
+        api<Record<string, any>>("/api/paths"),
       ]);
       setTasks(tasksData);
       setTrees(treesData);
       setStatus(statusData);
+      setPaths(pathsData);
     } catch {
       // API not available
     }
@@ -85,6 +91,14 @@ export function useTasks() {
       case "task:status":
         setTasks(prev =>
           prev.map(t => t.id === msg.data.taskId ? { ...t, status: msg.data.status } : t)
+        );
+        break;
+      case "task:step":
+        setTasks(prev =>
+          prev.map(t => t.id === msg.data.taskId
+            ? { ...t, current_step: msg.data.step, step_index: msg.data.stepIndex }
+            : t
+          )
         );
         break;
       case "worker:activity": {
@@ -126,5 +140,5 @@ export function useTasks() {
     } catch {}
   }, []);
 
-  return { tasks, trees, status, selectedTree, setSelectedTree, refresh, handleWsMessage, getActivity, getActivityLog, loadActivityLog };
+  return { tasks, trees, paths, status, selectedTree, setSelectedTree, refresh, handleWsMessage, getActivity, getActivityLog, loadActivityLog };
 }
