@@ -204,7 +204,7 @@ export default function TaskList({ tasks, trees, getActivity, getActivityLog, lo
                       Dispatch
                     </span>
                   )}
-                  {["failed", "paused"].includes(task.status) && (
+                  {["failed", "paused", "evaluating"].includes(task.status) && (
                     <span
                       role="button"
                       onClick={(e) => { e.stopPropagation(); retryTask(task.id); }}
