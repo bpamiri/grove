@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-main
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install
+          cd web && bun install
+
+      - name: Run tests
+        run: bun test tests/
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install
+          cd web && bun install
+
+      - name: Extract version
+        id: version
+        run: echo "version=$(bun -e 'console.log(require("./package.json").version)')" >> "$GITHUB_OUTPUT"
+
+      - name: Build web assets
+        run: bun run build:web
+
+      - name: Embed web assets
+        run: bun run build:embed
+
+      - name: Build binary
+        run: bun run build:bin
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-linux-x64-v${{ steps.version.outputs.version }}
+          path: bin/grove
