@@ -333,6 +333,62 @@ async function handleApi(
       return json(db.treeGet(id), 201);
     }
 
+    // GET /api/trees/:id/issues — fetch open GitHub issues for a tree
+    const issuesMatch = path.match(/^\/api\/trees\/([^/]+)\/issues$/);
+    if (issuesMatch && req.method === "GET") {
+      const tree = db.treeGet(issuesMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      if (!tree.github) return json([]);
+      try {
+        const { ghIssueList } = await import("../merge/github");
+        const issues = ghIssueList(tree.github, { state: "open", limit: 30 });
+        return json(issues);
+      } catch (err: any) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/trees/:id/import-issues — create tasks from open GitHub issues
+    const importMatch = path.match(/^\/api\/trees\/([^/]+)\/import-issues$/);
+    if (importMatch && req.method === "POST") {
+      const tree = db.treeGet(importMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      if (!tree.github) return json({ error: "No GitHub repo configured" }, 400);
+
+      try {
+        const { ghIssueList } = await import("../merge/github");
+        const issues = ghIssueList(tree.github, { state: "open", limit: 50 });
+
+        // Find issues that already have tasks (by github_issue column)
+        const existingIssueNums = new Set<number>(
+          db.all<{ github_issue: number }>(
+            "SELECT github_issue FROM tasks WHERE tree_id = ? AND github_issue IS NOT NULL",
+            [tree.id]
+          ).map(r => r.github_issue)
+        );
+
+        let imported = 0;
+        for (const issue of issues) {
+          if (existingIssueNums.has(issue.number)) continue;
+
+          const taskId = db.nextTaskId("W");
+          const title = `${issue.title} Issue #${issue.number}`;
+          const description = issue.body || "";
+          db.run(
+            "INSERT INTO tasks (id, tree_id, title, description, path_name, github_issue) VALUES (?, ?, ?, ?, ?, ?)",
+            [taskId, tree.id, title, description, "development", issue.number]
+          );
+          db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
+          bus.emit("task:created", { task: db.taskGet(taskId)! });
+          imported++;
+        }
+
+        return json({ ok: true, imported, skipped: issues.length - imported, total: issues.length });
+      } catch (err: any) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     // GET /api/tasks
     if (path === "/api/tasks" && req.method === "GET") {
       const url = new URL(req.url);

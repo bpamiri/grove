@@ -3,7 +3,7 @@
 // Sequential per-tree queue to avoid merge conflicts.
 import { bus } from "../broker/event-bus";
 import {
-  ghPrCreate, ghPrMerge, ghPrChecks, ghPrMergeable,
+  ghPrCreate, ghPrMerge, ghPrChecks, ghPrMergeable, ghIssueClose,
   gitPush, gitPushForce, gitRebase,
   type PrCheckStatus, type MergeableState,
 } from "./github";
@@ -55,28 +55,33 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
   }
 
   // 2. Create PR
+  // Re-read task to get latest data (including github_issue from migration/backfill)
+  const freshTask = db.taskGet(task.id) ?? task;
   let prNumber: number;
   let prUrl: string;
   try {
-    const filesModified = task.files_modified?.split("\n").filter(Boolean).length ?? 0;
-    const gateResults = task.gate_results ? JSON.parse(task.gate_results) : [];
+    const filesModified = freshTask.files_modified?.split("\n").filter(Boolean).length ?? 0;
+    const gateResults = freshTask.gate_results ? JSON.parse(freshTask.gate_results) : [];
     const gatesSummary = gateResults
       .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
       .join("\n");
 
+    const issueNumber = freshTask.github_issue;
+
     const body = [
-      `## ${task.title}`,
+      `## ${freshTask.title}`,
       "",
-      task.description ?? "",
+      freshTask.description ?? "",
       "",
-      `**Task:** ${task.id}`,
-      `**Path:** ${task.path_name}`,
-      `**Cost:** $${task.cost_usd.toFixed(2)}`,
+      `**Task:** ${freshTask.id}`,
+      `**Path:** ${freshTask.path_name}`,
+      `**Cost:** $${freshTask.cost_usd.toFixed(2)}`,
       `**Files changed:** ${filesModified}`,
       "",
       "### Quality Gates",
       gatesSummary || "No gates run",
       "",
+      ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
       "---",
       "*Created by [Grove](https://grove.cloud)*",
     ].join("\n");
@@ -133,6 +138,18 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
       db.run("UPDATE tasks SET completed_at = datetime('now') WHERE id = ?", [task.id]);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
       bus.emit("merge:completed", { taskId: task.id, prNumber });
+
+      // Close linked GitHub issue (explicit close is the reliable path; Closes #N in body
+      // only works when merging into the repo's default branch)
+      const mergedTask = db.taskGet(task.id) ?? task;
+      if (mergedTask.github_issue && tree.github) {
+        const closed = ghIssueClose(tree.github, mergedTask.github_issue);
+        if (closed) {
+          db.addEvent(task.id, null, "issue_closed", `Issue #${mergedTask.github_issue} closed`);
+        } else {
+          db.addEvent(task.id, null, "issue_close_failed", `Failed to close Issue #${mergedTask.github_issue}`);
+        }
+      }
     } catch (err: any) {
       db.addEvent(task.id, null, "merge_failed", `Merge failed: ${err.message}`);
       bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
