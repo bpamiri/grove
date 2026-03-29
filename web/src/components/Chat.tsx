@@ -1,14 +1,16 @@
 import { useState, type RefObject } from "react";
 import type { ChatMessage } from "../hooks/useChat";
+import { TypingIndicator } from "./ActivityIndicator";
 
 interface Props {
   messages: ChatMessage[];
   onSend: (text: string) => void;
   bottomRef: RefObject<HTMLDivElement | null>;
   connected: boolean;
+  thinking?: boolean;
 }
 
-export default function Chat({ messages, onSend, bottomRef, connected }: Props) {
+export default function Chat({ messages, onSend, bottomRef, connected, thinking }: Props) {
   const [input, setInput] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -46,6 +48,7 @@ export default function Chat({ messages, onSend, bottomRef, connected }: Props) 
           </div>
         ))}
 
+        {thinking && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
 

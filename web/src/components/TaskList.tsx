@@ -3,6 +3,7 @@ import type { Task } from "../hooks/useTasks";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
+import { ActivityIndicator } from "./ActivityIndicator";
 
 interface Props {
   tasks: Task[];
@@ -90,7 +91,15 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
                   </div>
                   {task.status === "running" && (
                     <div className="text-xs text-blue-400 mt-1.5">
-                      {getActivity(task.id) ?? "working..."}
+                      <ActivityIndicator
+                        label={getActivity(task.id) ?? "working..."}
+                        since={task.started_at}
+                      />
+                    </div>
+                  )}
+                  {task.status === "ready" && (
+                    <div className="text-xs text-cyan-400 mt-1.5">
+                      <ActivityIndicator label="queued" />
                     </div>
                   )}
                   {task.cost_usd > 0 && (
@@ -114,7 +123,9 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
             </button>
 
             {/* Expanded detail */}
-            {expandedId === task.id && <TaskDetail task={task} />}
+            {expandedId === task.id && (
+              <TaskDetail task={task} activity={getActivity(task.id)} />
+            )}
           </div>
         ))}
       </div>
