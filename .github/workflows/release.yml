@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version-bump:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version with changelogen
+        run: npx changelogen --release --no-push --${{ inputs.bump }}
+
+      - name: Sync GROVE_VERSION
+        run: bun run scripts/sync-version.ts
+
+      - name: Amend release commit with synced types.ts
+        run: |
+          git add src/shared/types.ts
+          git commit --amend --no-edit
+
+      - name: Extract version
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Push commit and tag
+        run: |
+          git push origin main
+          git push origin "v${{ steps.version.outputs.version }}"
+
+  build:
+    needs: version-bump
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            artifact: grove-darwin-arm64
+          - runner: macos-13
+            artifact: grove-darwin-x64
+          - runner: ubuntu-latest
+            artifact: grove-linux-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.tag }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install
+          cd web && bun install
+
+      - name: Build web assets
+        run: bun run build:web
+
+      - name: Embed web assets
+        run: bun run build:embed
+
+      - name: Build binary
+        run: |
+          mkdir -p bin
+          bun build src/cli/index.ts --compile --outfile bin/grove
+
+      - name: Package tarball and checksum
+        run: |
+          tar -czf ${{ matrix.artifact }}.tar.gz -C bin grove
+          shasum -a 256 ${{ matrix.artifact }}.tar.gz > ${{ matrix.artifact }}.tar.gz.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.tar.gz.sha256
+
+  release:
+    needs: [version-bump, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} release/ \;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version-bump.outputs.tag }}
+          name: Grove ${{ needs.version-bump.outputs.tag }}
+          generate_release_notes: true
+          files: release/*
