@@ -31,6 +31,84 @@ function capOutput(buf: Buffer): string {
 }
 
 // ---------------------------------------------------------------------------
+// Pre-gate rebase — keep worktree branch up-to-date with main
+// ---------------------------------------------------------------------------
+
+interface RebaseResult {
+  ok: boolean;
+  rebased: boolean;
+  message: string;
+  output?: string;
+}
+
+/**
+ * Fetch latest main and rebase the worktree branch onto it.
+ * This ensures the diff-size gate only measures the worker's changes,
+ * not accumulated drift from other merged PRs.
+ */
+function rebaseOntoMain(worktreePath: string, treeConfig: string | null): RebaseResult {
+  const baseRef = resolveBaseRef(worktreePath, parseBaseRefFromConfig(treeConfig));
+
+  // Fetch latest from origin
+  const fetch = Bun.spawnSync(["git", "fetch", "origin"], {
+    cwd: worktreePath, stdin: "ignore", stderr: "pipe", timeout: 30_000,
+  });
+  if (fetch.exitCode !== 0) {
+    // Non-fatal — we can still evaluate against the local ref
+    return { ok: true, rebased: false, message: "Fetch failed — evaluating against local ref" };
+  }
+
+  // Check if rebase is needed (are we behind?)
+  const mergeBase = Bun.spawnSync(["git", "merge-base", "HEAD", baseRef], {
+    cwd: worktreePath, stdin: "ignore",
+  });
+  const localBase = mergeBase.stdout.toString().trim();
+
+  const remoteHead = Bun.spawnSync(["git", "rev-parse", baseRef], {
+    cwd: worktreePath, stdin: "ignore",
+  });
+  const remoteRef = remoteHead.stdout.toString().trim();
+
+  if (localBase === remoteRef) {
+    return { ok: true, rebased: false, message: "Already up-to-date with " + baseRef };
+  }
+
+  // Attempt rebase
+  const rebase = Bun.spawnSync(["git", "rebase", baseRef], {
+    cwd: worktreePath, stdin: "ignore", stderr: "pipe", timeout: 60_000,
+  });
+
+  if (rebase.exitCode === 0) {
+    return { ok: true, rebased: true, message: `Rebased onto ${baseRef}` };
+  }
+
+  // Rebase failed — abort and report
+  Bun.spawnSync(["git", "rebase", "--abort"], {
+    cwd: worktreePath, stdin: "ignore",
+  });
+
+  const output = capOutput(rebase.stderr);
+  return {
+    ok: false,
+    rebased: false,
+    message: `Merge conflicts with ${baseRef} — rebase aborted`,
+    output: output || undefined,
+  };
+}
+
+/** Extract base_ref from tree config JSON */
+function parseBaseRefFromConfig(treeConfig: string | null): string | undefined {
+  if (!treeConfig) return undefined;
+  try {
+    const parsed = JSON.parse(treeConfig);
+    const gates = parsed.quality_gates ?? parsed;
+    if (gates.base_ref) return gates.base_ref;
+    if (parsed.default_branch) return `origin/${parsed.default_branch}`;
+  } catch {}
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Quality gate checks (run in-process, not via Claude)
 // ---------------------------------------------------------------------------
 
@@ -197,6 +275,25 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
     db.addEvent(task.id, sessionId, "eval_failed", "Worktree not found");
     bus.emit("eval:failed", { taskId: task.id, feedback: "Worktree not found" });
     return result;
+  }
+
+  // Rebase onto latest main before running gates — prevents stale-worktree bloat
+  const rebaseResult = rebaseOntoMain(worktreePath, tree.config);
+  if (!rebaseResult.ok) {
+    const result: EvalResult = {
+      passed: false,
+      gateResults: [{ gate: "rebase", passed: false, tier: "hard", message: rebaseResult.message, output: rebaseResult.output }],
+      feedback: `Rebase failed: ${rebaseResult.message}`,
+      costUsd: 0,
+    };
+    db.run("UPDATE tasks SET gate_results = ? WHERE id = ?", [JSON.stringify(result.gateResults), task.id]);
+    db.sessionEnd(sessionId, "failed");
+    db.addEvent(task.id, sessionId, "eval_failed", `Rebase failed: ${rebaseResult.message}`);
+    bus.emit("eval:failed", { taskId: task.id, feedback: result.feedback });
+    return result;
+  }
+  if (rebaseResult.rebased) {
+    db.addEvent(task.id, sessionId, "rebase_completed", rebaseResult.message);
   }
 
   // Run quality gates
