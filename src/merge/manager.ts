@@ -2,7 +2,11 @@
 // Handles: push branch → create PR → watch CI → merge on green
 // Sequential per-tree queue to avoid merge conflicts.
 import { bus } from "../broker/event-bus";
-import { ghPrCreate, ghPrMerge, ghPrChecks, gitPush, type PrCheckStatus } from "./github";
+import {
+  ghPrCreate, ghPrMerge, ghPrChecks, ghPrMergeable,
+  gitPush, gitPushForce, gitRebase,
+  type PrCheckStatus, type MergeableState,
+} from "./github";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
@@ -86,11 +90,32 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
   db.addEvent(task.id, null, "pr_created", `PR #${prNumber} created`);
   bus.emit("merge:pr_created", { taskId: task.id, prNumber, prUrl });
 
-  // 3. Watch CI
+  // 3. Check for merge conflicts (one rebase attempt if conflicting)
+  const postCreateState = await waitForMergeable(tree.github, prNumber);
+  if (postCreateState === "CONFLICTING") {
+    const resolved = await attemptRebase(task, tree.github, prNumber, db);
+    if (!resolved) {
+      db.taskSetStatus(task.id, "conflict");
+      db.addEvent(task.id, null, "conflict_detected", `Conflict on PR #${prNumber} — auto-rebase failed`);
+      bus.emit("merge:rebase_failed", { taskId: task.id, prNumber });
+      return;
+    }
+  }
+
+  // 4. Watch CI
   const ciResult = await watchCI(tree.github, prNumber, task.id, db);
 
   if (ciResult.state === "success") {
-    // 4. Merge
+    // 5. Pre-merge conflict check (branch may have drifted during CI)
+    const preMergeState = await waitForMergeable(tree.github, prNumber);
+    if (preMergeState === "CONFLICTING") {
+      db.taskSetStatus(task.id, "conflict");
+      db.addEvent(task.id, null, "conflict_detected", `Conflict appeared during CI on PR #${prNumber}`);
+      bus.emit("merge:conflict_detected", { taskId: task.id, prNumber });
+      return;
+    }
+
+    // 6. Merge
     try {
       ghPrMerge(tree.github, prNumber);
       db.taskSetStatus(task.id, "merged");
@@ -107,6 +132,59 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}`);
     bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
   }
+}
+
+/** Poll GitHub until mergeable state is computed (not UNKNOWN) */
+async function waitForMergeable(
+  repo: string,
+  prNumber: number,
+  maxAttempts: number = 3,
+  intervalMs: number = 5_000,
+): Promise<MergeableState> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const state = ghPrMergeable(repo, prNumber);
+    if (state !== "UNKNOWN") return state;
+    if (i < maxAttempts - 1) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+  }
+  // GitHub hasn't resolved yet — treat as mergeable and proceed
+  return "MERGEABLE";
+}
+
+/** Attempt to rebase the task branch onto origin/main and force-push */
+async function attemptRebase(
+  task: Task,
+  repo: string,
+  prNumber: number,
+  db: Database,
+): Promise<boolean> {
+  if (!task.worktree_path || !task.branch) return false;
+
+  db.addEvent(task.id, null, "rebase_started", `Conflict detected on PR #${prNumber}, attempting rebase`);
+
+  const rebaseResult = gitRebase(task.worktree_path, "main");
+  if (!rebaseResult.ok) {
+    db.addEvent(task.id, null, "rebase_failed", `Rebase failed: ${rebaseResult.stderr}`);
+    return false;
+  }
+
+  const pushResult = gitPushForce(task.worktree_path, task.branch);
+  if (!pushResult.ok) {
+    db.addEvent(task.id, null, "rebase_failed", `Force push after rebase failed: ${pushResult.stderr}`);
+    return false;
+  }
+
+  // Wait for GitHub to recompute mergeable after force push
+  const afterState = await waitForMergeable(repo, prNumber);
+  if (afterState === "CONFLICTING") {
+    db.addEvent(task.id, null, "rebase_failed", "Still conflicting after rebase");
+    return false;
+  }
+
+  db.addEvent(task.id, null, "rebase_succeeded", `Rebase resolved conflict on PR #${prNumber}`);
+  bus.emit("merge:rebase_succeeded", { taskId: task.id, prNumber });
+  return true;
 }
 
 /** Poll CI checks until all pass, fail, or timeout */

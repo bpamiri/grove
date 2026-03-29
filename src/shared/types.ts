@@ -14,6 +14,7 @@ export enum TaskStatus {
   Merged = "merged",
   Completed = "completed",
   CiFailed = "ci_failed",
+  Conflict = "conflict",
   Failed = "failed",
 }
 
@@ -256,6 +257,9 @@ export interface EventBusMap {
   "merge:pr_created": { taskId: string; prNumber: number; prUrl: string };
   "merge:ci_passed": { taskId: string; prNumber: number };
   "merge:ci_failed": { taskId: string; prNumber: number };
+  "merge:conflict_detected": { taskId: string; prNumber: number };
+  "merge:rebase_succeeded": { taskId: string; prNumber: number };
+  "merge:rebase_failed": { taskId: string; prNumber: number };
   "merge:completed": { taskId: string; prNumber: number };
   "cost:updated": { taskId: string; usd: number; tokens: number };
   "cost:budget_warning": { current: number; limit: number; period: string };
@@ -304,7 +308,7 @@ export const DEFAULT_SETTINGS: SettingsConfig = {
 };
 
 /** Statuses from which a task should never be re-dispatched or re-processed */
-export const TERMINAL_STATUSES: readonly string[] = ["done", "completed", "merged", "failed"] as const;
+export const TERMINAL_STATUSES: readonly string[] = ["done", "completed", "merged", "failed", "conflict"] as const;
 
 /** Check if a task status is terminal (should not be re-dispatched to a worker) */
 export function isTerminalStatus(status: string): boolean {

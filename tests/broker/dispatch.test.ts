@@ -76,6 +76,15 @@ describe("Terminal state guards", () => {
     expect(isTerminalStatus(task.status)).toBe(true);
   });
 
+  test("dispatch endpoint rejects tasks in 'conflict' state", async () => {
+    createTask("W-001", "conflict");
+
+    const task = db.taskGet("W-001")!;
+    const { isTerminalStatus } = await import("../../src/shared/types");
+
+    expect(isTerminalStatus(task.status)).toBe(true);
+  });
+
   test("dispatch endpoint allows tasks in 'planned' state", async () => {
     createTask("W-001", "planned");
 

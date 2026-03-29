@@ -64,6 +64,20 @@ export function wirePipeline(db: Database): void {
     );
   });
 
+  // Rebase failed (unresolvable conflict) → notify orchestrator
+  bus.on("merge:rebase_failed", ({ taskId, prNumber }) => {
+    orchestrator.sendMessage(
+      `Merge conflict on PR #${prNumber} for task ${taskId} could not be auto-resolved via rebase. Please resolve conflicts manually and re-queue the merge.`
+    );
+  });
+
+  // Conflict detected pre-merge (drift during CI) → notify orchestrator
+  bus.on("merge:conflict_detected", ({ taskId, prNumber }) => {
+    orchestrator.sendMessage(
+      `Merge conflict detected on PR #${prNumber} for task ${taskId} after CI passed. The base branch changed during CI. Please rebase and retry.`
+    );
+  });
+
   // Merge completed → check for newly unblocked tasks
   bus.on("merge:completed", ({ taskId }) => {
     const unblocked = db.getNewlyUnblocked(taskId);

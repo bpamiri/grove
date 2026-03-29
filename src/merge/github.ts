@@ -113,7 +113,33 @@ export function ghPrList(repo: string, opts?: { head?: string; state?: string; l
 }
 
 // ---------------------------------------------------------------------------
-// Git push
+// Mergeable state
+// ---------------------------------------------------------------------------
+
+export type MergeableState = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+
+/** Pure logic: resolve GitHub's mergeable field to a typed state */
+export function resolveMergeableState(mergeable: string): MergeableState {
+  const upper = mergeable?.toUpperCase();
+  if (upper === "MERGEABLE") return "MERGEABLE";
+  if (upper === "CONFLICTING") return "CONFLICTING";
+  return "UNKNOWN";
+}
+
+/** Fetch the mergeable status of a PR */
+export function ghPrMergeable(repo: string, prNumber: number): MergeableState {
+  const result = gh(["pr", "view", String(prNumber), "-R", repo, "--json", "mergeable"]);
+  if (!result.ok) return "UNKNOWN";
+  try {
+    const parsed = JSON.parse(result.stdout) as { mergeable?: string };
+    return resolveMergeableState(parsed.mergeable ?? "");
+  } catch {
+    return "UNKNOWN";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Git push / rebase
 // ---------------------------------------------------------------------------
 
 export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr: string } {
@@ -122,4 +148,30 @@ export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr
     ok: result.exitCode === 0,
     stderr: result.stderr.toString().trim(),
   };
+}
+
+/** Force-push with lease (safe for rebased branches) */
+export function gitPushForce(repoPath: string, branch: string): { ok: boolean; stderr: string } {
+  const result = Bun.spawnSync(["git", "-C", repoPath, "push", "--force-with-lease", "origin", branch]);
+  return {
+    ok: result.exitCode === 0,
+    stderr: result.stderr.toString().trim(),
+  };
+}
+
+/** Fetch from origin and rebase onto base branch. Aborts rebase on failure. */
+export function gitRebase(repoPath: string, baseBranch: string): { ok: boolean; stderr: string } {
+  const fetch = Bun.spawnSync(["git", "-C", repoPath, "fetch", "origin"]);
+  if (fetch.exitCode !== 0) {
+    return { ok: false, stderr: fetch.stderr.toString().trim() };
+  }
+
+  const rebase = Bun.spawnSync(["git", "-C", repoPath, "rebase", `origin/${baseBranch}`]);
+  if (rebase.exitCode !== 0) {
+    // Abort the failed rebase to leave worktree clean
+    Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
+    return { ok: false, stderr: rebase.stderr.toString().trim() };
+  }
+
+  return { ok: true, stderr: "" };
 }
