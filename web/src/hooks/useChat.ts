@@ -12,6 +12,7 @@ export interface ChatMessage {
 
 export function useChat(send: (data: any) => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [thinking, setThinking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Load initial messages
@@ -29,6 +30,10 @@ export function useChat(send: (data: any) => void) {
   const handleWsMessage = useCallback((msg: WsMessage) => {
     if (msg.type === "message:new") {
       setMessages(prev => [...prev, msg.data.message]);
+      // Clear thinking when orchestrator replies
+      if (msg.data.message?.source === "orchestrator") {
+        setThinking(false);
+      }
     }
   }, []);
 
@@ -43,9 +48,10 @@ export function useChat(send: (data: any) => void) {
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, optimistic]);
+    setThinking(true);
     // Send via WebSocket
     send({ type: "chat", text });
   }, [send]);
 
-  return { messages, sendMessage, handleWsMessage, bottomRef };
+  return { messages, thinking, sendMessage, handleWsMessage, bottomRef };
 }

@@ -1,11 +1,13 @@
 import type { Task } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
+import { ActivityIndicator } from "./ActivityIndicator";
 
 interface Props {
   task: Task;
+  activity?: string;
 }
 
-export default function TaskDetail({ task }: Props) {
+export default function TaskDetail({ task, activity }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -26,6 +28,19 @@ export default function TaskDetail({ task }: Props) {
         <Label>Pipeline</Label>
         <Pipeline pathName={task.path_name} status={task.status} />
       </div>
+
+      {/* Live activity */}
+      {task.status === "running" && (
+        <div>
+          <Label>Activity</Label>
+          <div className="text-xs text-blue-400">
+            <ActivityIndicator
+              label={activity ?? "working..."}
+              since={task.started_at}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Description */}
       {task.description && (
