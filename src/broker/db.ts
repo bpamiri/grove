@@ -307,6 +307,75 @@ export class Database {
       "SELECT COALESCE(SUM(cost_usd), 0) FROM sessions WHERE started_at >= date('now', 'weekday 1', '-7 days')"
     ) ?? 0;
   }
+
+  /** Cost per tree (for analytics dashboard) */
+  costByTree(): Array<{ tree_id: string; total_cost: number; task_count: number }> {
+    return this.all(
+      `SELECT tree_id, SUM(cost_usd) as total_cost, COUNT(*) as task_count
+       FROM tasks WHERE tree_id IS NOT NULL
+       GROUP BY tree_id ORDER BY total_cost DESC`
+    );
+  }
+
+  /** Gate pass/fail analytics */
+  gateAnalytics(): Array<{ gate: string; passed: number; failed: number; total: number }> {
+    const tasks = this.all<{ gate_results: string }>(
+      "SELECT gate_results FROM tasks WHERE gate_results IS NOT NULL"
+    );
+    const stats = new Map<string, { passed: number; failed: number }>();
+    for (const t of tasks) {
+      try {
+        const gates = JSON.parse(t.gate_results) as Array<{ gate: string; passed: boolean }>;
+        for (const g of gates) {
+          const s = stats.get(g.gate) ?? { passed: 0, failed: 0 };
+          if (g.passed) s.passed++; else s.failed++;
+          stats.set(g.gate, s);
+        }
+      } catch {}
+    }
+    return Array.from(stats.entries()).map(([gate, s]) => ({
+      gate, passed: s.passed, failed: s.failed, total: s.passed + s.failed,
+    }));
+  }
+
+  /** Tasks within a time window for timeline view */
+  taskTimeline(hoursBack: number = 24): Array<any> {
+    return this.all(
+      "SELECT * FROM tasks WHERE created_at > datetime('now', '-' || ? || ' hours') ORDER BY created_at ASC",
+      [hoursBack]
+    );
+  }
+
+  /** Daily cost for the last N days */
+  costDaily(days: number = 30): Array<{ date: string; total: number }> {
+    return this.all(
+      "SELECT DATE(started_at) as date, SUM(cost_usd) as total FROM sessions WHERE started_at > datetime('now', '-' || ? || ' days') GROUP BY DATE(started_at) ORDER BY date ASC",
+      [days]
+    );
+  }
+
+  /** Top N most expensive tasks */
+  costTopTasks(limit: number = 10): Array<{ id: string; title: string; cost_usd: number; tree_id: string }> {
+    return this.all(
+      "SELECT id, title, cost_usd, tree_id FROM tasks ORDER BY cost_usd DESC LIMIT ?",
+      [limit]
+    );
+  }
+
+  /** Retry statistics */
+  retryStats(): { total_tasks: number; retried_tasks: number; avg_retries: number } {
+    const row = this.get<{ total: number; retried: number; avg_retries: number }>(
+      `SELECT COUNT(*) as total,
+              SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) as retried,
+              COALESCE(AVG(CASE WHEN retry_count > 0 THEN retry_count END), 0) as avg_retries
+       FROM tasks`
+    );
+    return {
+      total_tasks: row?.total ?? 0,
+      retried_tasks: row?.retried ?? 0,
+      avg_retries: row?.avg_retries ?? 0,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------

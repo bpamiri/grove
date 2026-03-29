@@ -681,6 +681,42 @@ async function handleApi(
       return json({ ok: true });
     }
 
+    // GET /api/analytics/cost
+    if (path === "/api/analytics/cost" && req.method === "GET") {
+      const url = new URL(req.url);
+      const days = parseInt(url.searchParams.get("days") ?? "30", 10);
+      return json({
+        today: db.costToday(),
+        week: db.costWeek(),
+        daily: db.costDaily(days),
+        by_tree: db.costByTree(),
+        top_tasks: db.costTopTasks(),
+      });
+    }
+
+    // GET /api/analytics/gates
+    if (path === "/api/analytics/gates" && req.method === "GET") {
+      return json({
+        by_gate: db.gateAnalytics(),
+        retry_stats: db.retryStats(),
+      });
+    }
+
+    // GET /api/analytics/timeline
+    if (path === "/api/analytics/timeline" && req.method === "GET") {
+      const url = new URL(req.url);
+      const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
+      const tasks = db.taskTimeline(hours);
+      const annotated = (tasks as any[]).map(t => ({
+        ...t,
+        sessions: db.all(
+          "SELECT id, role, started_at, ended_at, cost_usd, status FROM sessions WHERE task_id = ? ORDER BY started_at",
+          [t.id]
+        ),
+      }));
+      return json(annotated);
+    }
+
     return json({ error: "Not found" }, 404);
   } catch (err) {
     return json({ error: String(err) }, 500);
