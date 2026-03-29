@@ -9,6 +9,7 @@ interface Props {
   tasks: Task[];
   getActivity: (taskId: string) => string | undefined;
   onRefresh: () => void;
+  send: (data: any) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,7 +35,7 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
+export default function TaskList({ tasks, getActivity, onRefresh, send }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useLocalStorage<"all" | "active" | "done">("grove-ui-task-filter", "all");
 
@@ -126,7 +127,7 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
 
             {/* Expanded detail */}
             {expandedId === task.id && (
-              <TaskDetail task={task} activity={getActivity(task.id)} />
+              <TaskDetail task={task} activity={getActivity(task.id)} send={send} />
             )}
           </div>
         ))}

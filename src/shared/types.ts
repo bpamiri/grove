@@ -164,6 +164,7 @@ export interface TreeConfig {
   path: string;
   github?: string;
   branch_prefix?: string;
+  default_branch?: string; // defaults to "main" if not set
   quality_gates?: QualityGatesConfig;
 }
 

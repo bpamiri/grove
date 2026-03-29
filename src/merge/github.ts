@@ -159,19 +159,101 @@ export function gitPushForce(repoPath: string, branch: string): { ok: boolean; s
   };
 }
 
-/** Fetch from origin and rebase onto base branch. Aborts rebase on failure. */
-export function gitRebase(repoPath: string, baseBranch: string): { ok: boolean; stderr: string } {
+// ---------------------------------------------------------------------------
+// Trivial conflict resolution
+// ---------------------------------------------------------------------------
+
+/** Files that can be safely resolved with --theirs during rebase */
+export const TRIVIAL_CONFLICT_PATTERNS: string[] = [
+  "package-lock.json",
+  "yarn.lock",
+  "bun.lockb",
+  "pnpm-lock.yaml",
+  "Gemfile.lock",
+  "Cargo.lock",
+  "poetry.lock",
+  "composer.lock",
+  "go.sum",
+  "flake.lock",
+];
+
+/** Check if a filename matches a known trivial conflict pattern */
+export function isTrivialConflict(filePath: string): boolean {
+  const basename = filePath.split("/").pop() ?? filePath;
+  return TRIVIAL_CONFLICT_PATTERNS.includes(basename);
+}
+
+/** List files with unmerged conflicts during an active rebase */
+export function gitConflictFiles(repoPath: string): string[] {
+  const result = Bun.spawnSync(["git", "-C", repoPath, "diff", "--name-only", "--diff-filter=U"]);
+  if (result.exitCode !== 0) return [];
+  return result.stdout.toString().trim().split("\n").filter(Boolean);
+}
+
+/** Resolve a conflicting file with the upstream (theirs) version and stage it */
+export function gitResolveTheirs(repoPath: string, filePath: string): boolean {
+  const checkout = Bun.spawnSync(["git", "-C", repoPath, "checkout", "--theirs", filePath]);
+  if (checkout.exitCode !== 0) return false;
+  const add = Bun.spawnSync(["git", "-C", repoPath, "add", filePath]);
+  return add.exitCode === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Rebase
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch from origin and rebase onto base branch.
+ * On conflict, checks if all conflicting files are trivial (lockfiles etc.)
+ * and auto-resolves them with --theirs. Aborts rebase if any non-trivial
+ * file conflicts.
+ */
+export function gitRebase(repoPath: string, baseBranch: string): { ok: boolean; stderr: string; autoResolved?: string[] } {
   const fetch = Bun.spawnSync(["git", "-C", repoPath, "fetch", "origin"]);
   if (fetch.exitCode !== 0) {
     return { ok: false, stderr: fetch.stderr.toString().trim() };
   }
 
   const rebase = Bun.spawnSync(["git", "-C", repoPath, "rebase", `origin/${baseBranch}`]);
-  if (rebase.exitCode !== 0) {
-    // Abort the failed rebase to leave worktree clean
+  if (rebase.exitCode === 0) {
+    return { ok: true, stderr: "" };
+  }
+
+  // Rebase failed — check if we can auto-resolve trivial conflicts
+  const conflictFiles = gitConflictFiles(repoPath);
+  if (conflictFiles.length === 0) {
     Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
     return { ok: false, stderr: rebase.stderr.toString().trim() };
   }
 
-  return { ok: true, stderr: "" };
+  const nonTrivial = conflictFiles.filter(f => !isTrivialConflict(f));
+  if (nonTrivial.length > 0) {
+    // Non-trivial conflicts — abort
+    Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
+    return { ok: false, stderr: `Non-trivial conflicts in: ${nonTrivial.join(", ")}` };
+  }
+
+  // All conflicts are trivial — resolve with --theirs
+  const resolved: string[] = [];
+  for (const file of conflictFiles) {
+    if (!gitResolveTheirs(repoPath, file)) {
+      Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
+      return { ok: false, stderr: `Failed to auto-resolve: ${file}` };
+    }
+    resolved.push(file);
+  }
+
+  // Continue the rebase (may hit more conflicts in subsequent commits)
+  const cont = Bun.spawnSync(["git", "-C", repoPath, "rebase", "--continue"], {
+    env: { ...process.env, GIT_EDITOR: "true" }, // skip editor
+  });
+
+  if (cont.exitCode !== 0) {
+    // Could be more conflicts in later commits — check again recursively would be complex.
+    // For now, abort if continue fails.
+    Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
+    return { ok: false, stderr: `Rebase continue failed after auto-resolve: ${cont.stderr.toString().trim()}` };
+  }
+
+  return { ok: true, stderr: "", autoResolved: resolved };
 }

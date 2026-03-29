@@ -8,10 +8,20 @@ import {
   type PrCheckStatus, type MergeableState,
 } from "./github";
 import type { Database } from "../broker/db";
-import type { Task, Tree } from "../shared/types";
+import type { Task, Tree, TreeConfig } from "../shared/types";
 
 // Per-tree merge queue (sequential to avoid conflicts)
 const mergeQueues = new Map<string, Promise<void>>();
+
+/** Extract default_branch from tree config JSON, falling back to "main" */
+export function treeDefaultBranch(tree: Tree): string {
+  try {
+    const cfg = JSON.parse(tree.config || "{}") as Partial<TreeConfig>;
+    return cfg.default_branch || "main";
+  } catch {
+    return "main";
+  }
+}
 
 /** Queue a task for PR creation, CI watch, and merge */
 export function queueMerge(task: Task, tree: Tree, db: Database): void {
@@ -91,9 +101,10 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
   bus.emit("merge:pr_created", { taskId: task.id, prNumber, prUrl });
 
   // 3. Check for merge conflicts (one rebase attempt if conflicting)
+  const baseBranch = treeDefaultBranch(tree);
   const postCreateState = await waitForMergeable(tree.github, prNumber);
   if (postCreateState === "CONFLICTING") {
-    const resolved = await attemptRebase(task, tree.github, prNumber, db);
+    const resolved = await attemptRebase(task, tree.github, prNumber, db, baseBranch);
     if (!resolved) {
       db.taskSetStatus(task.id, "conflict");
       db.addEvent(task.id, null, "conflict_detected", `Conflict on PR #${prNumber} — auto-rebase failed`);
@@ -152,21 +163,27 @@ async function waitForMergeable(
   return "MERGEABLE";
 }
 
-/** Attempt to rebase the task branch onto origin/main and force-push */
+/** Attempt to rebase the task branch onto the base branch and force-push */
 async function attemptRebase(
   task: Task,
   repo: string,
   prNumber: number,
   db: Database,
+  baseBranch: string = "main",
 ): Promise<boolean> {
   if (!task.worktree_path || !task.branch) return false;
 
-  db.addEvent(task.id, null, "rebase_started", `Conflict detected on PR #${prNumber}, attempting rebase`);
+  db.addEvent(task.id, null, "rebase_started", `Conflict detected on PR #${prNumber}, attempting rebase onto ${baseBranch}`);
 
-  const rebaseResult = gitRebase(task.worktree_path, "main");
+  const rebaseResult = gitRebase(task.worktree_path, baseBranch);
   if (!rebaseResult.ok) {
     db.addEvent(task.id, null, "rebase_failed", `Rebase failed: ${rebaseResult.stderr}`);
     return false;
+  }
+
+  if (rebaseResult.autoResolved?.length) {
+    db.addEvent(task.id, null, "conflict_auto_resolved",
+      `Auto-resolved trivial conflicts: ${rebaseResult.autoResolved.join(", ")}`);
   }
 
   const pushResult = gitPushForce(task.worktree_path, task.branch);
