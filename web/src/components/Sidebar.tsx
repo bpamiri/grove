@@ -8,11 +8,12 @@ interface Props {
   connected: boolean;
   view: "tasks" | "settings";
   onViewChange: (view: "tasks" | "settings") => void;
+  width: number;
 }
 
-export default function Sidebar({ trees, status, selectedTree, onSelectTree, connected, view, onViewChange }: Props) {
+export default function Sidebar({ trees, status, selectedTree, onSelectTree, connected, view, onViewChange, width }: Props) {
   return (
-    <aside className="w-60 flex flex-col bg-zinc-900/50 p-4 text-sm">
+    <aside style={{ width }} className="flex flex-col bg-zinc-900/50 p-4 text-sm flex-shrink-0">
       {/* Logo */}
       <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest mb-6">
         Grove

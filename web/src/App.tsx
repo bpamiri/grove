@@ -2,10 +2,12 @@ import { useState, useCallback } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 import { useTasks } from "./hooks/useTasks";
 import { useChat } from "./hooks/useChat";
+import { usePaneSizes } from "./hooks/usePaneSizes";
 import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
+import ResizeHandle from "./components/ResizeHandle";
 
 type View = "tasks" | "settings";
 
@@ -19,6 +21,7 @@ export default function App() {
     }, []),
   });
   const chatState = useChat(send);
+  const { sizes, onMouseDown } = usePaneSizes();
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -34,10 +37,13 @@ export default function App() {
         connected={connected}
         view={view}
         onViewChange={setView}
+        width={sizes.sidebar}
       />
 
+      <ResizeHandle onMouseDown={(e) => onMouseDown("sidebar", e)} />
+
       {/* Center */}
-      <main className="flex-1 overflow-y-auto border-x border-zinc-800">
+      <main className="flex-1 overflow-y-auto border-zinc-800 min-w-0">
         {view === "tasks" ? (
           <TaskList
             tasks={taskState.tasks}
@@ -53,8 +59,10 @@ export default function App() {
         )}
       </main>
 
+      <ResizeHandle onMouseDown={(e) => onMouseDown("chat", e)} />
+
       {/* Right: Chat */}
-      <aside className="w-80 flex flex-col border-zinc-800">
+      <aside style={{ width: sizes.chat }} className="flex flex-col border-zinc-800 flex-shrink-0">
         <Chat
           messages={chatState.messages}
           onSend={chatState.sendMessage}
