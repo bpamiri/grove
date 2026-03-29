@@ -5,6 +5,7 @@ import type { Database } from "./db";
 import { bus } from "./event-bus";
 import { configSet, reloadConfig } from "./config";
 import { expandHome } from "../shared/worktree";
+import { isTerminalStatus } from "../shared/types";
 import type { EventBusMap } from "../shared/types";
 
 export interface ServerOptions {
@@ -372,6 +373,9 @@ async function handleApi(
       const taskId = dispatchMatch[1];
       const task = db.taskGet(taskId);
       if (!task) return json({ error: "Task not found" }, 404);
+      if (isTerminalStatus(task.status)) {
+        return json({ error: `Cannot dispatch task in '${task.status}' state` }, 409);
+      }
       db.taskSetStatus(taskId, "ready");
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
