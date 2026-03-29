@@ -1,8 +1,10 @@
 // Grove v3 — Bun HTTP + WebSocket server with REST API and static file serving
 import { existsSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, basename } from "node:path";
 import type { Database } from "./db";
 import { bus } from "./event-bus";
+import { configSet, reloadConfig } from "./config";
+import { expandHome } from "../shared/worktree";
 import type { EventBusMap } from "../shared/types";
 
 export interface ServerOptions {
@@ -278,13 +280,37 @@ async function handleApi(
     if (path === "/api/trees" && req.method === "POST") {
       const body = await req.json() as { id?: string; path: string; github?: string; branch_prefix?: string };
       if (!body.path) return json({ error: "path required" }, 400);
-      const { basename } = await import("node:path");
-      const id = body.id ?? basename(body.path).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+      const treePath = body.path.startsWith("~") ? expandHome(body.path) : body.path;
+      const id = body.id ?? basename(treePath).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+      // Auto-detect GitHub remote if not provided
+      let github = body.github;
+      if (!github && existsSync(`${treePath}/.git`)) {
+        const result = Bun.spawnSync(["git", "-C", treePath, "remote", "get-url", "origin"]);
+        if (result.exitCode === 0) {
+          const url = result.stdout.toString().trim();
+          const match = url.match(/github\.com[:/]([^/]+\/[^/.]+)/);
+          if (match) github = match[1];
+        }
+      }
+
+      // Use ~ path for portability
+      const home = process.env.HOME || "";
+      const storedPath = treePath.startsWith(home) ? `~${treePath.slice(home.length)}` : body.path;
+
+      // Write to grove.yaml so the tree survives broker restarts
+      configSet(`trees.${id}.path`, storedPath);
+      if (github) configSet(`trees.${id}.github`, github);
+      if (body.branch_prefix) configSet(`trees.${id}.branch_prefix`, body.branch_prefix);
+      reloadConfig();
+
+      // Write to DB
       db.treeUpsert({
         id,
         name: id,
-        path: body.path,
-        github: body.github,
+        path: storedPath,
+        github,
         branch_prefix: body.branch_prefix ?? "grove/",
       });
       return json(db.treeGet(id), 201);
