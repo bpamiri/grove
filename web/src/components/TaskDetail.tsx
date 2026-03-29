@@ -5,9 +5,10 @@ import { ActivityIndicator } from "./ActivityIndicator";
 interface Props {
   task: Task;
   activity?: string;
+  send: (data: any) => void;
 }
 
-export default function TaskDetail({ task, activity }: Props) {
+export default function TaskDetail({ task, activity, send }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -109,10 +110,24 @@ export default function TaskDetail({ task, activity }: Props) {
       {/* Actions */}
       <div className="flex gap-2 pt-2 border-t border-zinc-800">
         {task.status === "running" && (
-          <ActionButton label="Pause" />
+          <ActionButton
+            label="Pause"
+            onClick={() => send({ type: "action", action: "pause_task", taskId: task.id })}
+          />
         )}
-        {task.status !== "completed" && task.status !== "merged" && task.status !== "failed" && (
-          <ActionButton label="Cancel" variant="danger" />
+        {(task.status === "conflict" || task.status === "ci_failed") && (
+          <ActionButton
+            label="Retry Merge"
+            variant="warning"
+            onClick={() => send({ type: "action", action: "retry_merge", taskId: task.id })}
+          />
+        )}
+        {!["completed", "merged", "failed"].includes(task.status) && (
+          <ActionButton
+            label="Cancel"
+            variant="danger"
+            onClick={() => send({ type: "action", action: "cancel_task", taskId: task.id })}
+          />
         )}
       </div>
     </div>
@@ -132,15 +147,14 @@ function Label({ children }: { children: string }) {
   return <div className="text-zinc-500 text-xs uppercase mb-1.5">{children}</div>;
 }
 
-function ActionButton({ label, variant }: { label: string; variant?: "danger" }) {
+function ActionButton({ label, variant, onClick }: { label: string; variant?: "danger" | "warning"; onClick?: () => void }) {
+  const colors = variant === "danger"
+    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+    : variant === "warning"
+      ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
+      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700";
   return (
-    <button
-      className={`px-3 py-1.5 rounded text-xs ${
-        variant === "danger"
-          ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-      }`}
-    >
+    <button onClick={onClick} className={`px-3 py-1.5 rounded text-xs ${colors}`}>
       {label}
     </button>
   );

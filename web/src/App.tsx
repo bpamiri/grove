@@ -50,6 +50,7 @@ export default function App() {
             tasks={taskState.tasks}
             getActivity={taskState.getActivity}
             onRefresh={taskState.refresh}
+            send={send}
           />
         ) : (
           <Settings

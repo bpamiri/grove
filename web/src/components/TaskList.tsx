@@ -9,6 +9,7 @@ interface Props {
   tasks: Task[];
   getActivity: (taskId: string) => string | undefined;
   onRefresh: () => void;
+  send: (data: any) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -21,6 +22,7 @@ const STATUS_COLORS: Record<string, string> = {
   merged: "bg-emerald-900/50 text-emerald-400",
   completed: "bg-emerald-900/50 text-emerald-400",
   ci_failed: "bg-red-900/50 text-red-400",
+  conflict: "bg-orange-900/50 text-orange-400",
   failed: "bg-red-900/50 text-red-400",
 };
 
@@ -29,15 +31,16 @@ const STATUS_BORDER: Record<string, string> = {
   evaluating: "border-purple-500/30",
   done: "border-emerald-500/30",
   merged: "border-emerald-500/30",
+  conflict: "border-orange-500/30",
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
+export default function TaskList({ tasks, getActivity, onRefresh, send }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useLocalStorage<"all" | "active" | "done">("grove-ui-task-filter", "all");
 
   const filtered = tasks.filter((t) => {
-    if (filter === "active") return ["planned", "ready", "running", "paused", "evaluating"].includes(t.status);
+    if (filter === "active") return ["planned", "ready", "running", "paused", "evaluating", "ci_failed", "conflict"].includes(t.status);
     if (filter === "done") return ["done", "merged", "completed"].includes(t.status);
     return true;
   });
@@ -115,7 +118,7 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
               </div>
 
               {/* Pipeline mini */}
-              {["running", "evaluating", "done", "merged"].includes(task.status) && (
+              {["running", "evaluating", "done", "merged", "ci_failed", "conflict"].includes(task.status) && (
                 <div className="mt-3">
                   <Pipeline pathName={task.path_name} status={task.status} />
                 </div>
@@ -124,7 +127,7 @@ export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
 
             {/* Expanded detail */}
             {expandedId === task.id && (
-              <TaskDetail task={task} activity={getActivity(task.id)} />
+              <TaskDetail task={task} activity={getActivity(task.id)} send={send} />
             )}
           </div>
         ))}

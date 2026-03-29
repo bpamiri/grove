@@ -225,6 +225,22 @@ function handleWsAction(data: any, db: Database) {
       stopWorker(data.taskId, db);
       break;
     }
+    case "retry_merge": {
+      const task = db.taskGet(data.taskId);
+      if (!task) break;
+      if (task.status !== "conflict" && task.status !== "ci_failed") break;
+      if (!task.tree_id) break;
+      const tree = db.treeGet(task.tree_id);
+      if (!tree) break;
+
+      // Reset to "done" so the pipeline re-evaluates and re-queues merge
+      db.taskSetStatus(data.taskId, "done");
+      db.addEvent(data.taskId, null, "merge_retried", `Merge retry requested (was ${task.status})`);
+
+      const { queueMerge } = require("../merge/manager");
+      queueMerge(task, tree, db);
+      break;
+    }
   }
 }
 
