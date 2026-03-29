@@ -385,15 +385,13 @@ async function handleApi(
         const { ghIssueList } = await import("../merge/github");
         const issues = ghIssueList(tree.github, { state: "open", limit: 50 });
 
-        // Find issues that already have tasks (by title match containing "Issue #N")
-        const existingTasks = db.all<{ title: string }>(
-          "SELECT title FROM tasks WHERE tree_id = ?", [tree.id]
+        // Find issues that already have tasks (by github_issue column)
+        const existingIssueNums = new Set<number>(
+          db.all<{ github_issue: number }>(
+            "SELECT github_issue FROM tasks WHERE tree_id = ? AND github_issue IS NOT NULL",
+            [tree.id]
+          ).map(r => r.github_issue)
         );
-        const existingIssueNums = new Set<number>();
-        for (const t of existingTasks) {
-          const match = t.title.match(/Issue #(\d+)/);
-          if (match) existingIssueNums.add(parseInt(match[1], 10));
-        }
 
         let imported = 0;
         for (const issue of issues) {
@@ -403,8 +401,8 @@ async function handleApi(
           const title = `${issue.title} Issue #${issue.number}`;
           const description = issue.body || "";
           db.run(
-            "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'draft')",
-            [taskId, tree.id, title, description, "development"]
+            "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue) VALUES (?, ?, ?, ?, ?, 'draft', ?)",
+            [taskId, tree.id, title, description, "development", issue.number]
           );
           db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
           imported++;

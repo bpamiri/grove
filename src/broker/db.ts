@@ -41,6 +41,18 @@ export class Database {
       this.run("UPDATE tasks SET status = 'completed', current_step = '$done' WHERE status IN ('merged', 'completed', 'done')");
       this.run("UPDATE tasks SET status = 'failed', current_step = '$fail' WHERE status IN ('failed', 'ci_failed')");
     }
+    // Add github_issue column (links task to originating GitHub issue)
+    const hasGithubIssue = cols.some(c => c.name === "github_issue");
+    if (!hasGithubIssue) {
+      this.run("ALTER TABLE tasks ADD COLUMN github_issue INTEGER");
+      // Backfill from existing "Issue #N" title suffix
+      const tasks = this.all<{ id: string; title: string }>("SELECT id, title FROM tasks");
+      for (const t of tasks) {
+        const m = t.title.match(/\bIssue #(\d+)$/);
+        if (m) this.run("UPDATE tasks SET github_issue = ? WHERE id = ?", [parseInt(m[1], 10), t.id]);
+      }
+    }
+
     // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
     this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }

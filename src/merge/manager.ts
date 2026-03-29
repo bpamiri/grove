@@ -2,7 +2,7 @@
 // Handles: push branch → create PR → watch CI → merge on green
 // On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
-import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, gitPush, gitDeleteBranch, type PrCheckStatus } from "./github";
+import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, ghIssueClose, gitPush, gitDeleteBranch, type PrCheckStatus } from "./github";
 import { cleanupWorktree } from "../shared/worktree";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
@@ -60,6 +60,8 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
         : freshTask.title;
       const prTitle = `feat: (${freshTask.id}) ${titleSlug}`;
 
+      const issueNumber = freshTask.github_issue;
+
       const body = [
         `## ${freshTask.title}`,
         "",
@@ -73,6 +75,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
         "### Quality Gates",
         gatesSummary || "No gates run",
         "",
+        ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
         "---",
         "*Created by [Grove](https://grove.cloud)*",
       ].join("\n");
@@ -115,6 +118,19 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     try {
       ghPrMerge(tree.github, prNumber);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
+
+      // Close linked GitHub issue (explicit close is the reliable path; Closes #N in body
+      // only works when merging into the repo's default branch)
+      const mergedTask = db.taskGet(task.id) ?? task;
+      if (mergedTask.github_issue && tree.github) {
+        const closed = ghIssueClose(tree.github, mergedTask.github_issue);
+        if (closed) {
+          db.addEvent(task.id, null, "issue_closed", `Issue #${mergedTask.github_issue} closed`);
+        } else {
+          db.addEvent(task.id, null, "issue_close_failed", `Failed to close Issue #${mergedTask.github_issue}`);
+        }
+      }
+
       postMergeCleanup(task, tree, db);
       const { onStepComplete } = await import("../engine/step-engine");
       onStepComplete(task.id, "success");
@@ -152,31 +168,6 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
 
     const { onStepComplete } = await import("../engine/step-engine");
     onStepComplete(task.id, "failure");
-  }
-}
-
-/** Clean up worktree and branches after a successful merge (best-effort) */
-function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
-  const cleaned: string[] = [];
-
-  if (task.worktree_path) {
-    try {
-      cleanupWorktree(task.id, tree.path);
-      cleaned.push("worktree");
-    } catch { /* best-effort */ }
-  }
-
-  if (task.branch) {
-    const repoPath = tree.path.startsWith("~/")
-      ? tree.path.replace("~", process.env.HOME || "~")
-      : tree.path;
-    const { localOk, remoteOk } = gitDeleteBranch(repoPath, task.branch);
-    if (localOk) cleaned.push("local branch");
-    if (remoteOk) cleaned.push("remote branch");
-  }
-
-  if (cleaned.length > 0) {
-    db.addEvent(task.id, null, "cleanup", `Post-merge cleanup: removed ${cleaned.join(", ")}`);
   }
 }
 

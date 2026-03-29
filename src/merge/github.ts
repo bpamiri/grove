@@ -155,6 +155,11 @@ export interface GhIssue {
   labels: Array<{ name: string }>;
 }
 
+export function ghIssueClose(repo: string, issueNumber: number): boolean {
+  const result = gh(["issue", "close", String(issueNumber), "-R", repo]);
+  return result.ok;
+}
+
 export function ghIssueList(repo: string, opts?: { state?: string; limit?: number }): GhIssue[] {
   const args = [
     "issue", "list", "-R", repo,
