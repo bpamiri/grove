@@ -22,6 +22,9 @@ export function wirePipeline(db: Database): void {
     const task = db.taskGet(taskId);
     if (!task || !task.tree_id) return;
 
+    // Skip if task has already moved past "done" (e.g., already evaluated or failed)
+    if (task.status !== "done") return;
+
     const tree = db.treeGet(task.tree_id);
     if (!tree) return;
 

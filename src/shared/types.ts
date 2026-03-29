@@ -302,3 +302,11 @@ export const DEFAULT_SETTINGS: SettingsConfig = {
   stall_timeout_minutes: 5,
   max_retries: 2,
 };
+
+/** Statuses from which a task should never be re-dispatched or re-processed */
+export const TERMINAL_STATUSES: readonly string[] = ["done", "completed", "merged", "failed"] as const;
+
+/** Check if a task status is terminal (should not be re-dispatched to a worker) */
+export function isTerminalStatus(status: string): boolean {
+  return (TERMINAL_STATUSES as readonly string[]).includes(status);
+}
