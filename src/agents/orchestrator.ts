@@ -1,27 +1,24 @@
 // Grove v3 — Orchestrator agent lifecycle
-// The orchestrator is a long-running Claude Code session in tmux.
-// The broker spawns it, tails its log, and relays messages.
+// The orchestrator is a long-running Claude Code subprocess with piped stdin/stdout.
+// Communication uses JSONL (--output-format stream-json) instead of tmux scraping.
 import { join } from "node:path";
-import { mkdirSync, statSync, existsSync, writeFileSync } from "node:fs";
-import * as tmux from "../broker/tmux";
+import { mkdirSync, statSync, existsSync } from "node:fs";
 import { bus } from "../broker/event-bus";
-import { tailLog, parseBrokerEvent, isAlive } from "./stream-parser";
+import { isAlive } from "./stream-parser";
+import { parseOrchestratorEvent, handleOrchestratorEvent } from "./orchestrator-events";
 import type { Database } from "../broker/db";
-
-const WINDOW_NAME = "orchestrator";
 
 // Context rotation threshold: rotate when log exceeds this size (rough proxy for token usage)
 const LOG_SIZE_ROTATION_THRESHOLD = 500_000; // ~500KB of stream-json ≈ heavy context
-
-// Poller interval for capturing orchestrator responses from tmux
-const RESPONSE_POLL_MS = 2000;
 
 export interface OrchestratorState {
   sessionId: string;
   pid: number | null;
   logPath: string;
   logDir: string;
-  stopTailing: (() => void) | null;
+  proc: ReturnType<typeof Bun.spawn> | null;
+  stdinWriter: WritableStreamDefaultWriter<Uint8Array> | null;
+  stopMonitor: (() => void) | null;
 }
 
 let state: OrchestratorState | null = null;
@@ -58,8 +55,13 @@ ${taskList}
 ## Emitting Events
 When you need the broker to take action, output a JSON object on its own line:
 - Spawn a worker: {"type":"spawn_worker","tree":"tree-id","task":"W-001","prompt":"description of what to implement"}
-- Update a task: {"type":"task_update","task":"W-001","field":"status","value":"planned"}
+- Update task status: {"type":"task_update","task":"W-001","field":"status","value":"completed"}
+  Valid statuses: draft, queued, active, completed, failed
+  Use "completed" when an issue is resolved (e.g., already addressed by prior work)
+  Use "failed" when a task should be abandoned
 - Respond to user: {"type":"user_response","text":"your response here"}
+
+IMPORTANT: When you close GitHub issues or determine tasks are already done, always emit a task_update event to update the Grove DB. Editing your CLAUDE.md is not enough — the task status must be updated via the event.
 
 ## Guidelines
 - When the user asks you to do something, analyze whether it needs decomposition across trees
@@ -70,7 +72,7 @@ When you need the broker to take action, output a JSON object on its own line:
 - When workers complete, summarize results for the user`;
 }
 
-/** Spawn the orchestrator in a tmux window */
+/** Spawn the orchestrator as a piped subprocess */
 export function spawn(db: Database, logDir: string, contextSummary?: string): OrchestratorState {
   if (state?.pid && isAlive(state.pid)) {
     return state;
@@ -98,42 +100,43 @@ export function spawn(db: Database, logDir: string, contextSummary?: string): Or
     prompt += `\n\n## Recent Conversation\n${msgHistory}`;
   }
 
-  // Write orchestrator context to a dedicated directory with CLAUDE.md
-  // The orchestrator runs as an interactive Claude Code session (not -p mode)
-  const orchDir = join(logDir, "orchestrator-workspace");
-  mkdirSync(join(orchDir, ".claude"), { recursive: true });
-  writeFileSync(join(orchDir, ".claude", "CLAUDE.md"), prompt);
-
-  // Launch interactive claude in the orchestrator workspace
+  // Spawn claude as a piped subprocess
+  // -p: non-interactive prompt mode
+  // --output-format stream-json: structured JSONL output on stdout
+  // --verbose: include tool use events in the stream
   // --dangerously-skip-permissions: automated agent must not block on permission prompts
-  const claudeCmd = `cd "${orchDir}" && claude --dangerously-skip-permissions`;
-  const windowIdx = tmux.runInWindow(WINDOW_NAME, claudeCmd);
+  const proc = Bun.spawn(
+    ["claude", "-p", prompt, "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"],
+    {
+      cwd: logDir,
+      env: { ...process.env },
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
 
-  if (!windowIdx) {
-    throw new Error("Failed to create orchestrator tmux window");
+  const pid = proc.pid;
+
+  // Get a writer for stdin so we can send messages to the orchestrator
+  let stdinWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  if (proc.stdin) {
+    stdinWriter = (proc.stdin as WritableStream<Uint8Array>).getWriter();
   }
 
-  const target = tmux.windowTarget(WINDOW_NAME);
-  let pid: number | null = null;
-
-  for (let i = 0; i < 5; i++) {
-    pid = tmux.panePid(target);
-    if (pid) break;
-    Bun.sleepSync(200);
-  }
-
-  // Accept the workspace trust prompt (interactive mode shows it even with --dangerously-skip-permissions)
-  Bun.sleepSync(1000);
-  tmux.sendEnter(target);
-
-  db.sessionCreate(sessionId, null, "orchestrator", pid ?? undefined, target, logPath);
+  db.sessionCreate(sessionId, null, "orchestrator", pid, undefined, logPath);
   db.addEvent(null, sessionId, "orchestrator_started", `Orchestrator spawned (PID: ${pid})`);
 
-  // Poll tmux pane to capture orchestrator responses and relay to web UI
-  const stopPoller = startResponsePoller(target, db);
-  state = { sessionId, pid, logPath, logDir, stopTailing: stopPoller };
+  // Set up output monitoring
+  let monitorStopped = false;
+  const stopMonitor = () => { monitorStopped = true; };
 
-  bus.emit("orchestrator:started", { sessionId, pid: pid ?? 0 });
+  state = { sessionId, pid, logPath, logDir, proc, stdinWriter, stopMonitor };
+
+  // Start async stdout monitoring
+  monitorOutput(proc, logPath, db, () => monitorStopped);
+
+  bus.emit("orchestrator:started", { sessionId, pid });
 
   // Start rotation check (every 60 seconds)
   if (!rotationCheckInterval) {
@@ -143,10 +146,18 @@ export function spawn(db: Database, logDir: string, contextSummary?: string): Or
   return state;
 }
 
-/** Send a message to the orchestrator via tmux */
+/** Send a message to the orchestrator via stdin pipe */
 export function sendMessage(text: string): boolean {
-  const target = tmux.windowTarget(WINDOW_NAME);
-  return tmux.sendKeys(target, text);
+  if (!state?.stdinWriter) return false;
+
+  const encoder = new TextEncoder();
+  try {
+    // Write the message followed by a newline to the stdin pipe
+    state.stdinWriter.write(encoder.encode(text + "\n"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Get current orchestrator state */
@@ -167,17 +178,153 @@ export function stop(db: Database): void {
     rotationCheckInterval = null;
   }
   if (state) {
-    state.stopTailing?.();
+    // Stop the output monitor
+    state.stopMonitor?.();
+
+    // Close the stdin writer
+    if (state.stdinWriter) {
+      try { state.stdinWriter.close(); } catch {}
+    }
+
+    // Kill the process
+    if (state.proc) {
+      try { state.proc.kill(); } catch {}
+    }
+
     db.sessionEnd(state.sessionId, "stopped");
     state = null;
   }
-  tmux.killWindow(tmux.windowTarget(WINDOW_NAME));
+}
+
+/**
+ * Monitor the orchestrator's stdout stream.
+ * Reads JSONL output, writes to log file, and processes events.
+ *
+ * The stream-json format wraps content in blocks like:
+ *   {"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}
+ *
+ * Text content that parses as a BrokerEvent (JSON with a `type` field matching
+ * spawn_worker/task_update/user_response) is dispatched via handleOrchestratorEvent.
+ * Other text content is relayed as an orchestrator message to the web UI.
+ */
+async function monitorOutput(
+  proc: ReturnType<typeof Bun.spawn>,
+  logPath: string,
+  db: Database,
+  isStopped: () => boolean,
+): Promise<void> {
+  const stdout = proc.stdout;
+  if (!stdout || typeof stdout === "number") return;
+
+  const reader = (stdout as ReadableStream<Uint8Array>).getReader();
+  const logFile = Bun.file(logPath);
+  const writer = logFile.writer();
+  const decoder = new TextDecoder();
+
+  // Buffer for incomplete lines across chunks
+  let lineBuffer = "";
+
+  try {
+    while (!isStopped()) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const text = decoder.decode(value, { stream: true });
+
+      // Write raw output to log file
+      writer.write(text);
+      writer.flush();
+
+      // Process JSONL lines
+      lineBuffer += text;
+      const lines = lineBuffer.split("\n");
+      // Keep the last (possibly incomplete) line in the buffer
+      lineBuffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        processStreamLine(trimmed, db);
+      }
+    }
+
+    // Process any remaining buffered content
+    if (lineBuffer.trim()) {
+      processStreamLine(lineBuffer.trim(), db);
+    }
+  } catch {
+    // Stream read error — process may have exited
+  } finally {
+    writer.end();
+  }
+}
+
+/**
+ * Process a single JSONL line from the stream-json output.
+ * Extracts text content from assistant messages and checks for broker events.
+ */
+function processStreamLine(line: string, db: Database): void {
+  let obj: any;
+  try {
+    obj = JSON.parse(line);
+  } catch {
+    // Not valid JSON — skip
+    return;
+  }
+
+  // Handle assistant messages — extract text content blocks
+  if (obj.type === "assistant" && obj.message?.content) {
+    for (const block of obj.message.content) {
+      if (block.type === "text" && block.text) {
+        // Check each line of the text for broker events
+        for (const textLine of block.text.split("\n")) {
+          const event = parseOrchestratorEvent(textLine);
+          if (event) {
+            handleOrchestratorEvent(event, db);
+          }
+        }
+
+        // Relay non-event text as an orchestrator message
+        // Filter out lines that are pure JSON events to avoid double-relaying
+        const nonEventLines = block.text
+          .split("\n")
+          .filter((l: string) => !parseOrchestratorEvent(l))
+          .join("\n")
+          .trim();
+
+        if (nonEventLines) {
+          db.addMessage("orchestrator", nonEventLines);
+          bus.emit("message:new", {
+            message: {
+              id: 0,
+              source: "orchestrator",
+              channel: "main",
+              content: nonEventLines,
+              created_at: new Date().toISOString(),
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // Handle result events (for cost tracking)
+  if (obj.type === "result" && state?.sessionId) {
+    if (obj.cost_usd != null) {
+      db.sessionUpdateCost(
+        state.sessionId,
+        Number(obj.cost_usd),
+        Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0),
+      );
+    }
+  }
 }
 
 /**
  * Session rotation — shift handoff pattern.
  * When the orchestrator's context gets heavy (large log file), we:
- * 1. Ask it to summarize its current state
+ * 1. Build a context summary from DB state
  * 2. Stop the old session
  * 3. Start a new session with the summary injected
  */
@@ -218,9 +365,14 @@ function rotate(db: Database): void {
   ].join("\n");
 
   // Stop old session
-  state.stopTailing?.();
+  state.stopMonitor?.();
+  if (state.stdinWriter) {
+    try { state.stdinWriter.close(); } catch {}
+  }
+  if (state.proc) {
+    try { state.proc.kill(); } catch {}
+  }
   db.sessionEnd(oldSessionId, "rotated");
-  tmux.killWindow(tmux.windowTarget(WINDOW_NAME));
   state = null;
 
   db.addEvent(null, oldSessionId, "orchestrator_rotated", "Session rotated due to context size");
@@ -229,206 +381,4 @@ function rotate(db: Database): void {
   const newState = spawn(db, logDir, summary);
 
   bus.emit("orchestrator:rotated", { oldSessionId, newSessionId: newState.sessionId });
-}
-
-// ---------------------------------------------------------------------------
-// Response poller — captures orchestrator output from tmux and relays to web UI
-// ---------------------------------------------------------------------------
-
-/** Track which response blocks we've already relayed (by content hash) */
-const relayedResponses = new Set<string>();
-
-/**
- * Poll the orchestrator's tmux pane for Claude's responses.
- * Parses the captured pane text for response blocks (marked with ⏺)
- * that are followed by an idle prompt (❯), indicating completion.
- */
-function startResponsePoller(target: string, db: Database): () => void {
-  let stopped = false;
-
-  const poll = async () => {
-    // Wait for Claude Code to fully start
-    await new Promise(r => setTimeout(r, 5000));
-
-    while (!stopped) {
-      try {
-        const content = tmux.capturePane(target, 500);
-        const responses = parseCompletedResponses(content);
-        for (const text of responses) {
-          if (!relayedResponses.has(text)) {
-            relayedResponses.add(text);
-            db.addMessage("orchestrator", text);
-            bus.emit("message:new", {
-              message: {
-                id: 0,
-                source: "orchestrator",
-                channel: "main",
-                content: text,
-                created_at: new Date().toISOString(),
-              },
-            });
-          }
-        }
-      } catch {
-        // Capture failed — retry next interval
-      }
-      await new Promise(r => setTimeout(r, RESPONSE_POLL_MS));
-    }
-  };
-
-  poll();
-  return () => { stopped = true; };
-}
-
-/**
- * Parse all completed response blocks from tmux pane content.
- * A "completed" response is one followed by an idle prompt (❯ on its own line),
- * meaning Claude has finished responding.
- *
- * Pane format:
- *   ❯ user message here
- *   ⏺ Claude's response text
- *     continuation of response
- *   ⏺ Ran 1 stop hook (ctrl+o to expand)     ← system, skip
- *     ⎿  hook details                         ← sub-content, skip
- *   ───────────────────
- *   ❯                                          ← idle prompt
- */
-function parseCompletedResponses(content: string): string[] {
-  const lines = content.split("\n");
-  const results: string[] = [];
-
-  // Find all "conversation turns": user prompt → response → idle prompt
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-
-    // Look for user prompt (❯ followed by message text)
-    if (!trimmed.startsWith("❯") || trimmed.length <= 2) continue;
-
-    // Scan forward for response blocks (⏺ markers)
-    const responseLines: string[] = [];
-    let foundIdlePrompt = false;
-    let inResponseBlock = false;
-
-    for (let j = i + 1; j < lines.length; j++) {
-      const t = lines[j].trim();
-
-      // Idle prompt = end of this turn
-      if (t === "❯" || t === "❯ ") {
-        foundIdlePrompt = true;
-        break;
-      }
-
-      // Another user prompt = end without idle (shouldn't happen normally)
-      if (t.startsWith("❯") && t.length > 2) break;
-
-      // Response block marker
-      if (t.startsWith("⏺")) {
-        const text = t.slice(1).trim();
-        if (text && !isSystemOutput(text)) {
-          responseLines.push(text);
-          inResponseBlock = true;
-        } else {
-          inResponseBlock = false;
-        }
-        continue;
-      }
-
-      // Skip sub-content of tool/hook output
-      if (t.startsWith("⎿")) {
-        inResponseBlock = false;
-        continue;
-      }
-
-      // tmux separator lines end the block
-      if (t.startsWith("───") && t.length > 20) {
-        inResponseBlock = false;
-        continue;
-      }
-
-      // Continuation lines (part of the current response block)
-      // Include empty lines (paragraph breaks) and table formatting
-      if (inResponseBlock) {
-        responseLines.push(t); // includes empty strings for blank lines
-      }
-    }
-
-    if (foundIdlePrompt && responseLines.length > 0) {
-      // Trim leading/trailing empty lines
-      while (responseLines.length > 0 && !responseLines[0]) responseLines.shift();
-      while (responseLines.length > 0 && !responseLines[responseLines.length - 1]) responseLines.pop();
-      if (responseLines.length > 0) {
-        results.push(responseLines.join("\n"));
-      }
-    }
-  }
-
-  return results;
-}
-
-/** Check if a ⏺ line is system/tool output rather than a response to the user */
-function isSystemOutput(text: string): boolean {
-  return /^Ran \d+ /.test(text) ||
-    text.startsWith("Read(") || text.startsWith("Edit(") ||
-    text.startsWith("Write(") || text.startsWith("Bash(") ||
-    text.startsWith("Grep(") || text.startsWith("Glob(") ||
-    text.startsWith("Tool:") || text.startsWith("Agent(");
-}
-
-/** Handle events emitted by the orchestrator in its output */
-function handleOrchestratorEvent(event: any, db: Database): void {
-  switch (event.type) {
-    case "spawn_worker":
-      bus.emit("task:created", {
-        task: {
-          id: event.task,
-          tree_id: event.tree,
-          parent_task_id: null,
-          title: event.prompt,
-          description: event.prompt,
-          status: "queued",
-          current_step: null,
-          step_index: 0,
-          paused: 0,
-          path_name: "development",
-          priority: 0,
-          depends_on: event.depends_on ?? null,
-          branch: null,
-          worktree_path: null,
-          pr_url: null,
-          pr_number: null,
-          cost_usd: 0,
-          tokens_used: 0,
-          gate_results: null,
-          session_summary: null,
-          files_modified: null,
-          retry_count: 0,
-          max_retries: 2,
-          created_at: new Date().toISOString(),
-          started_at: null,
-          completed_at: null,
-        },
-      });
-      break;
-
-    case "user_response":
-      db.addMessage("orchestrator", event.text);
-      bus.emit("message:new", {
-        message: {
-          id: 0,
-          source: "orchestrator",
-          channel: "main",
-          content: event.text,
-          created_at: new Date().toISOString(),
-        },
-      });
-      break;
-
-    case "task_update":
-      if (event.field === "status") {
-        db.taskSetStatus(event.task, event.value as string);
-        bus.emit("task:status", { taskId: event.task, status: event.value as string });
-      }
-      break;
-  }
 }
