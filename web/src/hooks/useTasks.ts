@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { WsMessage } from "./useWebSocket";
 import { api } from "../api/client";
 
@@ -54,11 +54,13 @@ export function useTasks() {
   const [trees, setTrees] = useState<Tree[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
   const [selectedTree, setSelectedTree] = useState<string | null>(null);
+  const selectedTreeRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
+      const tree = selectedTreeRef.current;
       const [tasksData, treesData, statusData] = await Promise.all([
-        api<Task[]>(selectedTree ? `/api/tasks?tree=${selectedTree}` : "/api/tasks"),
+        api<Task[]>(tree ? `/api/tasks?tree=${tree}` : "/api/tasks"),
         api<Tree[]>("/api/trees"),
         api<Status>("/api/status"),
       ]);
@@ -68,17 +70,21 @@ export function useTasks() {
     } catch {
       // API not available
     }
-  }, [selectedTree]);
+  }, []);
 
   useEffect(() => {
+    selectedTreeRef.current = selectedTree;
     refresh();
-  }, [refresh]);
+  }, [selectedTree, refresh]);
 
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
-      case "task:created":
-        setTasks(prev => [msg.data.task, ...prev]);
+      case "task:created": {
+        const task = msg.data.task;
+        if (selectedTreeRef.current && task.tree_id !== selectedTreeRef.current) break;
+        setTasks(prev => [task, ...prev]);
         break;
+      }
       case "task:status":
         setTasks(prev =>
           prev.map(t => t.id === msg.data.taskId ? { ...t, status: msg.data.status } : t)
