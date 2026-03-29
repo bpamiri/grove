@@ -53,10 +53,15 @@ jobs:
       - name: Build web assets
         run: bun run build:web
 
-      - name: Build binary (${{ matrix.target }})
+      - name: Embed web assets
+        run: bun run build:embed
+
+      - name: Build binary
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           mkdir -p bin
-          bun build src/cli/index.ts --compile --target=${{ matrix.target }} --outfile bin/grove
+          bun build src/cli/index.ts --compile --target="$TARGET" --outfile bin/grove
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
