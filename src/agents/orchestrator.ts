@@ -240,6 +240,7 @@ function handleOrchestratorEvent(event: any, db: Database): void {
           depends_on: event.depends_on ?? null,
           branch: null,
           worktree_path: null,
+          github_issue: null,
           pr_url: null,
           pr_number: null,
           cost_usd: 0,

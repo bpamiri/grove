@@ -16,11 +16,28 @@ export class Database {
   init(schemaPath: string): void {
     const sql = readFileSync(schemaPath, "utf-8");
     this.db.exec(sql);
+    this.migrate();
   }
 
   /** Initialize from an embedded SQL string (for compiled binary) */
   initFromString(sql: string): void {
     this.db.exec(sql);
+    this.migrate();
+  }
+
+  private migrate(): void {
+    const cols = this.all<{ name: string }>("PRAGMA table_info(tasks)");
+    // Add github_issue column (links task to originating GitHub issue)
+    const hasGithubIssue = cols.some(c => c.name === "github_issue");
+    if (!hasGithubIssue) {
+      this.run("ALTER TABLE tasks ADD COLUMN github_issue INTEGER");
+      // Backfill from existing "Issue #N" title suffix
+      const tasks = this.all<{ id: string; title: string }>("SELECT id, title FROM tasks");
+      for (const t of tasks) {
+        const m = t.title.match(/\bIssue #(\d+)$/);
+        if (m) this.run("UPDATE tasks SET github_issue = ? WHERE id = ?", [parseInt(m[1], 10), t.id]);
+      }
+    }
   }
 
   close(): void {

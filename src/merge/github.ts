@@ -113,6 +113,34 @@ export function ghPrList(repo: string, opts?: { head?: string; state?: string; l
 }
 
 // ---------------------------------------------------------------------------
+// Issue operations
+// ---------------------------------------------------------------------------
+
+export interface GhIssue {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  body: string;
+  labels: Array<{ name: string }>;
+}
+
+export function ghIssueClose(repo: string, issueNumber: number): boolean {
+  const result = gh(["issue", "close", String(issueNumber), "-R", repo]);
+  return result.ok;
+}
+
+export function ghIssueList(repo: string, opts?: { state?: string; limit?: number }): GhIssue[] {
+  const args = [
+    "issue", "list", "-R", repo,
+    "--json", "number,title,state,url,body,labels",
+  ];
+  if (opts?.state) args.push("--state", opts.state);
+  args.push("--limit", String(opts?.limit ?? 30));
+  return ghJson<GhIssue[]>(args);
+}
+
+// ---------------------------------------------------------------------------
 // Mergeable state
 // ---------------------------------------------------------------------------
 
