@@ -75,13 +75,10 @@ export interface PrCheckStatus {
   pending: number;
 }
 
-export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
-  const result = gh(["pr", "checks", String(prNumber), "-R", repo, "--json", "name,state,conclusion"]);
-  if (!result.ok) {
-    return { state: "pending", total: 0, passing: 0, failing: 0, pending: 0 };
-  }
-
-  const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string; conclusion: string }>;
+/** Pure logic: resolve check state from an array of check results */
+export function resolveCheckState(
+  checks: Array<{ name: string; state: string; conclusion: string }>,
+): PrCheckStatus {
   const total = checks.length;
   const passing = checks.filter(c => c.conclusion === "SUCCESS" || c.conclusion === "success").length;
   const failing = checks.filter(c => c.conclusion === "FAILURE" || c.conclusion === "failure").length;
@@ -89,9 +86,19 @@ export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
 
   let state: "pending" | "success" | "failure" = "pending";
   if (failing > 0) state = "failure";
-  else if (pending === 0 && total > 0) state = "success";
+  else if (pending === 0) state = "success";
 
   return { state, total, passing, failing, pending };
+}
+
+export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
+  const result = gh(["pr", "checks", String(prNumber), "-R", repo, "--json", "name,state,conclusion"]);
+  if (!result.ok) {
+    return { state: "pending", total: 0, passing: 0, failing: 0, pending: 0 };
+  }
+
+  const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string; conclusion: string }>;
+  return resolveCheckState(checks);
 }
 
 export function ghPrList(repo: string, opts?: { head?: string; state?: string; limit?: number }): GhPr[] {
