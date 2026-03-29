@@ -109,11 +109,46 @@ function extractSubdomain(host: string): string | null {
 
 function landingPage(): Response {
   const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Grove</title>
-<style>body{font-family:system-ui;background:#09090b;color:#a1a1aa;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.c{text-align:center}h1{color:#34d399;font-size:1.5rem}a{color:#34d399}</style></head>
-<body><div class="c"><h1>Grove</h1><p>Open source AI orchestrator</p>
-<p><a href="https://github.com/bpamiri/grove">github.com/bpamiri/grove</a></p></div></body></html>`;
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Grove — AI Development Orchestrator</title>
+  <style>
+    body{margin:0;font-family:-apple-system,system-ui,sans-serif;background:#09090b;color:#e4e4e7;display:flex;justify-content:center;align-items:center;min-height:100vh}
+    .c{max-width:520px;text-align:center;padding:2rem}
+    h1{font-size:2.5rem;margin:0 0 .25rem;color:#34d399}
+    .sub{color:#71717a;margin-bottom:2rem;font-size:1.1rem}
+    pre{background:#18181b;border:1px solid #27272a;border-radius:8px;padding:1rem;text-align:left;overflow-x:auto;font-size:.875rem;color:#a1a1aa;cursor:pointer;position:relative}
+    pre:hover{border-color:#34d399}
+    pre:hover::after{content:'click to copy';position:absolute;top:.5rem;right:.75rem;color:#34d399;font-size:.7rem}
+    code{color:#34d399}
+    .features{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin:2rem 0;text-align:left}
+    .feat{background:#18181b;border:1px solid #27272a;border-radius:6px;padding:.75rem;font-size:.8rem}
+    .feat strong{color:#34d399;display:block;margin-bottom:.25rem}
+    .feat span{color:#71717a}
+    .links{margin-top:1.5rem;display:flex;gap:1.5rem;justify-content:center;font-size:.9rem}
+    a{color:#34d399;text-decoration:none}a:hover{text-decoration:underline}
+    @media(max-width:500px){.features{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="c">
+    <h1>Grove</h1>
+    <p class="sub">AI development orchestrator for Claude Code</p>
+    <pre onclick="navigator.clipboard.writeText(this.textContent)"><code>curl -fsSL https://grove.cloud/install.sh | bash</code></pre>
+    <div class="features">
+      <div class="feat"><strong>Multi-repo</strong><span>Manage tasks across repos with isolated worktrees</span></div>
+      <div class="feat"><strong>Quality gates</strong><span>Tests, lint, diff size checks before merge</span></div>
+      <div class="feat"><strong>Cost control</strong><span>Per-task, daily, and weekly budget limits</span></div>
+      <div class="feat"><strong>Web dashboard</strong><span>Real-time task monitoring via tunnel</span></div>
+    </div>
+    <div class="links">
+      <a href="https://github.com/bpamiri/grove">GitHub</a>
+      <a href="https://github.com/bpamiri/grove#getting-started">Docs</a>
+    </div>
+  </div>
+</body>
+</html>`;
   return new Response(html, {
     headers: { "Content-Type": "text/html" },
   });
@@ -146,10 +181,14 @@ async function handleProxy(
   targetUrl.port = target.port;
   targetUrl.protocol = target.protocol;
 
+  // Rewrite headers: set Host to target hostname so the tunnel accepts the request
+  const headers = new Headers(request.headers);
+  headers.set("host", target.hostname);
+
   // Forward the request (Workers handle WebSocket upgrades natively via fetch)
   const proxyReq = new Request(targetUrl.toString(), {
     method: request.method,
-    headers: request.headers,
+    headers,
     body: request.body,
     redirect: "manual",
   });
