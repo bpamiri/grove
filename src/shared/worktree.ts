@@ -20,6 +20,28 @@ export function slugify(text: string, maxLen: number = 40): string {
     .slice(0, maxLen);
 }
 
+/** Resolve the default branch for a repo (origin/develop, origin/main, etc.) */
+function resolveDefaultBranch(repoPath: string, configured?: string): string {
+  if (configured) {
+    // Try origin/<configured> first, then bare name
+    for (const ref of [`origin/${configured}`, configured]) {
+      const check = Bun.spawnSync(["git", "-C", repoPath, "rev-parse", "--verify", ref], { stderr: "pipe" });
+      if (check.exitCode === 0) return ref;
+    }
+  }
+  // Auto-detect: check origin/HEAD, then common names
+  const head = Bun.spawnSync(["git", "-C", repoPath, "symbolic-ref", "refs/remotes/origin/HEAD"], { stderr: "pipe" });
+  if (head.exitCode === 0) {
+    const ref = head.stdout.toString().trim().replace("refs/remotes/", "");
+    if (ref) return ref;
+  }
+  for (const ref of ["origin/develop", "origin/main", "origin/master"]) {
+    const check = Bun.spawnSync(["git", "-C", repoPath, "rev-parse", "--verify", ref], { stderr: "pipe" });
+    if (check.exitCode === 0) return ref;
+  }
+  return "origin/main";
+}
+
 /** Run a git command, return { ok, stdout, stderr } */
 function git(repoPath: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
   const result = Bun.spawnSync(["git", "-C", repoPath, ...args]);
@@ -41,6 +63,7 @@ export function createWorktree(
   treePath: string,
   branchPrefix: string,
   title: string,
+  defaultBranch?: string,
 ): string {
   const repoPath = expandHome(treePath);
 
@@ -60,12 +83,18 @@ export function createWorktree(
     return worktreePath;
   }
 
+  // Resolve the start point: configured default_branch, or auto-detect
+  const startPoint = resolveDefaultBranch(repoPath, defaultBranch);
+
+  // Fetch latest from origin to ensure we branch from up-to-date ref
+  git(repoPath, ["fetch", "origin", startPoint.replace("origin/", "")]);
+
   // Check if branch already exists
   const branchExists = git(repoPath, ["rev-parse", "--verify", branch]).ok;
 
   const result = branchExists
     ? git(repoPath, ["worktree", "add", worktreePath, branch])
-    : git(repoPath, ["worktree", "add", "-b", branch, worktreePath]);
+    : git(repoPath, ["worktree", "add", "-b", branch, worktreePath, startPoint]);
 
   if (!result.ok) {
     throw new Error(`Failed to create worktree: ${result.stderr}`);

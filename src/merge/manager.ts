@@ -1,27 +1,14 @@
 // Grove v3 — Merge Manager: PR lifecycle management
 // Handles: push branch → create PR → watch CI → merge on green
-// Sequential per-tree queue to avoid merge conflicts.
+// On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
-import {
-  ghPrCreate, ghPrMerge, ghPrChecks, ghPrMergeable, ghIssueClose,
-  gitPush, gitPushForce, gitRebase,
-  type PrCheckStatus, type MergeableState,
-} from "./github";
+import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, ghIssueClose, gitPush, gitDeleteBranch, type PrCheckStatus } from "./github";
+import { cleanupWorktree } from "../shared/worktree";
 import type { Database } from "../broker/db";
-import type { Task, Tree, TreeConfig } from "../shared/types";
+import type { Task, Tree } from "../shared/types";
 
 // Per-tree merge queue (sequential to avoid conflicts)
 const mergeQueues = new Map<string, Promise<void>>();
-
-/** Extract default_branch from tree config JSON, falling back to "main" */
-export function treeDefaultBranch(tree: Tree): string {
-  try {
-    const cfg = JSON.parse(tree.config || "{}") as Partial<TreeConfig>;
-    return cfg.default_branch || "main";
-  } catch {
-    return "main";
-  }
-}
 
 /** Queue a task for PR creation, CI watch, and merge */
 export function queueMerge(task: Task, tree: Tree, db: Database): void {
@@ -54,90 +41,83 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     return;
   }
 
-  // 2. Create PR
-  // Re-read task to get latest data (including github_issue from migration/backfill)
+  // 2. Create PR (or reuse existing one)
+  // Re-read task to get latest pr_number (may already have a PR from a previous attempt)
   const freshTask = db.taskGet(task.id) ?? task;
-  let prNumber: number;
-  let prUrl: string;
-  try {
-    const filesModified = freshTask.files_modified?.split("\n").filter(Boolean).length ?? 0;
-    const gateResults = freshTask.gate_results ? JSON.parse(freshTask.gate_results) : [];
-    const gatesSummary = gateResults
-      .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
-      .join("\n");
+  let prNumber = freshTask.pr_number ?? 0;
+  let prUrl = freshTask.pr_url ?? "";
 
-    const issueNumber = freshTask.github_issue;
+  if (!prNumber) {
+    try {
+      const filesModified = freshTask.files_modified?.split("\n").filter(Boolean).length ?? 0;
+      const gateResults = freshTask.gate_results ? JSON.parse(freshTask.gate_results) : [];
+      const gatesSummary = gateResults
+        .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
+        .join("\n");
 
-    const body = [
-      `## ${freshTask.title}`,
-      "",
-      freshTask.description ?? "",
-      "",
-      `**Task:** ${freshTask.id}`,
-      `**Path:** ${freshTask.path_name}`,
-      `**Cost:** $${freshTask.cost_usd.toFixed(2)}`,
-      `**Files changed:** ${filesModified}`,
-      "",
-      "### Quality Gates",
-      gatesSummary || "No gates run",
-      "",
-      ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
-      "---",
-      "*Created by [Grove](https://grove.cloud)*",
-    ].join("\n");
+      const titleSlug = freshTask.title.length > 60
+        ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
+        : freshTask.title;
+      const prTitle = `feat: (${freshTask.id}) ${titleSlug}`;
 
-    const pr = ghPrCreate(tree.github, {
-      title: `grove(${task.id}): ${task.title}`,
-      body,
-      head: task.branch,
-    });
+      const issueNumber = freshTask.github_issue;
 
-    prNumber = pr.number;
-    prUrl = pr.url;
-  } catch (err: any) {
-    db.addEvent(task.id, null, "merge_failed", `PR creation failed: ${err.message}`);
-    bus.emit("merge:ci_failed", { taskId: task.id, prNumber: 0 });
-    return;
-  }
+      const body = [
+        `## ${freshTask.title}`,
+        "",
+        freshTask.description ?? "",
+        "",
+        `**Task:** ${freshTask.id}`,
+        `**Path:** ${freshTask.path_name}`,
+        `**Cost:** $${freshTask.cost_usd.toFixed(2)}`,
+        `**Files changed:** ${filesModified}`,
+        "",
+        "### Quality Gates",
+        gatesSummary || "No gates run",
+        "",
+        ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
+        "---",
+        "*Created by [Grove](https://grove.cloud)*",
+      ].join("\n");
 
-  // Update task with PR info
-  db.run("UPDATE tasks SET pr_url = ?, pr_number = ? WHERE id = ?", [prUrl, prNumber, task.id]);
-  db.addEvent(task.id, null, "pr_created", `PR #${prNumber} created`);
-  bus.emit("merge:pr_created", { taskId: task.id, prNumber, prUrl });
+      const treeConfig = tree.config ? JSON.parse(tree.config) : {};
+      const baseBranch = treeConfig.default_branch ?? undefined;
 
-  // 3. Check for merge conflicts (one rebase attempt if conflicting)
-  const baseBranch = treeDefaultBranch(tree);
-  const postCreateState = await waitForMergeable(tree.github, prNumber);
-  if (postCreateState === "CONFLICTING") {
-    const resolved = await attemptRebase(task, tree.github, prNumber, db, baseBranch);
-    if (!resolved) {
-      db.taskSetStatus(task.id, "conflict");
-      db.addEvent(task.id, null, "conflict_detected", `Conflict on PR #${prNumber} — auto-rebase failed`);
-      bus.emit("merge:rebase_failed", { taskId: task.id, prNumber });
+      const pr = ghPrCreate(tree.github!, {
+        title: prTitle,
+        body,
+        head: freshTask.branch!,
+        base: baseBranch,
+      });
+
+      prNumber = pr.number;
+      prUrl = pr.url;
+
+      db.run("UPDATE tasks SET pr_url = ?, pr_number = ? WHERE id = ?", [prUrl, prNumber, freshTask.id]);
+      db.addEvent(freshTask.id, null, "pr_created", `PR #${prNumber} created`);
+      bus.emit("merge:pr_created", { taskId: freshTask.id, prNumber, prUrl });
+    } catch (err: any) {
+      db.addEvent(freshTask.id, null, "merge_failed", `PR creation failed: ${err.message}`);
+      bus.emit("merge:ci_failed", { taskId: freshTask.id, prNumber: 0 });
       return;
     }
+  } else {
+    // PR already exists — update title to latest format and re-check CI
+    const titleSlug = freshTask.title.length > 60
+      ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
+      : freshTask.title;
+    ghPrEditTitle(tree.github!, prNumber, `feat: (${freshTask.id}) ${titleSlug}`);
+    db.addEvent(freshTask.id, null, "ci_recheck", `Re-checking CI on existing PR #${prNumber}`);
   }
 
-  // 4. Watch CI
+  // 3. Watch CI
   const ciResult = await watchCI(tree.github, prNumber, task.id, db);
 
   if (ciResult.state === "success") {
-    // 5. Pre-merge conflict check (branch may have drifted during CI)
-    const preMergeState = await waitForMergeable(tree.github, prNumber);
-    if (preMergeState === "CONFLICTING") {
-      db.taskSetStatus(task.id, "conflict");
-      db.addEvent(task.id, null, "conflict_detected", `Conflict appeared during CI on PR #${prNumber}`);
-      bus.emit("merge:conflict_detected", { taskId: task.id, prNumber });
-      return;
-    }
-
-    // 6. Merge
+    // 4. Merge
     try {
       ghPrMerge(tree.github, prNumber);
-      db.taskSetStatus(task.id, "merged");
-      db.run("UPDATE tasks SET completed_at = datetime('now') WHERE id = ?", [task.id]);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
-      bus.emit("merge:completed", { taskId: task.id, prNumber });
 
       // Close linked GitHub issue (explicit close is the reliable path; Closes #N in body
       // only works when merging into the repo's default branch)
@@ -150,75 +130,72 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
           db.addEvent(task.id, null, "issue_close_failed", `Failed to close Issue #${mergedTask.github_issue}`);
         }
       }
+
+      postMergeCleanup(task, tree, db);
+      const { onStepComplete } = await import("../engine/step-engine");
+      onStepComplete(task.id, "success");
     } catch (err: any) {
       db.addEvent(task.id, null, "merge_failed", `Merge failed: ${err.message}`);
       bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
     }
   } else {
-    // CI failed — notify orchestrator
-    db.taskSetStatus(task.id, "ci_failed");
-    db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}`);
+    // CI failed — get failure details and store for worker
+    const failDetails = ghPrCheckDetails(tree.github!, prNumber);
+    const failSummary = failDetails.length > 0
+      ? failDetails.map(c => `- ${c.name}: ${c.conclusion} (${c.link})`).join("\n")
+      : `CI failed on PR #${prNumber} (no details available)`;
+
+    db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}: ${failDetails.length} check(s) failed`);
     bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
+
+    // Store CI failure context so the worker knows what to fix when re-dispatched
+    const fixInstructions = [
+      `\n\n## CI Failure (PR #${prNumber})`,
+      failSummary,
+      "",
+      "### Instructions",
+      "Fix these CI failures. Common issues:",
+      "- **Validate Commit Messages**: Amend the commit to use conventional format: `feat: (TASK-ID) description`. Task ID goes in the subject after the colon, NOT in the scope parentheses (commitlint rejects unknown scopes). Use `git commit --amend -m 'new message'`.",
+      "- **Test failures**: Read the test output, fix the code, commit the fix.",
+      "- **Lint failures**: Run the linter, fix violations, commit.",
+      "",
+      "After fixing, commit (or amend) and the PR will be re-checked automatically.",
+    ].join("\n");
+    db.run(
+      "UPDATE tasks SET session_summary = COALESCE(session_summary, '') || ? WHERE id = ?",
+      [fixInstructions, task.id]
+    );
+
+    const { onStepComplete } = await import("../engine/step-engine");
+    onStepComplete(task.id, "failure");
   }
 }
 
-/** Poll GitHub until mergeable state is computed (not UNKNOWN) */
-async function waitForMergeable(
-  repo: string,
-  prNumber: number,
-  maxAttempts: number = 3,
-  intervalMs: number = 5_000,
-): Promise<MergeableState> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const state = ghPrMergeable(repo, prNumber);
-    if (state !== "UNKNOWN") return state;
-    if (i < maxAttempts - 1) {
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-  }
-  // GitHub hasn't resolved yet — treat as mergeable and proceed
-  return "MERGEABLE";
-}
+/** Clean up worktree and branches after a successful merge (best-effort) */
+function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
+  const cleaned: string[] = [];
 
-/** Attempt to rebase the task branch onto the base branch and force-push */
-async function attemptRebase(
-  task: Task,
-  repo: string,
-  prNumber: number,
-  db: Database,
-  baseBranch: string = "main",
-): Promise<boolean> {
-  if (!task.worktree_path || !task.branch) return false;
-
-  db.addEvent(task.id, null, "rebase_started", `Conflict detected on PR #${prNumber}, attempting rebase onto ${baseBranch}`);
-
-  const rebaseResult = gitRebase(task.worktree_path, baseBranch);
-  if (!rebaseResult.ok) {
-    db.addEvent(task.id, null, "rebase_failed", `Rebase failed: ${rebaseResult.stderr}`);
-    return false;
+  // Remove git worktree
+  if (task.worktree_path) {
+    try {
+      cleanupWorktree(task.id, tree.path);
+      cleaned.push("worktree");
+    } catch { /* best-effort */ }
   }
 
-  if (rebaseResult.autoResolved?.length) {
-    db.addEvent(task.id, null, "conflict_auto_resolved",
-      `Auto-resolved trivial conflicts: ${rebaseResult.autoResolved.join(", ")}`);
+  // Delete local and remote branch
+  if (task.branch) {
+    const repoPath = tree.path.startsWith("~/")
+      ? tree.path.replace("~", process.env.HOME || "~")
+      : tree.path;
+    const { localOk, remoteOk } = gitDeleteBranch(repoPath, task.branch);
+    if (localOk) cleaned.push("local branch");
+    if (remoteOk) cleaned.push("remote branch");
   }
 
-  const pushResult = gitPushForce(task.worktree_path, task.branch);
-  if (!pushResult.ok) {
-    db.addEvent(task.id, null, "rebase_failed", `Force push after rebase failed: ${pushResult.stderr}`);
-    return false;
+  if (cleaned.length > 0) {
+    db.addEvent(task.id, null, "cleanup", `Post-merge cleanup: removed ${cleaned.join(", ")}`);
   }
-
-  // Wait for GitHub to recompute mergeable after force push
-  const afterState = await waitForMergeable(repo, prNumber);
-  if (afterState === "CONFLICTING") {
-    db.addEvent(task.id, null, "rebase_failed", "Still conflicting after rebase");
-    return false;
-  }
-
-  db.addEvent(task.id, null, "rebase_succeeded", `Rebase resolved conflict on PR #${prNumber}`);
-  bus.emit("merge:rebase_succeeded", { taskId: task.id, prNumber });
-  return true;
 }
 
 /** Poll CI checks until all pass, fail, or timeout */

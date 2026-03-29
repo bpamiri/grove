@@ -27,6 +27,20 @@ export class Database {
 
   private migrate(): void {
     const cols = this.all<{ name: string }>("PRAGMA table_info(tasks)");
+    const hasCurrentStep = cols.some(c => c.name === "current_step");
+    if (!hasCurrentStep) {
+      this.run("ALTER TABLE tasks ADD COLUMN current_step TEXT");
+      this.run("ALTER TABLE tasks ADD COLUMN step_index INTEGER DEFAULT 0");
+      this.run("ALTER TABLE tasks ADD COLUMN paused INTEGER DEFAULT 0");
+
+      this.run("UPDATE tasks SET status = 'draft', current_step = NULL WHERE status = 'planned'");
+      this.run("UPDATE tasks SET status = 'queued', current_step = 'plan' WHERE status = 'ready'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'implement' WHERE status = 'running'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'evaluate' WHERE status = 'evaluating'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'implement', paused = 1 WHERE status = 'paused'");
+      this.run("UPDATE tasks SET status = 'completed', current_step = '$done' WHERE status IN ('merged', 'completed', 'done')");
+      this.run("UPDATE tasks SET status = 'failed', current_step = '$fail' WHERE status IN ('failed', 'ci_failed')");
+    }
     // Add github_issue column (links task to originating GitHub issue)
     const hasGithubIssue = cols.some(c => c.name === "github_issue");
     if (!hasGithubIssue) {
@@ -38,6 +52,9 @@ export class Database {
         if (m) this.run("UPDATE tasks SET github_issue = ? WHERE id = ?", [parseInt(m[1], 10), t.id]);
       }
     }
+
+    // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
+    this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }
 
   close(): void {
@@ -138,7 +155,7 @@ export class Database {
     const deps = task.depends_on.split(",").map(d => d.trim()).filter(Boolean);
     return deps.some(dep => {
       const depTask = this.taskGet(dep);
-      return !depTask || (depTask.status !== "done" && depTask.status !== "completed" && depTask.status !== "merged");
+      return !depTask || depTask.status !== "completed";
     });
   }
 
@@ -146,7 +163,7 @@ export class Database {
     const candidates = this.all<Task>(
       `SELECT * FROM tasks
        WHERE (',' || depends_on || ',') LIKE ?
-         AND status NOT IN ('done', 'completed', 'merged', 'failed')`,
+         AND status NOT IN ('completed', 'failed')`,
       [`%,${completedTaskId},%`]
     );
     return candidates.filter(t => !this.isTaskBlocked(t.id));
@@ -227,6 +244,54 @@ export class Database {
       "SELECT * FROM messages WHERE channel = ? ORDER BY created_at DESC LIMIT ?",
       [channel, limit]
     );
+  }
+
+  clearMessages(): void {
+    this.run("DELETE FROM messages");
+  }
+
+  // ---- Seed operations ----
+
+  seedCreate(taskId: string): void {
+    this.run(
+      "INSERT OR REPLACE INTO seeds (task_id, status) VALUES (?, 'active')",
+      [taskId],
+    );
+  }
+
+  seedGet(taskId: string): {
+    id: number; task_id: string; summary: string | null; spec: string | null;
+    conversation: string | null; status: string; created_at: string; completed_at: string | null;
+  } | null {
+    return this.get(
+      "SELECT * FROM seeds WHERE task_id = ? AND status != 'discarded'",
+      [taskId],
+    );
+  }
+
+  seedComplete(taskId: string, summary: string, spec: string): void {
+    this.run(
+      "UPDATE seeds SET summary = ?, spec = ?, status = 'completed', completed_at = datetime('now') WHERE task_id = ? AND status = 'active'",
+      [summary, spec, taskId],
+    );
+  }
+
+  seedUpdateConversation(taskId: string, messages: any[]): void {
+    this.run(
+      "UPDATE seeds SET conversation = ? WHERE task_id = ? AND status = 'active'",
+      [JSON.stringify(messages), taskId],
+    );
+  }
+
+  seedDiscard(taskId: string): void {
+    this.run(
+      "UPDATE seeds SET status = 'discarded' WHERE task_id = ? AND status IN ('active', 'completed')",
+      [taskId],
+    );
+  }
+
+  seedDelete(taskId: string): void {
+    this.run("DELETE FROM seeds WHERE task_id = ?", [taskId]);
   }
 
   // ---- Cost helpers ----
