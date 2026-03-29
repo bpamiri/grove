@@ -4,7 +4,7 @@ import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { bus } from "../broker/event-bus";
 import { parseCost, isAlive } from "./stream-parser";
 import { createWorktree, branchName } from "../shared/worktree";
-import { deploySandbox, triggerPrompt, resumeTriggerPrompt } from "../shared/sandbox";
+import { deploySandbox, triggerPrompt } from "../shared/sandbox";
 import type { Database } from "../broker/db";
 import { isTerminalStatus } from "../shared/types";
 import type { Task, Tree } from "../shared/types";
@@ -21,7 +21,7 @@ export interface WorkerHandle {
 const activeWorkers = new Map<string, WorkerHandle>();
 
 /** Spawn a worker for a task. Creates worktree, deploys sandbox, launches claude. */
-export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string, stepPrompt?: string): WorkerHandle {
+export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string): WorkerHandle {
   if (activeWorkers.has(task.id)) {
     throw new Error(`Worker already active for task ${task.id}`);
   }
@@ -35,30 +35,17 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   const sessionId = `worker-${task.id}-${Date.now()}`;
   const logPath = join(logDir, `${sessionId}.jsonl`);
 
-  // Parse tree config for default_branch
-  const treeConfig = tree.config ? JSON.parse(tree.config) : {};
-
-  // Create or reuse worktree (createWorktree returns existing if present)
+  // Create worktree
   const worktreePath = createWorktree(
     task.id,
     tree.path,
     tree.branch_prefix,
     task.title,
-    treeConfig.default_branch,
   );
 
   const branch = branchName(task.id, task.title, tree.branch_prefix);
 
-  // Check for prior session artifacts to carry forward
-  const summaryPath = join(worktreePath, ".grove", "session-summary.md");
-  const priorSummary = existsSync(summaryPath) ? readFileSync(summaryPath, "utf-8") : task.session_summary;
-  const isResumption = !!(priorSummary || task.retry_count > 0);
-
-  // Look up seed spec for this task
-  const seed = db.seedGet(task.id);
-  const seedSpec = seed?.spec ?? null;
-
-  // Deploy sandbox (guard hooks + CLAUDE.md overlay with prior context)
+  // Deploy sandbox (guard hooks + CLAUDE.md overlay)
   deploySandbox(worktreePath, {
     taskId: task.id,
     title: task.title,
@@ -66,25 +53,23 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     treePath: tree.path,
     branch,
     pathName: task.path_name,
-    sessionSummary: priorSummary,
+    sessionSummary: task.session_summary,
     filesModified: task.files_modified,
-    stepPrompt,
-    seedSpec,
   });
 
   // Update task in DB
-  db.run("UPDATE tasks SET status = 'active', branch = ?, worktree_path = ?, started_at = datetime('now') WHERE id = ?",
+  db.run("UPDATE tasks SET status = 'running', branch = ?, worktree_path = ?, started_at = datetime('now') WHERE id = ?",
     [branch, worktreePath, task.id]);
 
-  // Use resume prompt if continuing from a prior session
-  const prompt = isResumption ? resumeTriggerPrompt(task.id) : triggerPrompt(task.id);
+  // Build the trigger prompt
+  const prompt = triggerPrompt(task.id);
 
   // Spawn claude in the worktree
   const logFile = Bun.file(logPath);
   const logWriter = logFile.writer();
 
   const proc = Bun.spawn(
-    ["claude", "-p", prompt, "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"],
+    ["claude", "-p", prompt, "--verbose", "--output-format", "stream-json"],
     {
       cwd: worktreePath,
       env: {
@@ -145,29 +130,18 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
         if (!trimmed) continue;
         try {
           const obj = JSON.parse(trimmed);
-          // stream-json nests content blocks in assistant messages
-          if (obj.type === "assistant") {
-            for (const block of obj.message?.content ?? []) {
-              if (block.type === "tool_use") {
-                const tool = block.name ?? "tool";
-                const input = block.input ?? {};
-                const file = input.file_path ?? input.command ?? input.pattern ?? "";
-                const activity = `${tool}: ${String(file).slice(0, 200)}`;
-                if (activity !== lastActivity) {
-                  lastActivity = activity;
-                  bus.emit("worker:activity", { taskId, msg: activity });
-                }
-              } else if (block.type === "thinking" && block.thinking) {
-                const snippet = block.thinking.slice(0, 300).replace(/\n/g, " ");
-                bus.emit("worker:activity", { taskId, msg: `thinking: ${snippet}`, kind: "thinking" });
-              } else if (block.type === "text" && block.text && block.text.length > 10) {
-                const snippet = block.text.slice(0, 300).replace(/\n/g, " ");
-                bus.emit("worker:activity", { taskId, msg: `${snippet}`, kind: "text" });
-              }
+          if (obj.type === "tool_use") {
+            const tool = obj.name ?? obj.tool ?? "";
+            const input = obj.input ?? {};
+            const file = input.file_path ?? input.command ?? "";
+            const activity = `${tool}: ${String(file).slice(0, 60)}`;
+            if (activity !== lastActivity) {
+              lastActivity = activity;
+              bus.emit("worker:activity", { taskId, msg: activity });
             }
           }
-          // Update cost from result events
-          if (obj.type === "result" && obj.cost_usd != null) {
+          // Update cost periodically
+          if (obj.cost_usd != null) {
             db.sessionUpdateCost(sessionId, Number(obj.cost_usd), Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0));
           }
         } catch {
@@ -208,16 +182,19 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
       }
     }
 
-    // Report completion to step engine
-    bus.emit("worker:ended", { taskId, sessionId, status: exitCode === 0 ? "done" : "failed" });
-    const { onStepComplete } = await import("../engine/step-engine");
-    onStepComplete(taskId, exitCode === 0 ? "success" : "failure");
+    // Update task status
+    if (exitCode === 0) {
+      db.taskSetStatus(taskId, "done");
+      bus.emit("worker:ended", { taskId, sessionId, status: "done" });
+    } else {
+      db.taskSetStatus(taskId, "failed");
+      bus.emit("worker:ended", { taskId, sessionId, status: "failed" });
+    }
   } catch (err) {
     db.sessionEnd(sessionId, "crashed");
+    db.taskSetStatus(taskId, "failed");
     db.addEvent(taskId, sessionId, "worker_crashed", `Worker crashed: ${err}`);
     bus.emit("worker:ended", { taskId, sessionId, status: "crashed" });
-    const { onStepComplete } = await import("../engine/step-engine");
-    onStepComplete(taskId, "failure");
   } finally {
     activeWorkers.delete(taskId);
   }
@@ -245,8 +222,7 @@ export function stopWorker(taskId: string, db: Database): boolean {
   } catch {}
 
   db.sessionEnd(handle.sessionId, "stopped");
-  db.run("UPDATE tasks SET paused = 1 WHERE id = ?", [taskId]);
-  db.addEvent(taskId, null, "task_paused", "Task paused by user");
+  db.taskSetStatus(taskId, "paused");
   activeWorkers.delete(taskId);
 
   bus.emit("worker:ended", { taskId, sessionId: handle.sessionId, status: "stopped" });

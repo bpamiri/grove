@@ -45,11 +45,6 @@ export function killWindow(target: string): boolean {
   return run(["kill-window", "-t", target]).ok;
 }
 
-/** Send a bare Enter keystroke to a tmux pane (e.g. to confirm a prompt). */
-export function sendEnter(target: string): boolean {
-  return run(["send-keys", "-t", target, "Enter"]).ok;
-}
-
 /** Send keys (text input) to a tmux pane. */
 export function sendKeys(target: string, text: string): boolean {
   // For long messages, use a temp file to avoid shell escaping issues

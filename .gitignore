@@ -14,7 +14,6 @@ bin/
 dist/
 web/dist/
 *.compiled
-src/broker/web-assets.generated.ts
 
 # IDE
 .idea/
@@ -32,4 +31,3 @@ src/broker/web-assets.generated.ts
 # OS
 .DS_Store
 Thumbs.db
-.grove-worktree/

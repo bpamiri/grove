@@ -1,7 +1,6 @@
 // Grove v3 — Health monitor
 // Runs on a 15-second interval inside the broker process.
 // Checks: PID liveness, stall detection, worker crash, orchestrator health.
-// Also provides startup recovery for tasks orphaned by a previous crash/restart.
 import { bus } from "../broker/event-bus";
 import { isAlive } from "../agents/stream-parser";
 import { lastActivity } from "../agents/stream-parser";
@@ -52,9 +51,9 @@ function checkWorkers(db: Database, stallTimeoutMinutes: number): void {
       // Worker crashed — PID dead but session still "running"
       db.sessionEnd(session.id, "crashed");
       if (session.task_id) {
+        db.taskSetStatus(session.task_id, "failed");
         db.addEvent(session.task_id, session.id, "worker_crashed", `Worker PID ${session.pid} died unexpectedly`);
         bus.emit("monitor:crash", { taskId: session.task_id, sessionId: session.id });
-        recoverTask(db, session.task_id, "worker crash");
       }
       continue;
     }
@@ -87,77 +86,6 @@ function checkWorkers(db: Database, stallTimeoutMinutes: number): void {
         }
       }
     }
-  }
-}
-
-/** Attempt to recover a task by re-enqueuing if retry budget allows */
-function recoverTask(db: Database, taskId: string, reason: string): void {
-  const task = db.get<{ id: string; retry_count: number; max_retries: number; status: string }>(
-    "SELECT id, retry_count, max_retries, status FROM tasks WHERE id = ?", [taskId]
-  );
-  if (!task) return;
-
-  // Only recover tasks that aren't already completed/queued
-  if (task.status === "completed" || task.status === "queued") return;
-
-  if (task.retry_count < task.max_retries + 2) {
-    // Re-enqueue: set to queued, increment retry, clear paused
-    db.run(
-      "UPDATE tasks SET status = 'queued', retry_count = retry_count + 1, paused = 0 WHERE id = ?",
-      [taskId]
-    );
-    db.addEvent(taskId, null, "auto_recovered", `Auto-recovered after ${reason} (attempt ${task.retry_count + 2})`);
-
-    // Enqueue for dispatch
-    try {
-      const { enqueue } = require("../broker/dispatch");
-      enqueue(taskId);
-    } catch { /* dispatch may not be initialized yet during startup */ }
-  } else {
-    db.run("UPDATE tasks SET status = 'failed', current_step = '$fail' WHERE id = ?", [taskId]);
-    db.addEvent(taskId, null, "recovery_exhausted", `Cannot recover: retry budget exhausted after ${reason}`);
-  }
-}
-
-/**
- * Startup recovery: find tasks orphaned by a previous crash/restart and re-enqueue them.
- * Called once during broker startup, after dispatch is initialized.
- */
-export function recoverOrphanedTasks(db: Database): void {
-  // Find tasks that were active (running) when the broker died
-  const orphaned = db.all<{ id: string; status: string; current_step: string | null }>(
-    "SELECT id, status, current_step FROM tasks WHERE status = 'active' AND paused = 0"
-  );
-
-  // Also find tasks that failed due to crash (not exhausted retries) — recent failures only
-  const crashed = db.all<{ id: string; retry_count: number; max_retries: number }>(
-    `SELECT t.id, t.retry_count, t.max_retries FROM tasks t
-     JOIN events e ON e.task_id = t.id
-     WHERE t.status = 'failed'
-       AND e.event_type = 'worker_crashed'
-       AND e.created_at > datetime('now', '-5 minutes')
-     GROUP BY t.id`
-  );
-
-  // Close any stale "running" sessions from previous process
-  db.run(
-    "UPDATE sessions SET status = 'crashed', ended_at = datetime('now') WHERE status = 'running'"
-  );
-
-  let recovered = 0;
-
-  for (const task of orphaned) {
-    recoverTask(db, task.id, "broker restart");
-    recovered++;
-  }
-
-  for (const task of crashed) {
-    recoverTask(db, task.id, "post-crash recovery");
-    recovered++;
-  }
-
-  if (recovered > 0) {
-    db.addEvent(null, null, "startup_recovery", `Recovered ${recovered} orphaned task(s)`);
   }
 }
 

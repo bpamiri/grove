@@ -8,10 +8,9 @@ import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
-import Dashboard from "./components/Dashboard";
 import ResizeHandle from "./components/ResizeHandle";
 
-type View = "tasks" | "settings" | "dashboard";
+type View = "tasks" | "settings";
 
 export default function App() {
   const [view, setView] = useLocalStorage<View>("grove-ui-view", "tasks");
@@ -53,8 +52,6 @@ export default function App() {
             onRefresh={taskState.refresh}
             send={send}
           />
-        ) : view === "dashboard" ? (
-          <Dashboard />
         ) : (
           <Settings
             trees={taskState.trees}

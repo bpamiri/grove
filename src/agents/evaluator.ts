@@ -31,102 +31,11 @@ function capOutput(buf: Buffer): string {
 }
 
 // ---------------------------------------------------------------------------
-// Pre-gate rebase — keep worktree branch up-to-date with main
-// ---------------------------------------------------------------------------
-
-interface RebaseResult {
-  ok: boolean;
-  rebased: boolean;
-  message: string;
-  output?: string;
-}
-
-/**
- * Fetch latest main and rebase the worktree branch onto it.
- * This ensures the diff-size gate only measures the worker's changes,
- * not accumulated drift from other merged PRs.
- */
-function rebaseOntoMain(worktreePath: string, treeConfig: string | null): RebaseResult {
-  const baseRef = resolveBaseRef(worktreePath, parseBaseRefFromConfig(treeConfig));
-
-  // Fetch latest from origin
-  const fetch = Bun.spawnSync(["git", "fetch", "origin"], {
-    cwd: worktreePath, stdin: "ignore", stderr: "pipe", timeout: 30_000,
-  });
-  if (fetch.exitCode !== 0) {
-    // Non-fatal — we can still evaluate against the local ref
-    return { ok: true, rebased: false, message: "Fetch failed — evaluating against local ref" };
-  }
-
-  // Check if rebase is needed (are we behind?)
-  const mergeBase = Bun.spawnSync(["git", "merge-base", "HEAD", baseRef], {
-    cwd: worktreePath, stdin: "ignore",
-  });
-  const localBase = mergeBase.stdout.toString().trim();
-
-  const remoteHead = Bun.spawnSync(["git", "rev-parse", baseRef], {
-    cwd: worktreePath, stdin: "ignore",
-  });
-  const remoteRef = remoteHead.stdout.toString().trim();
-
-  if (localBase === remoteRef) {
-    return { ok: true, rebased: false, message: "Already up-to-date with " + baseRef };
-  }
-
-  // Attempt rebase
-  const rebase = Bun.spawnSync(["git", "rebase", baseRef], {
-    cwd: worktreePath, stdin: "ignore", stderr: "pipe", timeout: 60_000,
-  });
-
-  if (rebase.exitCode === 0) {
-    return { ok: true, rebased: true, message: `Rebased onto ${baseRef}` };
-  }
-
-  // Rebase failed — abort and report
-  Bun.spawnSync(["git", "rebase", "--abort"], {
-    cwd: worktreePath, stdin: "ignore",
-  });
-
-  const output = capOutput(rebase.stderr);
-  return {
-    ok: false,
-    rebased: false,
-    message: `Merge conflicts with ${baseRef} — rebase aborted`,
-    output: output || undefined,
-  };
-}
-
-/** Extract base_ref from tree config JSON */
-function parseBaseRefFromConfig(treeConfig: string | null): string | undefined {
-  if (!treeConfig) return undefined;
-  try {
-    const parsed = JSON.parse(treeConfig);
-    const gates = parsed.quality_gates ?? parsed;
-    if (gates.base_ref) return gates.base_ref;
-    if (parsed.default_branch) return `origin/${parsed.default_branch}`;
-  } catch {}
-  return undefined;
-}
-
-// ---------------------------------------------------------------------------
 // Quality gate checks (run in-process, not via Claude)
 // ---------------------------------------------------------------------------
 
-/** Resolve the base git ref for a worktree (origin/main, main, origin/master, etc.) */
-function resolveBaseRef(worktreePath: string, configRef?: string): string {
-  if (configRef) return configRef;
-  // Try common refs in order of preference
-  for (const ref of ["origin/main", "main", "origin/master", "master"]) {
-    const check = Bun.spawnSync(["git", "rev-parse", "--verify", ref], {
-      cwd: worktreePath, stdin: "ignore", stderr: "pipe",
-    });
-    if (check.exitCode === 0) return ref;
-  }
-  return "origin/main"; // fallback
-}
-
-function checkCommits(worktreePath: string, baseRef: string): GateResult {
-  const result = Bun.spawnSync(["git", "log", `${baseRef}..HEAD`, "--oneline"], {
+function checkCommits(worktreePath: string): GateResult {
+  const result = Bun.spawnSync(["git", "log", "main..HEAD", "--oneline"], {
     cwd: worktreePath, stdin: "ignore",
   });
   const lines = result.stdout.toString().trim().split("\n").filter(Boolean);
@@ -138,13 +47,20 @@ function checkCommits(worktreePath: string, baseRef: string): GateResult {
   };
 }
 
-function checkTests(worktreePath: string, timeoutSec: number = 60, testCommand?: string): GateResult {
-  if (!testCommand) {
-    // No test command configured — skip rather than guess wrong
-    return { gate: "tests", passed: true, tier: "hard", message: "No test command configured — skipped" };
+function checkTests(worktreePath: string, timeoutSec: number = 60): GateResult {
+  // Detect test runner
+  let cmd: string[];
+  if (existsSync(join(worktreePath, "bunfig.toml")) || existsSync(join(worktreePath, "bun.lockb"))) {
+    cmd = ["bun", "test"];
+  } else if (existsSync(join(worktreePath, "package.json"))) {
+    cmd = ["npm", "test"];
+  } else if (existsSync(join(worktreePath, "pytest.ini")) || existsSync(join(worktreePath, "pyproject.toml"))) {
+    cmd = ["pytest"];
+  } else {
+    return { gate: "tests", passed: true, tier: "hard", message: "No test runner detected — skipped" };
   }
 
-  const result = Bun.spawnSync(["sh", "-c", testCommand], {
+  const result = Bun.spawnSync(cmd, {
     cwd: worktreePath, timeout: timeoutSec * 1000, stdin: "ignore",
   });
 
@@ -160,12 +76,17 @@ function checkTests(worktreePath: string, timeoutSec: number = 60, testCommand?:
   };
 }
 
-function checkLint(worktreePath: string, timeoutSec: number = 30, lintCommand?: string): GateResult {
-  if (!lintCommand) {
-    return { gate: "lint", passed: true, tier: "soft", message: "No lint command configured — skipped" };
+function checkLint(worktreePath: string, timeoutSec: number = 30): GateResult {
+  let cmd: string[];
+  if (existsSync(join(worktreePath, ".eslintrc.js")) || existsSync(join(worktreePath, ".eslintrc.json")) || existsSync(join(worktreePath, "eslint.config.js"))) {
+    cmd = ["npx", "eslint", "."];
+  } else if (existsSync(join(worktreePath, "ruff.toml")) || existsSync(join(worktreePath, "pyproject.toml"))) {
+    cmd = ["ruff", "check", "."];
+  } else {
+    return { gate: "lint", passed: true, tier: "soft", message: "No linter detected — skipped" };
   }
 
-  const result = Bun.spawnSync(["sh", "-c", lintCommand], {
+  const result = Bun.spawnSync(cmd, {
     cwd: worktreePath, timeout: timeoutSec * 1000, stdin: "ignore",
   });
 
@@ -181,8 +102,8 @@ function checkLint(worktreePath: string, timeoutSec: number = 30, lintCommand?: 
   };
 }
 
-function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000, baseRef: string = "origin/main"): GateResult {
-  const result = Bun.spawnSync(["git", "diff", "--stat", `${baseRef}..HEAD`], {
+function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000): GateResult {
+  const result = Bun.spawnSync(["git", "diff", "--stat", "main..HEAD"], {
     cwd: worktreePath, stdin: "ignore",
   });
 
@@ -211,9 +132,6 @@ interface GateConfig {
   lint_timeout: number;
   min_diff_lines: number;
   max_diff_lines: number;
-  test_command?: string;
-  lint_command?: string;
-  base_ref?: string;
 }
 
 const DEFAULT_GATE_CONFIG: GateConfig = {
@@ -225,26 +143,18 @@ function resolveGateConfig(treeConfig: string | null): GateConfig {
   if (!treeConfig) return DEFAULT_GATE_CONFIG;
   try {
     const parsed = JSON.parse(treeConfig);
-    // tree.config may be { quality_gates: {...}, default_branch: "..." } or just gate config directly
-    const gates = parsed.quality_gates ?? parsed;
-    const config = { ...DEFAULT_GATE_CONFIG, ...gates };
-    // Use default_branch as base_ref fallback if not set in quality_gates
-    if (!config.base_ref && parsed.default_branch) {
-      config.base_ref = `origin/${parsed.default_branch}`;
-    }
-    return config;
+    return { ...DEFAULT_GATE_CONFIG, ...parsed };
   } catch {
     return DEFAULT_GATE_CONFIG;
   }
 }
 
 function runGates(worktreePath: string, config: GateConfig): GateResult[] {
-  const baseRef = resolveBaseRef(worktreePath, config.base_ref);
   const results: GateResult[] = [];
-  if (config.commits) results.push(checkCommits(worktreePath, baseRef));
-  if (config.tests) results.push(checkTests(worktreePath, config.test_timeout, config.test_command));
-  if (config.lint) results.push(checkLint(worktreePath, config.lint_timeout, config.lint_command));
-  if (config.diff_size) results.push(checkDiffSize(worktreePath, config.min_diff_lines, config.max_diff_lines, baseRef));
+  if (config.commits) results.push(checkCommits(worktreePath));
+  if (config.tests) results.push(checkTests(worktreePath, config.test_timeout));
+  if (config.lint) results.push(checkLint(worktreePath, config.lint_timeout));
+  if (config.diff_size) results.push(checkDiffSize(worktreePath, config.min_diff_lines, config.max_diff_lines));
   return results;
 }
 
@@ -260,6 +170,7 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
   const sessionId = `eval-${task.id}-${Date.now()}`;
 
   db.sessionCreate(sessionId, task.id, "evaluator");
+  db.taskSetStatus(task.id, "evaluating");
   db.addEvent(task.id, sessionId, "eval_started", "Evaluator started");
   bus.emit("eval:started", { taskId: task.id, sessionId });
 
@@ -275,25 +186,6 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
     db.addEvent(task.id, sessionId, "eval_failed", "Worktree not found");
     bus.emit("eval:failed", { taskId: task.id, feedback: "Worktree not found" });
     return result;
-  }
-
-  // Rebase onto latest main before running gates — prevents stale-worktree bloat
-  const rebaseResult = rebaseOntoMain(worktreePath, tree.config);
-  if (!rebaseResult.ok) {
-    const result: EvalResult = {
-      passed: false,
-      gateResults: [{ gate: "rebase", passed: false, tier: "hard", message: rebaseResult.message, output: rebaseResult.output }],
-      feedback: `Rebase failed: ${rebaseResult.message}`,
-      costUsd: 0,
-    };
-    db.run("UPDATE tasks SET gate_results = ? WHERE id = ?", [JSON.stringify(result.gateResults), task.id]);
-    db.sessionEnd(sessionId, "failed");
-    db.addEvent(task.id, sessionId, "eval_failed", `Rebase failed: ${rebaseResult.message}`);
-    bus.emit("eval:failed", { taskId: task.id, feedback: result.feedback });
-    return result;
-  }
-  if (rebaseResult.rebased) {
-    db.addEvent(task.id, sessionId, "rebase_completed", rebaseResult.message);
   }
 
   // Run quality gates
@@ -342,7 +234,7 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
 }
 
 /** Build a prompt for retrying a worker after gate failures */
-export function buildRetryPrompt(gateResults: GateResult[], seedSpec?: string | null): string {
+export function buildRetryPrompt(gateResults: GateResult[]): string {
   const failures = gateResults.filter(r => !r.passed);
   if (failures.length === 0) return "";
 
@@ -353,10 +245,5 @@ export function buildRetryPrompt(gateResults: GateResult[], seedSpec?: string | 
   }
   lines.push("", "Fix these issues. The worktree still contains your previous work.");
   lines.push("Run tests before finishing to confirm they pass.");
-
-  if (seedSpec) {
-    lines.push("", "## Seed (Design Spec)", "Ensure your fix still aligns with the original design:", "", seedSpec);
-  }
-
   return lines.join("\n");
 }

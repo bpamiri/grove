@@ -31,15 +31,6 @@ export function getOrCreateToken(): string {
   return token;
 }
 
-/** Rotate the auth token — generates a new one and overwrites the old */
-export function rotateToken(): string {
-  const { GROVE_HOME } = getEnv();
-  const tokenPath = join(GROVE_HOME, "auth.token");
-  const token = generateToken();
-  writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
-  return token;
-}
-
 /** Validate a token against the stored one */
 export function validateToken(token: string): boolean {
   const { GROVE_HOME } = getEnv();

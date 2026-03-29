@@ -22,20 +22,15 @@ export async function run(_args: string[]) {
     console.log();
     console.log(`  ${pc.green("✓")} Broker started (PID ${info.pid})`);
     console.log(`  ${pc.green("✓")} Orchestrator spawned in tmux:grove`);
-    if (info.tunnelUrl) {
+    if (info.remoteUrl) {
       console.log(`  ${pc.green("✓")} Tunnel active`);
-    }
-    if (info.remoteUrl && info.remoteUrl !== info.tunnelUrl) {
-      console.log(`  ${pc.green("✓")} Registered on grove.cloud`);
     }
     console.log();
     console.log(`  Local:   ${pc.bold(info.url)}`);
-    if (info.tunnelUrl) {
-      console.log(`  Tunnel:  ${pc.dim(info.tunnelUrl)}`);
-    }
     if (info.remoteUrl) {
-      console.log(`  Remote:  ${pc.bold(`${info.remoteUrl}?token=${token}`)}`);
+      console.log(`  Remote:  ${pc.bold(info.remoteUrl)}`);
     }
+    console.log(`  Token:   ${pc.dim(token)}`);
     console.log(`  tmux:    ${pc.dim("tmux attach -t grove")}`);
     console.log();
     console.log(`${pc.dim("Press Ctrl+C to stop.")}`);
