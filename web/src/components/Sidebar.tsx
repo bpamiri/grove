@@ -21,35 +21,41 @@ function groupTreesByOrg(trees: Tree[]): [string, Tree[]][] {
 interface Props {
   trees: Tree[];
   status: Status | null;
+  taskCount: number;
   selectedTree: string | null;
   onSelectTree: (id: string | null) => void;
   connected: boolean;
-  view: "tasks" | "settings";
-  onViewChange: (view: "tasks" | "settings") => void;
+  onSettingsClick: () => void;
 }
 
-export default function Sidebar({ trees, status, selectedTree, onSelectTree, connected, view, onViewChange }: Props) {
+export default function Sidebar({ trees, status, taskCount, selectedTree, onSelectTree, connected, onSettingsClick }: Props) {
   return (
     <aside className="h-full flex flex-col bg-zinc-900/50 p-4 text-sm overflow-y-auto">
-      {/* Logo */}
-      <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest mb-6">
-        Grove
+      {/* Header: Logo + Gear */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest">Grove</div>
+        <button onClick={onSettingsClick} className="text-zinc-500 hover:text-zinc-300 text-lg" title="Settings">&#9881;</button>
       </div>
 
+      {/* All Tasks */}
+      <button
+        onClick={() => onSelectTree(null)}
+        className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between mb-4 ${
+          selectedTree === null ? "bg-emerald-400/10 text-emerald-400" : "text-zinc-400 hover:text-zinc-200"
+        }`}
+      >
+        <span>All Tasks</span>
+        <span className="text-[11px] opacity-70">{taskCount}</span>
+      </button>
+
       {/* Trees grouped by org */}
-      <div className="mb-6">
-        <div className="text-zinc-500 text-xs uppercase mb-2">Trees</div>
-        <button
-          onClick={() => onSelectTree(null)}
-          className={`w-full text-left px-2 py-1.5 rounded text-sm ${
-            selectedTree === null ? "bg-emerald-400/10 text-emerald-400" : "text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          All trees
-        </button>
+      <div className="flex-1 overflow-y-auto">
         {groupTreesByOrg(trees).map(([org, orgTrees]) => (
-          <div key={org} className="mt-2">
-            <div className="text-zinc-600 text-[10px] uppercase tracking-wider px-2 py-0.5">{org}</div>
+          <div key={org} className="mb-3">
+            <div className="flex justify-between items-center px-2 py-0.5">
+              <div className="text-zinc-600 text-[10px] uppercase tracking-wider">{org}</div>
+              <span className="text-zinc-600 text-[10px]">{orgTrees.length}</span>
+            </div>
             {orgTrees.map((tree) => (
               <button
                 key={tree.id}
@@ -69,70 +75,26 @@ export default function Sidebar({ trees, status, selectedTree, onSelectTree, con
         )}
       </div>
 
-      {/* Quick Actions */}
-      <div className="mb-6">
-        <div className="text-zinc-500 text-xs uppercase mb-2">Views</div>
-        <button
-          onClick={() => onViewChange("tasks")}
-          className={`w-full text-left px-2 py-1.5 rounded text-sm ${
-            view === "tasks" ? "text-zinc-200" : "text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          Tasks
-        </button>
-        <button
-          onClick={() => onViewChange("settings")}
-          className={`w-full text-left px-2 py-1.5 rounded text-sm ${
-            view === "settings" ? "text-zinc-200" : "text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          Settings
-        </button>
-      </div>
-
-      {/* System Status */}
-      <div className="mt-auto">
-        <div className="text-zinc-500 text-xs uppercase mb-2">System</div>
-        <div className="space-y-1 text-xs text-zinc-500">
-          <div className="flex justify-between">
+      {/* Compact Status Bar */}
+      <div className="mt-auto pt-3 border-t border-zinc-800/50">
+        <div className="flex items-center justify-between text-xs text-zinc-500">
+          <div className="flex items-center gap-2">
             <span>Broker</span>
-            <span className={status?.broker === "running" ? "text-emerald-400" : "text-red-400"}>
-              {status?.broker ?? "unknown"}
-            </span>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${status?.broker === "running" ? "bg-emerald-400" : "bg-red-400"}`} />
           </div>
-          <div className="flex justify-between">
-            <span>Orchestrator</span>
-            <span className={status?.orchestrator === "running" ? "text-emerald-400" : "text-yellow-400"}>
-              {status?.orchestrator ?? "unknown"}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Workers</span>
-            <span>{status?.workers ?? 0} active</span>
-          </div>
-          <div className="flex justify-between">
-            <span>WebSocket</span>
-            <span className={connected ? "text-emerald-400" : "text-red-400"}>
-              {connected ? "connected" : "disconnected"}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Today</span>
-            <span>${(status?.cost.today ?? 0).toFixed(2)}</span>
-          </div>
-          {status?.remoteUrl && (
-            <div className="mt-2 pt-2 border-t border-zinc-800">
-              <a
-                href={status.remoteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-emerald-500/70 hover:text-emerald-400 break-all"
-              >
-                {status.remoteUrl.replace("https://", "")}
-              </a>
-            </div>
-          )}
+          <span>Workers {status?.workers ?? 0}</span>
+          <span>Today ${(status?.cost.today ?? 0).toFixed(2)}</span>
         </div>
+        {status?.remoteUrl && (
+          <a
+            href={status.remoteUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block mt-1.5 text-[10px] text-emerald-500/50 hover:text-emerald-400 truncate"
+          >
+            {status.remoteUrl.replace("https://", "")}
+          </a>
+        )}
       </div>
     </aside>
   );
