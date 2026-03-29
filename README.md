@@ -64,7 +64,7 @@ You ─── Browser (GUI) ─── grove.cloud ──┐
                    └───────────┬────────────────────┘
                                │
             ┌──────────────────┼──────────────────┐
-            ▼                  ▼                   ▼
+            ▼                  ▼                  ▼
       Orchestrator        Worker(s)           Evaluator
       (Claude Code)     (Claude Code)       (Claude Code)
       pipe-based        ephemeral           on-demand

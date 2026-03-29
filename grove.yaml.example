@@ -11,6 +11,7 @@ trees:
   #   path: ~/code/api-server
   #   github: myorg/api-server
   #   branch_prefix: grove/
+  #   default_branch: main      # Base branch for rebase (default: main)
   #   quality_gates:
   #     tests: true
   #     lint: true

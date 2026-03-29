@@ -1,80 +1,99 @@
 import { useState, useEffect } from "react";
 
-interface Props {
-  /** Timestamp (ms or ISO string) to count elapsed time from */
-  since?: number | string | null;
-  /** Label shown before the elapsed time (default: "Working") */
-  label?: string;
-  /** Size variant */
-  size?: "sm" | "md";
+/* ── Spinner ─────────────────────────────────────────────────── */
+
+const spinnerKeyframes = `
+@keyframes grove-spin {
+  to { transform: rotate(360deg); }
+}
+`;
+
+function Spinner({ size = 14, className = "" }: { size?: number; className?: string }) {
+  return (
+    <>
+      <style>{spinnerKeyframes}</style>
+      <span
+        className={`inline-block rounded-full border-2 border-current border-t-transparent ${className}`}
+        style={{
+          width: size,
+          height: size,
+          animation: "grove-spin 0.8s linear infinite",
+        }}
+        role="status"
+        aria-label="Loading"
+      />
+    </>
+  );
 }
 
-/**
- * Animated spinner with live elapsed-time counter.
- * Pure CSS animation — no dependencies.
- */
-export default function ActivityIndicator({ since, label = "Working", size = "sm" }: Props) {
-  const [elapsed, setElapsed] = useState(() => computeElapsed(since));
+/* ── Elapsed timer ───────────────────────────────────────────── */
+
+function ElapsedTime({ since }: { since: string }) {
+  const [, tick] = useState(0);
 
   useEffect(() => {
-    setElapsed(computeElapsed(since));
-    const id = setInterval(() => setElapsed(computeElapsed(since)), 1000);
+    const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
-  }, [since]);
+  }, []);
 
-  const spinnerSize = size === "sm" ? "w-3 h-3" : "w-4 h-4";
+  return <span>{formatElapsed(since)}</span>;
+}
 
+function formatElapsed(dateStr: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+/* ── Activity indicator (spinner + optional label + timer) ──── */
+
+export function ActivityIndicator({
+  label,
+  since,
+  className = "",
+}: {
+  label?: string;
+  since?: string | null;
+  className?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className={`${spinnerSize} rounded-full border-2 border-current border-t-transparent animate-spin opacity-70`}
-      />
-      <span>
-        {label}...{" "}
-        {elapsed !== null && (
-          <span className="tabular-nums">{formatElapsed(elapsed)}</span>
-        )}
-      </span>
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      <Spinner size={12} />
+      {label && <span className="truncate">{label}</span>}
+      {since && (
+        <span className="text-zinc-500 shrink-0">
+          <ElapsedTime since={since} />
+        </span>
+      )}
     </span>
   );
 }
 
-/** Compact typing indicator — three animated dots */
+/* ── Typing indicator (bouncing dots for chat) ──────────────── */
+
+const dotsKeyframes = `
+@keyframes grove-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+`;
+
 export function TypingIndicator() {
   return (
-    <span className="inline-flex items-center gap-0.5 text-zinc-500">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-1.5 h-1.5 rounded-full bg-current"
-          style={{
-            animation: "typing-bounce 1.4s ease-in-out infinite",
-            animationDelay: `${i * 0.2}s`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes typing-bounce {
-          0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-          30% { opacity: 1; transform: translateY(-3px); }
-        }
-      `}</style>
-    </span>
+    <div className="text-left">
+      <style>{dotsKeyframes}</style>
+      <span className="inline-flex items-center gap-1 bg-emerald-500/10 px-3 py-2 rounded-lg rounded-tl-sm">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="w-1.5 h-1.5 rounded-full bg-emerald-400/60"
+            style={{ animation: `grove-bounce 1.2s ease-in-out ${i * 0.15}s infinite` }}
+          />
+        ))}
+      </span>
+    </div>
   );
-}
-
-function computeElapsed(since?: number | string | null): number | null {
-  if (!since) return null;
-  const ts = typeof since === "string" ? new Date(since).getTime() : since;
-  if (isNaN(ts)) return null;
-  return Math.max(0, Math.floor((Date.now() - ts) / 1000));
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (m < 60) return `${m}m ${s}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
 }

@@ -155,7 +155,7 @@ export class Database {
     const deps = task.depends_on.split(",").map(d => d.trim()).filter(Boolean);
     return deps.some(dep => {
       const depTask = this.taskGet(dep);
-      return !depTask || depTask.status !== "completed";
+      return !depTask || !["completed", "done", "merged"].includes(depTask.status);
     });
   }
 
@@ -163,7 +163,7 @@ export class Database {
     const candidates = this.all<Task>(
       `SELECT * FROM tasks
        WHERE (',' || depends_on || ',') LIKE ?
-         AND status NOT IN ('completed', 'failed')`,
+         AND status NOT IN ('completed', 'done', 'merged', 'failed')`,
       [`%,${completedTaskId},%`]
     );
     return candidates.filter(t => !this.isTaskBlocked(t.id));

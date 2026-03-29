@@ -29,10 +29,9 @@ export function useChat(send: (data: any) => void) {
 
   const handleWsMessage = useCallback((msg: WsMessage) => {
     if (msg.type === "message:new") {
-      const source = msg.data.message?.source;
       setMessages(prev => [...prev, msg.data.message]);
-      // Orchestrator replied — stop showing thinking indicator
-      if (source === "orchestrator") {
+      // Clear thinking when orchestrator replies
+      if (msg.data.message?.source === "orchestrator") {
         setThinking(false);
       }
     }
@@ -40,9 +39,19 @@ export function useChat(send: (data: any) => void) {
 
   const sendMessage = useCallback((text: string) => {
     if (!text.trim()) return;
+    // Optimistic add
+    const optimistic: ChatMessage = {
+      id: Date.now(),
+      source: "user",
+      channel: "main",
+      content: text,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, optimistic]);
     setThinking(true);
+    // Send via WebSocket
     send({ type: "chat", text });
   }, [send]);
 
-  return { messages, sendMessage, handleWsMessage, bottomRef, thinking };
+  return { messages, thinking, sendMessage, handleWsMessage, bottomRef };
 }

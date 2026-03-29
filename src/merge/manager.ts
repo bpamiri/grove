@@ -2,13 +2,28 @@
 // Handles: push branch → create PR → watch CI → merge on green
 // On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
-import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, ghIssueClose, gitPush, gitDeleteBranch, type PrCheckStatus } from "./github";
+import {
+  ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle,
+  ghPrMergeable, ghIssueClose,
+  gitPush, gitPushForce, gitRebase, gitDeleteBranch,
+  type PrCheckStatus, type MergeableState,
+} from "./github";
 import { cleanupWorktree } from "../shared/worktree";
 import type { Database } from "../broker/db";
-import type { Task, Tree } from "../shared/types";
+import type { Task, Tree, TreeConfig } from "../shared/types";
 
 // Per-tree merge queue (sequential to avoid conflicts)
 const mergeQueues = new Map<string, Promise<void>>();
+
+/** Extract default_branch from tree config JSON, falling back to "main" */
+export function treeDefaultBranch(tree: Tree): string {
+  try {
+    const cfg = JSON.parse(tree.config || "{}") as Partial<TreeConfig>;
+    return cfg.default_branch || "main";
+  } catch {
+    return "main";
+  }
+}
 
 /** Queue a task for PR creation, CI watch, and merge */
 export function queueMerge(task: Task, tree: Tree, db: Database): void {
@@ -110,14 +125,37 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     db.addEvent(freshTask.id, null, "ci_recheck", `Re-checking CI on existing PR #${prNumber}`);
   }
 
-  // 3. Watch CI
+  // 3. Check for merge conflicts (one rebase attempt if conflicting)
+  const baseBranch = treeDefaultBranch(tree);
+  const postCreateState = await waitForMergeable(tree.github!, prNumber);
+  if (postCreateState === "CONFLICTING") {
+    const resolved = await attemptRebase(task, tree.github!, prNumber, db, baseBranch);
+    if (!resolved) {
+      db.taskSetStatus(task.id, "conflict");
+      db.addEvent(task.id, null, "conflict_detected", `Conflict on PR #${prNumber} — auto-rebase failed`);
+      bus.emit("merge:rebase_failed", { taskId: task.id, prNumber });
+      return;
+    }
+  }
+
+  // 4. Watch CI
   const ciResult = await watchCI(tree.github, prNumber, task.id, db);
 
   if (ciResult.state === "success") {
-    // 4. Merge
+    // 5. Pre-merge conflict check (branch may have drifted during CI)
+    const preMergeState = await waitForMergeable(tree.github, prNumber);
+    if (preMergeState === "CONFLICTING") {
+      db.taskSetStatus(task.id, "conflict");
+      db.addEvent(task.id, null, "conflict_detected", `Conflict appeared during CI on PR #${prNumber}`);
+      bus.emit("merge:conflict_detected", { taskId: task.id, prNumber });
+      return;
+    }
+
+    // 6. Merge
     try {
       ghPrMerge(tree.github, prNumber);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
+      bus.emit("merge:completed", { taskId: task.id, prNumber });
 
       // Close linked GitHub issue (explicit close is the reliable path; Closes #N in body
       // only works when merging into the repo's default branch)
@@ -196,6 +234,65 @@ function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
   if (cleaned.length > 0) {
     db.addEvent(task.id, null, "cleanup", `Post-merge cleanup: removed ${cleaned.join(", ")}`);
   }
+}
+
+/** Poll GitHub until mergeable state is computed (not UNKNOWN) */
+async function waitForMergeable(
+  repo: string,
+  prNumber: number,
+  maxAttempts: number = 3,
+  intervalMs: number = 5_000,
+): Promise<MergeableState> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const state = ghPrMergeable(repo, prNumber);
+    if (state !== "UNKNOWN") return state;
+    if (i < maxAttempts - 1) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+  }
+  // GitHub hasn't resolved yet — treat as mergeable and proceed
+  return "MERGEABLE";
+}
+
+/** Attempt to rebase the task branch onto the base branch and force-push */
+async function attemptRebase(
+  task: Task,
+  repo: string,
+  prNumber: number,
+  db: Database,
+  baseBranch: string = "main",
+): Promise<boolean> {
+  if (!task.worktree_path || !task.branch) return false;
+
+  db.addEvent(task.id, null, "rebase_started", `Conflict detected on PR #${prNumber}, attempting rebase onto ${baseBranch}`);
+
+  const rebaseResult = gitRebase(task.worktree_path, baseBranch);
+  if (!rebaseResult.ok) {
+    db.addEvent(task.id, null, "rebase_failed", `Rebase failed: ${rebaseResult.stderr}`);
+    return false;
+  }
+
+  if (rebaseResult.autoResolved?.length) {
+    db.addEvent(task.id, null, "conflict_auto_resolved",
+      `Auto-resolved trivial conflicts: ${rebaseResult.autoResolved.join(", ")}`);
+  }
+
+  const pushResult = gitPushForce(task.worktree_path, task.branch);
+  if (!pushResult.ok) {
+    db.addEvent(task.id, null, "rebase_failed", `Force push after rebase failed: ${pushResult.stderr}`);
+    return false;
+  }
+
+  // Wait for GitHub to recompute mergeable after force push
+  const afterState = await waitForMergeable(repo, prNumber);
+  if (afterState === "CONFLICTING") {
+    db.addEvent(task.id, null, "rebase_failed", "Still conflicting after rebase");
+    return false;
+  }
+
+  db.addEvent(task.id, null, "rebase_succeeded", `Rebase resolved conflict on PR #${prNumber}`);
+  bus.emit("merge:rebase_succeeded", { taskId: task.id, prNumber });
+  return true;
 }
 
 /** Poll CI checks until all pass, fail, or timeout */

@@ -1,27 +1,14 @@
-import { useEffect, useRef } from "react";
 import type { Task } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
-import type { PathStep } from "./Pipeline";
-import SeedChat from "./SeedChat";
-import type { Seed, SeedMessage } from "../hooks/useSeed";
-import ActivityIndicator from "./ActivityIndicator";
+import { ActivityIndicator } from "./ActivityIndicator";
 
 interface Props {
   task: Task;
-  activityLog?: Array<{ ts: number; msg: string }>;
-  steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
-  seed?: Seed | null;
-  seedMessages?: SeedMessage[];
-  seedActive?: boolean;
-  seedComplete?: boolean;
-  seedBottomRef?: React.RefObject<HTMLDivElement | null>;
-  onSeedSend?: (text: string) => void;
-  onSeedStart?: () => void;
-  onSeedStop?: () => void;
-  onSeedDiscard?: () => void;
+  activity?: string;
+  send: (data: any) => void;
 }
 
-export default function TaskDetail({ task, activityLog, steps, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
+export default function TaskDetail({ task, activity, send }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -40,55 +27,27 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
       {/* Pipeline */}
       <div>
         <Label>Pipeline</Label>
-        <Pipeline task={task} steps={steps} />
+        <Pipeline pathName={task.path_name} status={task.status} />
       </div>
 
-      {/* Activity feed — live when running, historical for completed/failed */}
-      {((activityLog ?? []).length > 0 || (task.status === "active" && !task.paused)) && (
-        <ActivityFeed log={activityLog ?? []} live={task.status === "active" && !task.paused} since={task.started_at} />
+      {/* Live activity */}
+      {task.status === "running" && (
+        <div>
+          <Label>Activity</Label>
+          <div className="text-xs text-blue-400">
+            <ActivityIndicator
+              label={activity ?? "working..."}
+              since={task.started_at}
+            />
+          </div>
+        </div>
       )}
 
       {/* Description */}
       {task.description && (
         <div>
           <Label>Description</Label>
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 max-h-48 overflow-y-auto text-sm text-zinc-400 whitespace-pre-wrap">{task.description}</div>
-        </div>
-      )}
-
-      {/* Seed — brainstorming */}
-      {task.status === "draft" && onSeedStart && (
-        <div>
-          <Label>Brainstorm</Label>
-          <SeedChat
-            seed={seed ?? null}
-            messages={seedMessages ?? []}
-            isActive={seedActive ?? false}
-            isSeeded={seedComplete ?? false}
-            bottomRef={seedBottomRef ?? { current: null }}
-            onSend={onSeedSend ?? (() => {})}
-            onStart={onSeedStart}
-            onStop={onSeedStop ?? (() => {})}
-            onDiscard={onSeedDiscard ?? (() => {})}
-          />
-        </div>
-      )}
-
-      {/* Show completed seed on non-draft tasks too */}
-      {task.status !== "draft" && seedComplete && (
-        <div>
-          <Label>Seed</Label>
-          <SeedChat
-            seed={seed ?? null}
-            messages={[]}
-            isActive={false}
-            isSeeded={true}
-            bottomRef={{ current: null }}
-            onSend={() => {}}
-            onStart={() => {}}
-            onStop={() => {}}
-            onDiscard={() => {}}
-          />
+          <p className="text-zinc-400">{task.description}</p>
         </div>
       )}
 
@@ -130,7 +89,7 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
       {task.session_summary && (
         <div>
           <Label>Session Summary</Label>
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 max-h-48 overflow-y-auto text-xs text-zinc-400 whitespace-pre-wrap">{task.session_summary}</div>
+          <p className="text-zinc-400 text-xs whitespace-pre-wrap">{task.session_summary}</p>
         </div>
       )}
 
@@ -150,60 +109,29 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
 
       {/* Actions */}
       <div className="flex gap-2 pt-2 border-t border-zinc-800">
-        {task.status === "active" && !task.paused && (
-          <ActionButton label="Pause" />
+        {task.status === "running" && (
+          <ActionButton
+            label="Pause"
+            onClick={() => send({ type: "action", action: "pause_task", taskId: task.id })}
+          />
         )}
-        {task.status !== "completed" && task.status !== "failed" && (
-          <ActionButton label="Cancel" variant="danger" />
+        {(task.status === "conflict" || task.status === "ci_failed") && (
+          <ActionButton
+            label="Retry Merge"
+            variant="warning"
+            onClick={() => send({ type: "action", action: "retry_merge", taskId: task.id })}
+          />
+        )}
+        {!["completed", "merged", "failed"].includes(task.status) && (
+          <ActionButton
+            label="Cancel"
+            variant="danger"
+            onClick={() => send({ type: "action", action: "cancel_task", taskId: task.id })}
+          />
         )}
       </div>
     </div>
   );
-}
-
-function ActivityFeed({ log, live, since }: { log: Array<{ ts: number; msg: string }>; live?: boolean; since?: string | null }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [log.length]);
-
-  return (
-    <div>
-      <Label>{live ? "Live Activity" : "Activity Log"}</Label>
-      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
-        {log.length === 0 && live && (
-          <div className="text-blue-400/70 text-center py-3">
-            <ActivityIndicator since={since} label="Waiting for activity" size="md" />
-          </div>
-        )}
-        {log.map((entry, i) => {
-          const time = new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-          return (
-            <div key={i} className="flex gap-2 hover:bg-zinc-900/50 px-1 rounded">
-              <span className="text-zinc-600 flex-shrink-0">{time}</span>
-              <span className={`${activityColor(entry.msg)} break-all`}>{entry.msg}</span>
-            </div>
-          );
-        })}
-        {log.length > 0 && live && (
-          <div className="text-blue-400/60 px-1 pt-1">
-            <ActivityIndicator since={log[log.length - 1]?.ts} />
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-    </div>
-  );
-}
-
-function activityColor(msg: string): string {
-  if (msg.startsWith("thinking:")) return "text-purple-400/70 italic";
-  if (msg.startsWith("Read") || msg.startsWith("Grep") || msg.startsWith("Glob")) return "text-zinc-400";
-  if (msg.startsWith("Edit") || msg.startsWith("Write")) return "text-amber-400";
-  if (msg.startsWith("Bash")) return "text-cyan-400";
-  // Text output from Claude (not a tool call)
-  if (!msg.includes(":") || msg.indexOf(":") > 20) return "text-zinc-300/80";
-  return "text-zinc-300";
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -219,15 +147,14 @@ function Label({ children }: { children: string }) {
   return <div className="text-zinc-500 text-xs uppercase mb-1.5">{children}</div>;
 }
 
-function ActionButton({ label, variant }: { label: string; variant?: "danger" }) {
+function ActionButton({ label, variant, onClick }: { label: string; variant?: "danger" | "warning"; onClick?: () => void }) {
+  const colors = variant === "danger"
+    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+    : variant === "warning"
+      ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
+      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700";
   return (
-    <button
-      className={`px-3 py-1.5 rounded text-xs ${
-        variant === "danger"
-          ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-      }`}
-    >
+    <button onClick={onClick} className={`px-3 py-1.5 rounded text-xs ${colors}`}>
       {label}
     </button>
   );

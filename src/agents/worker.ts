@@ -6,6 +6,7 @@ import { parseCost, isAlive } from "./stream-parser";
 import { createWorktree, branchName } from "../shared/worktree";
 import { deploySandbox, triggerPrompt, resumeTriggerPrompt } from "../shared/sandbox";
 import type { Database } from "../broker/db";
+import { isTerminalStatus } from "../shared/types";
 import type { Task, Tree } from "../shared/types";
 
 export interface WorkerHandle {
@@ -23,6 +24,10 @@ const activeWorkers = new Map<string, WorkerHandle>();
 export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string, stepPrompt?: string): WorkerHandle {
   if (activeWorkers.has(task.id)) {
     throw new Error(`Worker already active for task ${task.id}`);
+  }
+
+  if (isTerminalStatus(task.status)) {
+    throw new Error(`Cannot spawn worker for task ${task.id} in terminal state: ${task.status}`);
   }
 
   mkdirSync(logDir, { recursive: true });

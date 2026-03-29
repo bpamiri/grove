@@ -40,7 +40,7 @@ export default function Chat({ messages, onSend, bottomRef, connected, thinking 
         {messages.map((msg) => (
           <div key={msg.id + msg.created_at} className={`${messageAlignment(msg.source)}`}>
             <div className={`inline-block max-w-[90%] px-3 py-2 rounded-lg text-sm ${messageStyle(msg.source)}`}>
-              <FormattedContent text={msg.content} />
+              {msg.content}
             </div>
             <div className="text-[10px] text-zinc-600 mt-0.5 px-1">
               {formatTime(msg.created_at)}
@@ -48,133 +48,36 @@ export default function Chat({ messages, onSend, bottomRef, connected, thinking 
           </div>
         ))}
 
-        {thinking && (
-          <div className="text-left">
-            <div className="inline-block px-3 py-2 rounded-lg bg-emerald-500/10 rounded-tl-sm">
-              <TypingIndicator />
-            </div>
-          </div>
-        )}
-
+        {thinking && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="p-3 border-t border-zinc-800">
-        <div className="flex gap-2 items-end">
-          <textarea
+        <div className="flex gap-2">
+          <input
+            type="text"
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              // Auto-resize: reset then grow to content
-              e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit(e);
-              }
-            }}
-            placeholder={connected ? "Message the orchestrator... (Shift+Enter for newline)" : "Connecting..."}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={connected ? "Message the orchestrator..." : "Connecting..."}
             disabled={!connected}
-            rows={3}
             className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm
-                       text-zinc-100 placeholder-zinc-500 resize-none
+                       text-zinc-100 placeholder-zinc-500
                        focus:outline-none focus:border-emerald-500/50
                        disabled:opacity-50"
-            style={{ minHeight: "76px", maxHeight: "200px" }}
           />
           <button
             type="submit"
             disabled={!connected || !input.trim()}
             className="bg-emerald-500 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm
                        hover:bg-emerald-400 disabled:opacity-50 disabled:hover:bg-emerald-500
-                       transition-colors flex-shrink-0"
-            style={{ height: "38px" }}
+                       transition-colors"
           >
             &rarr;
           </button>
         </div>
       </form>
     </div>
-  );
-}
-
-// Box-drawing characters used in Claude Code TUI tables
-const BOX_CHARS = /[┌┐└┘├┤┬┴┼│─]/;
-
-/**
- * Render message content with basic formatting:
- * - Box-drawing table blocks → monospace <pre>
- * - **bold** → <strong>
- * - `code` → <code>
- * - Newlines preserved
- */
-function FormattedContent({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const blocks: { type: "text" | "table"; lines: string[] }[] = [];
-  let current: { type: "text" | "table"; lines: string[] } = { type: "text", lines: [] };
-
-  for (const line of lines) {
-    const isTable = BOX_CHARS.test(line);
-    if (isTable && current.type !== "table") {
-      if (current.lines.length) blocks.push(current);
-      current = { type: "table", lines: [line] };
-    } else if (!isTable && current.type === "table") {
-      blocks.push(current);
-      current = { type: "text", lines: [line] };
-    } else {
-      current.lines.push(line);
-    }
-  }
-  if (current.lines.length) blocks.push(current);
-
-  return (
-    <>
-      {blocks.map((block, i) =>
-        block.type === "table" ? (
-          <pre
-            key={i}
-            className="my-1 text-[11px] leading-tight overflow-x-auto text-zinc-300 font-mono"
-          >
-            {block.lines.join("\n")}
-          </pre>
-        ) : (
-          <span key={i}>
-            {block.lines.map((line, j) => (
-              <span key={j}>
-                {j > 0 && <br />}
-                <InlineFormat text={line} />
-              </span>
-            ))}
-          </span>
-        )
-      )}
-    </>
-  );
-}
-
-/** Render inline formatting: **bold**, `code` */
-function InlineFormat({ text }: { text: string }) {
-  // Split on **bold** and `code` patterns
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (part.startsWith("**") && part.endsWith("**")) {
-          return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith("`") && part.endsWith("`")) {
-          return (
-            <code key={i} className="bg-zinc-800 px-1 py-0.5 rounded text-emerald-300 text-xs font-mono">
-              {part.slice(1, -1)}
-            </code>
-          );
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </>
   );
 }
 
