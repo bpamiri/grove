@@ -45,7 +45,9 @@ server:
 tunnel:
   provider: cloudflare  # Free quick tunnels, no account needed
   auth: token           # Random token for security
-  # domain: mygrove.example.com  # Persistent tunnel (requires Cloudflare account)
+  # For a stable vanity URL on grove.cloud (free, no Cloudflare account needed):
+  # domain: grove.cloud
+  # subdomain and secret are auto-generated on first start
 
 # General settings
 settings:

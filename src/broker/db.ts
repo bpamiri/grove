@@ -27,6 +27,20 @@ export class Database {
 
   private migrate(): void {
     const cols = this.all<{ name: string }>("PRAGMA table_info(tasks)");
+    const hasCurrentStep = cols.some(c => c.name === "current_step");
+    if (!hasCurrentStep) {
+      this.run("ALTER TABLE tasks ADD COLUMN current_step TEXT");
+      this.run("ALTER TABLE tasks ADD COLUMN step_index INTEGER DEFAULT 0");
+      this.run("ALTER TABLE tasks ADD COLUMN paused INTEGER DEFAULT 0");
+
+      this.run("UPDATE tasks SET status = 'draft', current_step = NULL WHERE status = 'planned'");
+      this.run("UPDATE tasks SET status = 'queued', current_step = 'plan' WHERE status = 'ready'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'implement' WHERE status = 'running'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'evaluate' WHERE status = 'evaluating'");
+      this.run("UPDATE tasks SET status = 'active', current_step = 'implement', paused = 1 WHERE status = 'paused'");
+      this.run("UPDATE tasks SET status = 'completed', current_step = '$done' WHERE status IN ('merged', 'completed', 'done')");
+      this.run("UPDATE tasks SET status = 'failed', current_step = '$fail' WHERE status IN ('failed', 'ci_failed')");
+    }
     // Add github_issue column (links task to originating GitHub issue)
     const hasGithubIssue = cols.some(c => c.name === "github_issue");
     if (!hasGithubIssue) {
@@ -38,6 +52,9 @@ export class Database {
         if (m) this.run("UPDATE tasks SET github_issue = ? WHERE id = ?", [parseInt(m[1], 10), t.id]);
       }
     }
+
+    // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
+    this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }
 
   close(): void {
@@ -138,7 +155,7 @@ export class Database {
     const deps = task.depends_on.split(",").map(d => d.trim()).filter(Boolean);
     return deps.some(dep => {
       const depTask = this.taskGet(dep);
-      return !depTask || (depTask.status !== "done" && depTask.status !== "completed" && depTask.status !== "merged");
+      return !depTask || !["completed", "done", "merged"].includes(depTask.status);
     });
   }
 
@@ -146,7 +163,7 @@ export class Database {
     const candidates = this.all<Task>(
       `SELECT * FROM tasks
        WHERE (',' || depends_on || ',') LIKE ?
-         AND status NOT IN ('done', 'completed', 'merged', 'failed')`,
+         AND status NOT IN ('completed', 'done', 'merged', 'failed')`,
       [`%,${completedTaskId},%`]
     );
     return candidates.filter(t => !this.isTaskBlocked(t.id));
@@ -229,6 +246,54 @@ export class Database {
     );
   }
 
+  clearMessages(): void {
+    this.run("DELETE FROM messages");
+  }
+
+  // ---- Seed operations ----
+
+  seedCreate(taskId: string): void {
+    this.run(
+      "INSERT OR REPLACE INTO seeds (task_id, status) VALUES (?, 'active')",
+      [taskId],
+    );
+  }
+
+  seedGet(taskId: string): {
+    id: number; task_id: string; summary: string | null; spec: string | null;
+    conversation: string | null; status: string; created_at: string; completed_at: string | null;
+  } | null {
+    return this.get(
+      "SELECT * FROM seeds WHERE task_id = ? AND status != 'discarded'",
+      [taskId],
+    );
+  }
+
+  seedComplete(taskId: string, summary: string, spec: string): void {
+    this.run(
+      "UPDATE seeds SET summary = ?, spec = ?, status = 'completed', completed_at = datetime('now') WHERE task_id = ? AND status = 'active'",
+      [summary, spec, taskId],
+    );
+  }
+
+  seedUpdateConversation(taskId: string, messages: any[]): void {
+    this.run(
+      "UPDATE seeds SET conversation = ? WHERE task_id = ? AND status = 'active'",
+      [JSON.stringify(messages), taskId],
+    );
+  }
+
+  seedDiscard(taskId: string): void {
+    this.run(
+      "UPDATE seeds SET status = 'discarded' WHERE task_id = ? AND status IN ('active', 'completed')",
+      [taskId],
+    );
+  }
+
+  seedDelete(taskId: string): void {
+    this.run("DELETE FROM seeds WHERE task_id = ?", [taskId]);
+  }
+
   // ---- Cost helpers ----
 
   costToday(): number {
@@ -241,6 +306,75 @@ export class Database {
     return this.scalar<number>(
       "SELECT COALESCE(SUM(cost_usd), 0) FROM sessions WHERE started_at >= date('now', 'weekday 1', '-7 days')"
     ) ?? 0;
+  }
+
+  /** Cost per tree (for analytics dashboard) */
+  costByTree(): Array<{ tree_id: string; total_cost: number; task_count: number }> {
+    return this.all(
+      `SELECT tree_id, SUM(cost_usd) as total_cost, COUNT(*) as task_count
+       FROM tasks WHERE tree_id IS NOT NULL
+       GROUP BY tree_id ORDER BY total_cost DESC`
+    );
+  }
+
+  /** Gate pass/fail analytics */
+  gateAnalytics(): Array<{ gate: string; passed: number; failed: number; total: number }> {
+    const tasks = this.all<{ gate_results: string }>(
+      "SELECT gate_results FROM tasks WHERE gate_results IS NOT NULL"
+    );
+    const stats = new Map<string, { passed: number; failed: number }>();
+    for (const t of tasks) {
+      try {
+        const gates = JSON.parse(t.gate_results) as Array<{ gate: string; passed: boolean }>;
+        for (const g of gates) {
+          const s = stats.get(g.gate) ?? { passed: 0, failed: 0 };
+          if (g.passed) s.passed++; else s.failed++;
+          stats.set(g.gate, s);
+        }
+      } catch {}
+    }
+    return Array.from(stats.entries()).map(([gate, s]) => ({
+      gate, passed: s.passed, failed: s.failed, total: s.passed + s.failed,
+    }));
+  }
+
+  /** Tasks within a time window for timeline view */
+  taskTimeline(hoursBack: number = 24): Array<any> {
+    return this.all(
+      "SELECT * FROM tasks WHERE created_at > datetime('now', '-' || ? || ' hours') ORDER BY created_at ASC",
+      [hoursBack]
+    );
+  }
+
+  /** Daily cost for the last N days */
+  costDaily(days: number = 30): Array<{ date: string; total: number }> {
+    return this.all(
+      "SELECT DATE(started_at) as date, SUM(cost_usd) as total FROM sessions WHERE started_at > datetime('now', '-' || ? || ' days') GROUP BY DATE(started_at) ORDER BY date ASC",
+      [days]
+    );
+  }
+
+  /** Top N most expensive tasks */
+  costTopTasks(limit: number = 10): Array<{ id: string; title: string; cost_usd: number; tree_id: string }> {
+    return this.all(
+      "SELECT id, title, cost_usd, tree_id FROM tasks ORDER BY cost_usd DESC LIMIT ?",
+      [limit]
+    );
+  }
+
+  /** Retry statistics */
+  retryStats(): { total_tasks: number; retried_tasks: number; avg_retries: number } {
+    const row = this.get<{ total: number; retried: number; avg_retries: number }>(
+      `SELECT COUNT(*) as total,
+              SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) as retried,
+              COALESCE(AVG(CASE WHEN retry_count > 0 THEN retry_count END), 0) as avg_retries
+       FROM tasks`
+    );
+    return {
+      total_tasks: row?.total ?? 0,
+      retried_tasks: row?.retried ?? 0,
+      avg_retries: row?.avg_retries ?? 0,
+    };
   }
 }
 

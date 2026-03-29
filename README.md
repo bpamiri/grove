@@ -4,39 +4,45 @@
 
 Grove gives you a head agent (the orchestrator) that you chat with to plan work, decompose tasks across repos, and delegate to Claude Code workers — all observable through a real-time web GUI accessible via secure tunnel.
 
-> **Status:** Alpha (v3.0.0-alpha.0). Core infrastructure works. Actively iterating on the orchestrator prompt and worker sandbox.
+> **Status:** Alpha (v3.0.0-alpha.1). Core infrastructure works. Actively iterating on the orchestrator prompt and worker sandbox.
+
+## Install
+
+```bash
+# One-liner (macOS / Linux)
+curl -fsSL https://grove.cloud/install.sh | bash
+
+# Or with Homebrew (macOS)
+brew install bpamiri/grove/grove
+
+# Or build from source
+git clone https://github.com/bpamiri/grove.git
+cd grove && bun install && cd web && bun install && cd .. && bun run build
+```
 
 ## Quick Start
 
 ```bash
-# Clone and build
-git clone https://github.com/bpamiri/grove.git
-cd grove
-bun install
-cd web && bun install && cd ..
-bun run build
-
 # Initialize
-bin/grove init
+grove init
 
 # Add your repos
-bin/grove tree add ~/code/my-project
+grove tree add ~/code/my-project
 
 # Start everything
-bin/grove up
+grove up
 ```
 
 On `grove up`:
 
 ```
   ✓ Broker started (PID 12345)
-  ✓ Orchestrator spawned in tmux:grove
+  ✓ Orchestrator spawned
   ✓ Tunnel active
 
   Local:   http://localhost:49231
-  Remote:  https://grove-a1b2c3.trycloudflare.com
+  Remote:  https://my-grove.grove.cloud
   Token:   k8m2x9p4...
-  tmux:    tmux attach -t grove
 ```
 
 Open the URL in a browser or on your phone. Chat with the orchestrator. Watch workers implement tasks in real-time.
@@ -44,35 +50,36 @@ Open the URL in a browser or on your phone. Chat with the orchestrator. Watch wo
 ## Architecture
 
 ```
-You ─── Browser (GUI) ─── Tunnel ───┐
-  │                                 │
-  ├── tmux attach ──────────────┐   │
-  │                             │   │
-  └── grove CLI ────────────┐   │   │
-                            │   │   │
-                            ▼   ▼   ▼
-                   ┌──────────────────────────┐
-                   │    Broker (Bun process)  │
-                   │                          │
-                   │  Web+WS · SQLite · tmux  │
-                   │  Monitor · Merge Manager │
-                   └───────────┬──────────────┘
+You ─── Browser (GUI) ─── grove.cloud ──┐
+  │                                      │
+  └── grove CLI ─────────────────┐       │
+                                  │       │
+                                  ▼       ▼
+                   ┌───────────────────────────────┐
+                   │      Broker (Bun process)      │
+                   │                                │
+                   │  Web+WS · SQLite · JSONL pipes │
+                   │  Monitor · Notifications       │
+                   │  Merge Manager · Analytics     │
+                   └───────────┬────────────────────┘
                                │
             ┌──────────────────┼──────────────────┐
             ▼                  ▼                  ▼
       Orchestrator        Worker(s)           Evaluator
       (Claude Code)     (Claude Code)       (Claude Code)
-      persistent        ephemeral           on-demand
+      pipe-based        ephemeral           on-demand
+      stdin/stdout      worktrees           quality gates
 ```
 
 The system separates **infrastructure** from **intelligence**:
 
-- **Broker** — Bun process managing tmux sessions, HTTP+WebSocket server, SQLite state, tunnel, health/cost monitoring, and merge queue. Stable, lightweight, never makes decisions.
-- **Orchestrator** — Interactive Claude Code session in tmux. You chat with it to plan and delegate. It has read-only access to all your repos.
+- **Broker** — Bun process managing HTTP+WebSocket server, SQLite state, tunnel, health/cost monitoring, notifications, and merge queue. Stable, lightweight, never makes decisions.
+- **Orchestrator** — Claude Code session communicating via structured JSONL pipes (stdin/stdout). You chat with it to plan and delegate. It has read-only access to all your repos.
 - **Workers** — Ephemeral Claude Code sessions. Each gets an isolated git worktree with a sandboxed environment. Full toolset within the worktree boundary.
-- **Evaluator** — Spawned after a worker completes. Runs quality gates (commits, tests, lint, diff size). Separate agent because models are poor critics of their own output.
+- **Evaluator** — Spawned after a worker completes. Runs quality gates (commits, tests, lint, diff size) with pre-gate rebase. Separate agent because models are poor critics of their own output.
 - **Monitor** — Broker-native health checks: PID liveness, stall detection, cost tracking, auto-restart.
-- **Merge Manager** — Broker-native PR lifecycle: push, create PR, watch CI, merge on green. Sequential per-repo to prevent conflicts.
+- **Merge Manager** — Broker-native PR lifecycle: push, create PR, watch CI, merge on green, close linked issues. Sequential per-repo to prevent conflicts.
+- **Notifications** — Pluggable alerts (Slack, system, webhook) for task completion, gate failures, budget events, and crashes.
 
 ## Concepts
 
@@ -130,13 +137,14 @@ planned → ready → running → done → evaluating → merged
 
 ## Web GUI
 
-Three-panel layout served by the broker:
+Three-panel layout served by the broker, plus an analytics dashboard:
 
-- **Left sidebar** — Tree list, system status (broker, orchestrator, workers, cost), navigation
+- **Left sidebar** — Tree list, system status (broker, orchestrator, workers, cost), navigation to Tasks/Dashboard/Settings
 - **Center** — Task cards with live status, activity stream, pipeline progress, expandable detail with gate results and file diffs
-- **Right** — Orchestrator chat with message history, relayed to/from the tmux session
+- **Right** — Orchestrator chat with message history
+- **Dashboard** — Timeline view (Gantt-style task bars), cost-by-tree breakdown, quality gate pass/fail rates, retry statistics
 
-Real-time updates via WebSocket. Accessible remotely through the tunnel.
+Real-time updates via WebSocket. Accessible remotely via grove.cloud tunnel.
 
 ## CLI
 
@@ -153,13 +161,13 @@ Real-time updates via WebSocket. Accessible remotely through the tunnel.
 | `grove chat "message"` | Message the orchestrator |
 | `grove cost` | Spend breakdown (today, week) |
 
-Most interaction happens through the orchestrator — via the GUI chat, tmux, or `grove chat`.
+Most interaction happens through the orchestrator — via the GUI chat or `grove chat`.
 
 ## Requirements
 
 - **[Bun](https://bun.sh/)** >= 1.0 — runtime and build tool
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)** — the agent runtime (requires Claude subscription)
-- **[tmux](https://github.com/tmux/tmux)** — terminal multiplexer for agent sessions
+- **[tmux](https://github.com/tmux/tmux)** — terminal multiplexer for seed (brainstorming) sessions
 - **[git](https://git-scm.com/)** — version control and worktree isolation
 - **[gh](https://cli.github.com/)** — GitHub CLI for PR management
 - **[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)** — tunnel for remote access (optional)
@@ -174,6 +182,38 @@ See [`grove.yaml.example`](grove.yaml.example) for all options:
 - **server** — port (`auto` picks a random available port)
 - **tunnel** — provider (cloudflare), auth (token), optional custom domain
 - **settings** — max workers (5), stall timeout (5 min), retry limits (2)
+- **notifications** — alert channels and event routing (see below)
+
+### Notifications
+
+Opt-in. Add a `notifications` section to `grove.yaml`:
+
+```yaml
+notifications:
+  channels:
+    slack:
+      webhook_url: "https://hooks.slack.com/services/..."
+    system:
+      enabled: true     # macOS Notification Center / Linux notify-send
+    webhook:
+      url: "https://example.com/grove-events"
+      secret: "hmac-secret"
+
+  routes:
+    task_completed: [slack]
+    task_failed: [slack, system]
+    gate_failed: [slack, system]
+    pr_merged: [slack]
+    budget_warning: [system]
+    budget_exceeded: [slack, system]
+    orchestrator_crashed: [slack, system]
+
+  quiet_hours:
+    start: "22:00"
+    end: "07:00"
+```
+
+Channels: **Slack** (Block Kit formatted messages), **System** (native OS notifications with quiet hours), **Webhook** (JSON payload with HMAC-SHA256 signature). Rate limited to 1 notification per event type per 60 seconds.
 
 ## Security
 
@@ -210,17 +250,25 @@ bunx tsc --noEmit
 
 ```
 src/
-  agents/       Orchestrator, worker, evaluator, stream parser
-  broker/       DB, config, HTTP+WS server, tmux, event bus, dispatch, pipeline
-  cli/          Entry point + 9 command files
-  merge/        GitHub CLI wrapper + merge queue manager
-  monitor/      Health checks + cost tracking
-  shared/       Types, worktree, sandbox (guard hooks + overlays)
-  tunnel/       Cloudflare tunnel provider
+  agents/          Orchestrator (JSONL pipes), worker, evaluator, stream parser
+  broker/          DB, config, HTTP+WS server, tmux, event bus, dispatch, pipeline
+  cli/             Entry point + 9 command files
+  engine/          Step engine + path normalization
+  merge/           GitHub CLI wrapper + merge queue manager
+  monitor/         Health checks + cost tracking
+  notifications/   Dispatcher + Slack, system, webhook channels
+  shared/          Types, worktree, sandbox (guard hooks + overlays)
+  tunnel/          Cloudflare tunnel provider
 web/
-  src/          React + Vite + Tailwind SPA
-tests/
-  broker/       Unit tests (37 tests)
+  src/             React + Vite + Tailwind SPA (tasks, dashboard, chat, settings)
+worker/
+  src/             Cloudflare Worker — grove.cloud reverse proxy
+tests/             123 tests across 15 files
+scripts/
+  install.sh       curl-pipe installer
+.github/workflows/
+  test.yml         CI — runs bun test on push/PR
+  release.yml      Multi-platform release (macOS arm64/x64, Linux x64)
 ```
 
 ## License

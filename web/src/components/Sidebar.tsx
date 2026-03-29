@@ -6,8 +6,8 @@ interface Props {
   selectedTree: string | null;
   onSelectTree: (id: string | null) => void;
   connected: boolean;
-  view: "tasks" | "settings";
-  onViewChange: (view: "tasks" | "settings") => void;
+  view: "tasks" | "settings" | "dashboard";
+  onViewChange: (view: "tasks" | "settings" | "dashboard") => void;
   width: number;
 }
 
@@ -57,6 +57,14 @@ export default function Sidebar({ trees, status, selectedTree, onSelectTree, con
           }`}
         >
           Tasks
+        </button>
+        <button
+          onClick={() => onViewChange("dashboard")}
+          className={`w-full text-left px-2 py-1.5 rounded text-sm ${
+            view === "dashboard" ? "text-zinc-200" : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Dashboard
         </button>
         <button
           onClick={() => onViewChange("settings")}

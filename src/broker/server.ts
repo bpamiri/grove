@@ -7,6 +7,8 @@ import { configSet, reloadConfig } from "./config";
 import { expandHome } from "../shared/worktree";
 import { isTerminalStatus } from "../shared/types";
 import type { EventBusMap } from "../shared/types";
+import { EMBEDDED_ASSETS } from "./web-assets.generated";
+import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
 
 export interface ServerOptions {
   db: Database;
@@ -21,6 +23,12 @@ interface WSData {
 
 let server: ReturnType<typeof Bun.serve<WSData>> | null = null;
 const wsClients = new Set<{ send(data: string): void }>();
+let _remoteUrl: string | null = null;
+
+/** Set the tunnel URL (called after tunnel starts) */
+export function setRemoteUrl(url: string | null): void {
+  _remoteUrl = url;
+}
 
 // Broadcast a message to all connected WebSocket clients
 function broadcast(type: string, data: any) {
@@ -74,6 +82,7 @@ export function startServer(opts: ServerOptions) {
   const { db, port, onChat, staticDir } = opts;
 
   wireEventBus();
+  setSeedBroadcast(broadcast);
 
   server = Bun.serve<WSData>({
     port,
@@ -92,27 +101,31 @@ export function startServer(opts: ServerOptions) {
         return new Response(null, { headers: corsHeaders });
       }
 
-      // WebSocket upgrade
+      // WebSocket upgrade — local connections are pre-authenticated
       if (path === "/ws") {
-        const upgraded = server.upgrade(req, { data: { authenticated: false } });
+        const isLocal = !isRemoteRequest(req);
+        const upgraded = server.upgrade(req, { data: { authenticated: isLocal } });
         if (upgraded) return undefined as any;
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
-      // API routes
+      // API routes — require auth token for remote (non-localhost) requests
       if (path.startsWith("/api/")) {
+        if (isRemoteRequest(req) && !isAuthorized(req)) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
         return handleApi(path, req, db, onChat, corsHeaders);
       }
 
-      // Static file serving (React SPA)
+      // Static file serving (React SPA) — filesystem first, then embedded assets
       if (staticDir && existsSync(staticDir)) {
         return serveStatic(path, staticDir, corsHeaders);
       }
 
-      // Fallback: JSON status
-      return new Response(JSON.stringify({ name: "grove", version: "3.0.0-alpha.0", status: "running" }), {
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      return serveEmbedded(path, corsHeaders);
     },
 
     websocket: {
@@ -131,6 +144,12 @@ export function startServer(opts: ServerOptions) {
               type: "auth_result",
               authenticated: ws.data.authenticated,
             }));
+            return;
+          }
+
+          // Require auth for write operations
+          if (!ws.data.authenticated && data.type !== "auth") {
+            ws.send(JSON.stringify({ type: "error", message: "Not authenticated" }));
             return;
           }
 
@@ -153,6 +172,27 @@ export function startServer(opts: ServerOptions) {
           // Handle task actions from GUI
           if (data.type === "action") {
             handleWsAction(data, db);
+            return;
+          }
+
+          // Handle seed session messages
+          if (data.type === "seed" && data.taskId && data.text) {
+            sendSeedMessage(data.taskId, data.text, db);
+            return;
+          }
+
+          if (data.type === "seed_start" && data.taskId) {
+            const task = db.taskGet(data.taskId);
+            if (!task || !task.tree_id) return;
+            const tree = db.treeGet(task.tree_id);
+            if (!tree) return;
+            const { getEnv } = require("./db");
+            startSeedSession(task, tree, db, getEnv().GROVE_LOG_DIR);
+            return;
+          }
+
+          if (data.type === "seed_stop" && data.taskId) {
+            stopSeedSession(data.taskId, db);
             return;
           }
         } catch {
@@ -206,6 +246,28 @@ function serveStatic(path: string, staticDir: string, corsHeaders: Record<string
   }
 
   return new Response("Not Found", { status: 404 });
+}
+
+function serveEmbedded(path: string, corsHeaders: Record<string, string>): Response {
+  const key = path === "/" ? "/index.html" : path;
+  const asset = EMBEDDED_ASSETS[key];
+  if (asset) {
+    return new Response(asset.data, {
+      headers: { "Content-Type": asset.contentType, ...corsHeaders },
+    });
+  }
+
+  // SPA fallback: serve index.html for client-side routes
+  const index = EMBEDDED_ASSETS["/index.html"];
+  if (index) {
+    return new Response(index.data, {
+      headers: { "Content-Type": "text/html", ...corsHeaders },
+    });
+  }
+
+  return new Response(JSON.stringify({ name: "grove", version: "3.0.0-alpha.0", status: "running" }), {
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +332,7 @@ async function handleApi(
       const { isSpawningPaused } = await import("../monitor/cost");
       return json({
         broker: "running",
+        remoteUrl: _remoteUrl,
         orchestrator: isRunning() ? "running" : "stopped",
         workers: activeWorkerCount(),
         queue: queueLength(),
@@ -277,9 +340,9 @@ async function handleApi(
         wsClients: wsClients.size,
         tasks: {
           total: db.taskCount(),
-          running: db.taskCount("running"),
-          done: db.taskCount("done"),
-          planned: db.taskCount("planned"),
+          active: db.taskCount("active"),
+          completed: db.taskCount("completed"),
+          draft: db.taskCount("draft"),
         },
         cost: {
           today: db.costToday(),
@@ -348,6 +411,12 @@ async function handleApi(
       }
     }
 
+    // GET /api/paths — normalized pipeline step definitions
+    if (path === "/api/paths" && req.method === "GET") {
+      const { configNormalizedPathsForApi } = await import("./config");
+      return json(configNormalizedPathsForApi());
+    }
+
     // POST /api/trees/:id/import-issues — create tasks from open GitHub issues
     const importMatch = path.match(/^\/api\/trees\/([^/]+)\/import-issues$/);
     if (importMatch && req.method === "POST") {
@@ -375,7 +444,7 @@ async function handleApi(
           const title = `${issue.title} Issue #${issue.number}`;
           const description = issue.body || "";
           db.run(
-            "INSERT INTO tasks (id, tree_id, title, description, path_name, github_issue) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue) VALUES (?, ?, ?, ?, ?, 'draft', ?)",
             [taskId, tree.id, title, description, "development", issue.number]
           );
           db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
@@ -399,7 +468,19 @@ async function handleApi(
       if (tree) tasks = db.tasksByTree(tree);
       else if (status) tasks = db.tasksByStatus(status);
       else tasks = db.all("SELECT * FROM tasks ORDER BY created_at DESC LIMIT 50");
-      return json(tasks);
+
+      // Annotate tasks with seed status
+      const seedStatuses = db.all<{ task_id: string; status: string }>(
+        "SELECT task_id, status FROM seeds WHERE status IN ('active', 'completed')"
+      );
+      const seedMap = new Map(seedStatuses.map(s => [s.task_id, s.status]));
+      const annotated = (tasks as any[]).map(t => ({
+        ...t,
+        has_seed: seedMap.has(t.id),
+        seed_status: seedMap.get(t.id) ?? null,
+      }));
+
+      return json(annotated);
     }
 
     // GET /api/tasks/:id
@@ -417,7 +498,7 @@ async function handleApi(
       const body = await req.json() as { title: string; tree_id?: string; description?: string; path_name?: string };
       const taskId = db.nextTaskId("W");
       db.run(
-        "INSERT INTO tasks (id, tree_id, title, description, path_name) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'draft')",
         [taskId, body.tree_id ?? null, body.title, body.description ?? null, body.path_name ?? "development"],
       );
       db.addEvent(taskId, null, "task_created", `Task created: ${body.title}`);
@@ -448,10 +529,146 @@ async function handleApi(
       if (isTerminalStatus(task.status)) {
         return json({ error: `Cannot dispatch task in '${task.status}' state` }, 409);
       }
-      db.taskSetStatus(taskId, "ready");
+      const { configNormalizedPaths } = await import("./config");
+      const paths = configNormalizedPaths();
+      const pathConfig = paths[task.path_name];
+      if (pathConfig && pathConfig.steps.length > 0) {
+        db.run("UPDATE tasks SET current_step = ?, step_index = 0 WHERE id = ?",
+          [pathConfig.steps[0].id, taskId]);
+      }
+      db.taskSetStatus(taskId, "queued");
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
-      return json({ ok: true, taskId, status: "ready" });
+      return json({ ok: true, taskId, status: "queued" });
+    }
+
+    // GET /api/tasks/:id/activity — recent tool_use activity from worker log
+    const activityMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/activity$/);
+    if (activityMatch && req.method === "GET") {
+      const taskId = activityMatch[1];
+      try {
+        const { existsSync, readFileSync, readdirSync } = await import("node:fs");
+        const { getEnv } = await import("./db");
+        const logDir = getEnv().GROVE_LOG_DIR;
+
+        // Find worker log by filename convention: worker-{taskId}-*.jsonl
+        const prefix = `worker-${taskId}-`;
+        const files = readdirSync(logDir).filter(f => f.startsWith(prefix) && f.endsWith(".jsonl"));
+        if (files.length === 0) return json([]);
+
+        // Use the most recent log file
+        const logPath = join(logDir, files.sort().pop()!);
+        if (!existsSync(logPath)) return json([]);
+
+        const content = readFileSync(logPath, "utf-8");
+        const activities: Array<{ ts: string; msg: string }> = [];
+        for (const line of content.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            // stream-json nests tool_use in assistant message content blocks
+            if (obj.type === "assistant") {
+              for (const block of obj.message?.content ?? []) {
+                if (block.type === "tool_use") {
+                  const name = block.name ?? "tool";
+                  const inp = block.input ?? {};
+                  const detail = typeof inp === "object"
+                    ? (inp.file_path ?? inp.command ?? inp.pattern ?? "").toString().slice(0, 200)
+                    : "";
+                  activities.push({ ts: obj.timestamp ?? "", msg: `${name}: ${detail}`, kind: "tool" });
+                } else if (block.type === "thinking" && block.thinking) {
+                  const snippet = block.thinking.slice(0, 300).replace(/\n/g, " ");
+                  activities.push({ ts: obj.timestamp ?? "", msg: `thinking: ${snippet}`, kind: "thinking" });
+                } else if (block.type === "text" && block.text && block.text.length > 10) {
+                  const snippet = block.text.slice(0, 300).replace(/\n/g, " ");
+                  activities.push({ ts: obj.timestamp ?? "", msg: snippet, kind: "text" });
+                }
+              }
+            }
+          } catch {}
+        }
+        return json(activities.slice(-100));
+      } catch {
+        return json([]);
+      }
+    }
+
+    // POST /api/tasks/:id/retry — reset a failed/stuck task and re-dispatch, preserving worktree
+    const retryMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/retry$/);
+    if (retryMatch && req.method === "POST") {
+      const taskId = retryMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      if (task.status === "active") {
+        // Kill the active worker first
+        const { stopWorker } = await import("../agents/worker");
+        stopWorker(taskId, db);
+      }
+      // Increment retry count, reset status to queued, preserve worktree/branch/artifacts
+      db.run(
+        "UPDATE tasks SET status = 'queued', retry_count = retry_count + 1, paused = 0 WHERE id = ?",
+        [taskId]
+      );
+      db.addEvent(taskId, null, "task_retried", `Task retried (attempt ${(task.retry_count ?? 0) + 2})`);
+      const { enqueue } = await import("./dispatch");
+      enqueue(taskId);
+      return json({ ok: true, taskId, status: "queued" });
+    }
+
+    // POST /api/rotate-credentials — regenerate auth token + subdomain + secret
+    if (path === "/api/rotate-credentials" && req.method === "POST") {
+      const { rotateToken } = await import("./auth");
+      const { configSet, tunnelConfig: getTunnelConfig, reloadConfig } = await import("./config");
+      const { generateSubdomain, generateSecret } = await import("./subdomain");
+      const { deregisterGrove } = await import("./registry");
+
+      // Rotate the auth token
+      const newToken = rotateToken();
+
+      const tc = getTunnelConfig();
+      let newSubdomain: string | null = null;
+
+      // Deregister old subdomain from Worker, generate new ones
+      if (tc.domain && tc.subdomain && tc.secret) {
+        try {
+          await deregisterGrove({
+            registryUrl: `https://${tc.domain}`,
+            subdomain: tc.subdomain,
+            secret: tc.secret,
+          });
+        } catch {}
+
+        newSubdomain = generateSubdomain();
+        const newSecret = generateSecret();
+        configSet("tunnel.subdomain", newSubdomain);
+        configSet("tunnel.secret", newSecret);
+        reloadConfig();
+      }
+
+      db.addEvent(null, null, "credentials_rotated", "Auth token and tunnel credentials rotated via GUI");
+
+      return json({
+        ok: true,
+        message: "Credentials rotated. Grove will restart to apply new tunnel URL.",
+        token: newToken,
+        subdomain: newSubdomain,
+      });
+    }
+
+    // POST /api/restart — restart the broker process
+    if (path === "/api/restart" && req.method === "POST") {
+      db.addEvent(null, null, "broker_restart", "Restart requested via GUI");
+      // Use a shell script that outlives this process: down, sleep, up
+      const grove = process.execPath;
+      const script = `"${grove}" down; sleep 2; "${grove}" up`;
+      setTimeout(() => {
+        Bun.spawn(["bash", "-c", `nohup bash -c '${script}' &>/dev/null &`], {
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+        // Give the shell a moment to fork, then exit
+        setTimeout(() => process.exit(0), 200);
+      }, 300);
+      return json({ ok: true, message: "Restarting..." });
     }
 
     // GET /api/events
@@ -470,8 +687,115 @@ async function handleApi(
       return json(db.recentMessages(channel, limit));
     }
 
+    // GET /api/tasks/:id/seed — get seed for a task
+    const seedGetMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed$/);
+    if (seedGetMatch && req.method === "GET") {
+      const seed = db.seedGet(seedGetMatch[1]);
+      if (!seed) return json(null);
+      return json({
+        ...seed,
+        active: isSeedSessionActive(seedGetMatch[1]),
+        conversation: seed.conversation ? JSON.parse(seed.conversation) : [],
+      });
+    }
+
+    // POST /api/tasks/:id/seed/start — start a seed session
+    const seedStartMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed\/start$/);
+    if (seedStartMatch && req.method === "POST") {
+      const taskId = seedStartMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      if (!task.tree_id) return json({ error: "Task has no tree" }, 400);
+      const tree = db.treeGet(task.tree_id);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      const { getEnv } = await import("./db");
+      startSeedSession(task, tree, db, getEnv().GROVE_LOG_DIR);
+      return json({ ok: true, taskId });
+    }
+
+    // POST /api/tasks/:id/seed/stop — stop a seed session
+    const seedStopMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed\/stop$/);
+    if (seedStopMatch && req.method === "POST") {
+      stopSeedSession(seedStopMatch[1], db);
+      return json({ ok: true });
+    }
+
+    // DELETE /api/tasks/:id/seed — discard a seed (for re-seed)
+    const seedDeleteMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/seed$/);
+    if (seedDeleteMatch && req.method === "DELETE") {
+      stopSeedSession(seedDeleteMatch[1], db);
+      db.seedDiscard(seedDeleteMatch[1]);
+      return json({ ok: true });
+    }
+
+    // GET /api/analytics/cost
+    if (path === "/api/analytics/cost" && req.method === "GET") {
+      const url = new URL(req.url);
+      const days = parseInt(url.searchParams.get("days") ?? "30", 10);
+      return json({
+        today: db.costToday(),
+        week: db.costWeek(),
+        daily: db.costDaily(days),
+        by_tree: db.costByTree(),
+        top_tasks: db.costTopTasks(),
+      });
+    }
+
+    // GET /api/analytics/gates
+    if (path === "/api/analytics/gates" && req.method === "GET") {
+      return json({
+        by_gate: db.gateAnalytics(),
+        retry_stats: db.retryStats(),
+      });
+    }
+
+    // GET /api/analytics/timeline
+    if (path === "/api/analytics/timeline" && req.method === "GET") {
+      const url = new URL(req.url);
+      const hours = parseInt(url.searchParams.get("hours") ?? "24", 10);
+      const tasks = db.taskTimeline(hours);
+      const annotated = (tasks as any[]).map(t => ({
+        ...t,
+        sessions: db.all(
+          "SELECT id, role, started_at, ended_at, cost_usd, status FROM sessions WHERE task_id = ? ORDER BY started_at",
+          [t.id]
+        ),
+      }));
+      return json(annotated);
+    }
+
     return json({ error: "Not found" }, 404);
   } catch (err) {
     return json({ error: String(err) }, 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+
+/** Check if a request is coming from a remote origin (not localhost) */
+function isRemoteRequest(req: Request): boolean {
+  const host = req.headers.get("host") || "";
+  return !host.startsWith("localhost") && !host.startsWith("127.0.0.1") && !host.startsWith("[::1]");
+}
+
+/** Validate auth token from Authorization header or ?token= query param */
+function isAuthorized(req: Request): boolean {
+  const { validateToken } = require("./auth");
+
+  // Check Authorization: Bearer <token>
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return validateToken(authHeader.slice(7));
+  }
+
+  // Check ?token= query parameter
+  const url = new URL(req.url);
+  const tokenParam = url.searchParams.get("token");
+  if (tokenParam) {
+    return validateToken(tokenParam);
+  }
+
+  return false;
 }

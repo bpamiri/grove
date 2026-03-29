@@ -3,23 +3,26 @@
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { Database, getEnv } from "./db";
-import { startServer, stopServer } from "./server";
+import { startServer, stopServer, setRemoteUrl } from "./server";
 import * as tmux from "./tmux";
 import * as orchestrator from "../agents/orchestrator";
-import { loadConfig, configTrees, tunnelConfig } from "./config";
+import { loadConfig, configTrees, tunnelConfig, configSet } from "./config";
 import { bus } from "./event-bus";
-import { wirePipeline } from "./pipeline";
+import { wireStepEngine } from "../engine/step-engine";
 import { initDispatch } from "./dispatch";
-import { startHealthMonitor, stopHealthMonitor } from "../monitor/health";
+import { startHealthMonitor, stopHealthMonitor, recoverOrphanedTasks } from "../monitor/health";
 import { startCostMonitor, stopCostMonitor } from "../monitor/cost";
 import { CloudflareTunnel } from "../tunnel/cloudflare";
 import type { TunnelProvider } from "../tunnel/provider";
+import { generateSubdomain, generateSecret } from "./subdomain";
+import { registerGrove, startHeartbeat, stopHeartbeat, deregisterGrove } from "./registry";
 
 export interface BrokerInfo {
   pid: number;
   port: number;
   url: string;
-  remoteUrl: string | null;
+  tunnelUrl: string | null;  // raw quick-tunnel URL (trycloudflare.com)
+  remoteUrl: string | null;  // vanity URL (grove.cloud) or tunnel URL if no domain
   tmuxSession: string;
   startedAt: string;
 }
@@ -39,6 +42,9 @@ export async function startBroker(): Promise<BrokerInfo> {
   const db = new Database(GROVE_DB);
   db.initFromString(SCHEMA_SQL);
 
+  // Clear stale messages from previous sessions
+  db.clearMessages();
+
   // Load config and sync trees to DB
   const config = loadConfig();
   const trees = configTrees();
@@ -49,10 +55,7 @@ export async function startBroker(): Promise<BrokerInfo> {
       path: treeConfig.path,
       github: treeConfig.github,
       branch_prefix: treeConfig.branch_prefix ?? config.settings.branch_prefix,
-      config: JSON.stringify({
-        quality_gates: treeConfig.quality_gates,
-        default_branch: treeConfig.default_branch,
-      }),
+      config: JSON.stringify({ quality_gates: treeConfig.quality_gates, default_branch: treeConfig.default_branch }),
     });
   }
 
@@ -80,11 +83,14 @@ export async function startBroker(): Promise<BrokerInfo> {
 
   const url = `http://localhost:${port}`;
 
-  // Wire the full pipeline (worker → evaluator → merge manager)
-  wirePipeline(db);
+  // Wire step engine
+  wireStepEngine(db);
 
   // Initialize dispatch system (concurrent worker queue)
   initDispatch({ db, maxWorkers: config.settings.max_workers });
+
+  // Recover tasks orphaned by previous crash/restart
+  recoverOrphanedTasks(db);
 
   // Start monitors
   startHealthMonitor({
@@ -97,16 +103,60 @@ export async function startBroker(): Promise<BrokerInfo> {
   });
   startCostMonitor({ db, budgets: config.budgets });
 
+  // Wire notifications
+  const { wireNotifications } = await import("../notifications");
+  const { notificationsConfig: getNotificationsConfig } = await import("./config");
+  wireNotifications(getNotificationsConfig());
+
   // Spawn orchestrator
   orchestrator.spawn(db, GROVE_LOG_DIR);
 
   // Start tunnel (if configured)
+  let tunnelUrl: string | null = null;
   let remoteUrl: string | null = null;
   const tConfig = tunnelConfig();
   if (tConfig.provider === "cloudflare") {
     try {
       tunnel = new CloudflareTunnel();
-      remoteUrl = await tunnel.start(port);
+      tunnelUrl = await tunnel.start(port);
+
+      // Register with grove.cloud Worker if domain is configured
+      if (tConfig.domain) {
+        // Generate subdomain + secret on first run
+        if (!tConfig.subdomain) {
+          tConfig.subdomain = generateSubdomain();
+          configSet("tunnel.subdomain", tConfig.subdomain);
+        }
+        if (!tConfig.secret) {
+          tConfig.secret = generateSecret();
+          configSet("tunnel.secret", tConfig.secret);
+        }
+
+        try {
+          const registryUrl = `https://${tConfig.domain}`;
+          remoteUrl = await registerGrove({
+            registryUrl,
+            subdomain: tConfig.subdomain,
+            target: tunnelUrl,
+            secret: tConfig.secret,
+          });
+          setRemoteUrl(remoteUrl);
+          startHeartbeat({
+            registryUrl,
+            subdomain: tConfig.subdomain,
+            target: tunnelUrl,
+            secret: tConfig.secret,
+          });
+        } catch (err: any) {
+          console.log(`  Registry: ${err.message}`);
+          // Fall back to raw tunnel URL
+          remoteUrl = tunnelUrl;
+          setRemoteUrl(remoteUrl);
+        }
+      } else {
+        remoteUrl = tunnelUrl;
+        setRemoteUrl(remoteUrl);
+      }
     } catch (err: any) {
       console.log(`  Tunnel: ${err.message}`);
       // Non-fatal — continue without tunnel
@@ -118,6 +168,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     pid: process.pid,
     port,
     url,
+    tunnelUrl,
     remoteUrl,
     tmuxSession: "grove",
     startedAt: new Date().toISOString(),
@@ -131,6 +182,16 @@ export async function startBroker(): Promise<BrokerInfo> {
     console.log("\nShutting down...");
     stopHealthMonitor();
     stopCostMonitor();
+    stopHeartbeat();
+    // Deregister from grove.cloud (best-effort, non-blocking)
+    const tc = tunnelConfig();
+    if (tc.domain && tc.subdomain && tc.secret) {
+      deregisterGrove({
+        registryUrl: `https://${tc.domain}`,
+        subdomain: tc.subdomain,
+        secret: tc.secret,
+      }).catch(() => {});
+    }
     tunnel?.stop();
     orchestrator.stop(db);
     tmux.killSession();

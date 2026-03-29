@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { createTestDb } from "../fixtures/helpers";
 import { Database } from "../../src/broker/db";
 import { SCHEMA_SQL } from "../../src/broker/schema-sql";
 import { bus } from "../../src/broker/event-bus";
@@ -14,7 +15,8 @@ beforeEach(() => {
   db = new Database(TEST_DB);
   db.initFromString(SCHEMA_SQL);
 
-  // Seed a tree
+  // Seed trees
+  db.treeUpsert({ id: "test", name: "test", path: "/tmp/test" });
   db.treeUpsert({ id: "test-tree", name: "Test Tree", path: "/tmp/test-tree", github: "org/repo" });
 });
 
@@ -37,15 +39,90 @@ function createTask(id: string, status: string, opts: { treeId?: string; depends
   );
 }
 
+describe("dependency checks", () => {
+  test("task is blocked when dependency is not completed", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "test", "First task", "active"]
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "test", "Second task", "queued", "W-001"]
+    );
+    expect(db.isTaskBlocked("W-002")).toBe(true);
+  });
+
+  test("task is unblocked when dependency completes", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "test", "First task", "completed"]
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "test", "Second task", "queued", "W-001"]
+    );
+    expect(db.isTaskBlocked("W-002")).toBe(false);
+  });
+
+  test("getNewlyUnblocked finds dependent tasks", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "test", "First task", "completed"]
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-002", "test", "Second task", "queued", "W-001"]
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-003", "test", "Third task", "queued", "W-001"]
+    );
+    const unblocked = db.getNewlyUnblocked("W-001");
+    expect(unblocked.length).toBe(2);
+    const ids = unblocked.map(t => t.id).sort();
+    expect(ids).toEqual(["W-002", "W-003"]);
+  });
+});
+
+describe("task filtering", () => {
+  test("tasks without tree_id have null tree_id", () => {
+    db.run(
+      "INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)",
+      ["W-001", "No tree task", "queued"]
+    );
+    const task = db.taskGet("W-001");
+    expect(task).not.toBeNull();
+    expect(task!.tree_id).toBeNull();
+  });
+
+  test("active and draft tasks are not returned by tasksByStatus queued", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-001", "test", "Active task", "active"]
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-002", "test", "Draft task", "draft"]
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-003", "test", "Queued task", "queued"]
+    );
+    const queued = db.tasksByStatus("queued");
+    const ids = queued.map(t => t.id);
+    expect(ids).not.toContain("W-001");
+    expect(ids).not.toContain("W-002");
+    expect(ids).toContain("W-003");
+  });
+});
+
 describe("Terminal state guards", () => {
   test("dispatch endpoint rejects tasks in 'done' state", async () => {
     createTask("W-001", "done");
 
-    // Simulate what the /api/tasks/:id/dispatch endpoint does
     const task = db.taskGet("W-001")!;
     const { isTerminalStatus } = await import("../../src/shared/types");
 
-    // Task in 'done' should be considered terminal for dispatch
     expect(isTerminalStatus(task.status)).toBe(true);
   });
 
@@ -117,13 +194,10 @@ describe("Terminal state guards", () => {
   });
 
   test("pipeline skips task if DB status is no longer 'done'", () => {
-    // Scenario: worker:ended fires with status "done" but task has already been
-    // set to "failed" by another process (e.g., health monitor race)
     createTask("W-001", "failed");
 
     const task = db.taskGet("W-001")!;
 
-    // Pipeline should check DB status and skip
     expect(task.status).toBe("failed");
     expect(task.status !== "done").toBe(true);
   });

@@ -1,12 +1,14 @@
 // Grove v3 — Merge Manager: PR lifecycle management
 // Handles: push branch → create PR → watch CI → merge on green
-// Sequential per-tree queue to avoid merge conflicts.
+// On CI failure, sends the task back to a worker with failure context to fix and re-push.
 import { bus } from "../broker/event-bus";
 import {
-  ghPrCreate, ghPrMerge, ghPrChecks, ghPrMergeable, ghIssueClose,
-  gitPush, gitPushForce, gitRebase,
+  ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle,
+  ghPrMergeable, ghIssueClose,
+  gitPush, gitPushForce, gitRebase, gitDeleteBranch,
   type PrCheckStatus, type MergeableState,
 } from "./github";
+import { cleanupWorktree } from "../shared/worktree";
 import type { Database } from "../broker/db";
 import type { Task, Tree, TreeConfig } from "../shared/types";
 
@@ -54,62 +56,80 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     return;
   }
 
-  // 2. Create PR
-  // Re-read task to get latest data (including github_issue from migration/backfill)
+  // 2. Create PR (or reuse existing one)
+  // Re-read task to get latest pr_number (may already have a PR from a previous attempt)
   const freshTask = db.taskGet(task.id) ?? task;
-  let prNumber: number;
-  let prUrl: string;
-  try {
-    const filesModified = freshTask.files_modified?.split("\n").filter(Boolean).length ?? 0;
-    const gateResults = freshTask.gate_results ? JSON.parse(freshTask.gate_results) : [];
-    const gatesSummary = gateResults
-      .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
-      .join("\n");
+  let prNumber = freshTask.pr_number ?? 0;
+  let prUrl = freshTask.pr_url ?? "";
 
-    const issueNumber = freshTask.github_issue;
+  if (!prNumber) {
+    try {
+      const filesModified = freshTask.files_modified?.split("\n").filter(Boolean).length ?? 0;
+      const gateResults = freshTask.gate_results ? JSON.parse(freshTask.gate_results) : [];
+      const gatesSummary = gateResults
+        .map((g: any) => `- ${g.gate}: ${g.passed ? "passed" : "FAILED"} — ${g.message}`)
+        .join("\n");
 
-    const body = [
-      `## ${freshTask.title}`,
-      "",
-      freshTask.description ?? "",
-      "",
-      `**Task:** ${freshTask.id}`,
-      `**Path:** ${freshTask.path_name}`,
-      `**Cost:** $${freshTask.cost_usd.toFixed(2)}`,
-      `**Files changed:** ${filesModified}`,
-      "",
-      "### Quality Gates",
-      gatesSummary || "No gates run",
-      "",
-      ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
-      "---",
-      "*Created by [Grove](https://grove.cloud)*",
-    ].join("\n");
+      const titleSlug = freshTask.title.length > 60
+        ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
+        : freshTask.title;
+      const prTitle = `feat: (${freshTask.id}) ${titleSlug}`;
 
-    const pr = ghPrCreate(tree.github, {
-      title: `grove(${task.id}): ${task.title}`,
-      body,
-      head: task.branch,
-    });
+      const issueNumber = freshTask.github_issue;
 
-    prNumber = pr.number;
-    prUrl = pr.url;
-  } catch (err: any) {
-    db.addEvent(task.id, null, "merge_failed", `PR creation failed: ${err.message}`);
-    bus.emit("merge:ci_failed", { taskId: task.id, prNumber: 0 });
-    return;
+      const body = [
+        `## ${freshTask.title}`,
+        "",
+        freshTask.description ?? "",
+        "",
+        `**Task:** ${freshTask.id}`,
+        `**Path:** ${freshTask.path_name}`,
+        `**Cost:** $${freshTask.cost_usd.toFixed(2)}`,
+        `**Files changed:** ${filesModified}`,
+        "",
+        "### Quality Gates",
+        gatesSummary || "No gates run",
+        "",
+        ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
+        "---",
+        "*Created by [Grove](https://grove.cloud)*",
+      ].join("\n");
+
+      const treeConfig = tree.config ? JSON.parse(tree.config) : {};
+      const baseBranch = treeConfig.default_branch ?? undefined;
+
+      const pr = ghPrCreate(tree.github!, {
+        title: prTitle,
+        body,
+        head: freshTask.branch!,
+        base: baseBranch,
+      });
+
+      prNumber = pr.number;
+      prUrl = pr.url;
+
+      db.run("UPDATE tasks SET pr_url = ?, pr_number = ? WHERE id = ?", [prUrl, prNumber, freshTask.id]);
+      db.addEvent(freshTask.id, null, "pr_created", `PR #${prNumber} created`);
+      bus.emit("merge:pr_created", { taskId: freshTask.id, prNumber, prUrl });
+    } catch (err: any) {
+      db.addEvent(freshTask.id, null, "merge_failed", `PR creation failed: ${err.message}`);
+      bus.emit("merge:ci_failed", { taskId: freshTask.id, prNumber: 0 });
+      return;
+    }
+  } else {
+    // PR already exists — update title to latest format and re-check CI
+    const titleSlug = freshTask.title.length > 60
+      ? freshTask.title.slice(0, 60).replace(/\s+\S*$/, "...")
+      : freshTask.title;
+    ghPrEditTitle(tree.github!, prNumber, `feat: (${freshTask.id}) ${titleSlug}`);
+    db.addEvent(freshTask.id, null, "ci_recheck", `Re-checking CI on existing PR #${prNumber}`);
   }
-
-  // Update task with PR info
-  db.run("UPDATE tasks SET pr_url = ?, pr_number = ? WHERE id = ?", [prUrl, prNumber, task.id]);
-  db.addEvent(task.id, null, "pr_created", `PR #${prNumber} created`);
-  bus.emit("merge:pr_created", { taskId: task.id, prNumber, prUrl });
 
   // 3. Check for merge conflicts (one rebase attempt if conflicting)
   const baseBranch = treeDefaultBranch(tree);
-  const postCreateState = await waitForMergeable(tree.github, prNumber);
+  const postCreateState = await waitForMergeable(tree.github!, prNumber);
   if (postCreateState === "CONFLICTING") {
-    const resolved = await attemptRebase(task, tree.github, prNumber, db, baseBranch);
+    const resolved = await attemptRebase(task, tree.github!, prNumber, db, baseBranch);
     if (!resolved) {
       db.taskSetStatus(task.id, "conflict");
       db.addEvent(task.id, null, "conflict_detected", `Conflict on PR #${prNumber} — auto-rebase failed`);
@@ -134,8 +154,6 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
     // 6. Merge
     try {
       ghPrMerge(tree.github, prNumber);
-      db.taskSetStatus(task.id, "merged");
-      db.run("UPDATE tasks SET completed_at = datetime('now') WHERE id = ?", [task.id]);
       db.addEvent(task.id, null, "pr_merged", `PR #${prNumber} merged`);
       bus.emit("merge:completed", { taskId: task.id, prNumber });
 
@@ -150,15 +168,71 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
           db.addEvent(task.id, null, "issue_close_failed", `Failed to close Issue #${mergedTask.github_issue}`);
         }
       }
+
+      postMergeCleanup(task, tree, db);
+      const { onStepComplete } = await import("../engine/step-engine");
+      onStepComplete(task.id, "success");
     } catch (err: any) {
       db.addEvent(task.id, null, "merge_failed", `Merge failed: ${err.message}`);
       bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
     }
   } else {
-    // CI failed — notify orchestrator
-    db.taskSetStatus(task.id, "ci_failed");
-    db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}`);
+    // CI failed — get failure details and store for worker
+    const failDetails = ghPrCheckDetails(tree.github!, prNumber);
+    const failSummary = failDetails.length > 0
+      ? failDetails.map(c => `- ${c.name}: ${c.conclusion} (${c.link})`).join("\n")
+      : `CI failed on PR #${prNumber} (no details available)`;
+
+    db.addEvent(task.id, null, "ci_failed", `CI failed on PR #${prNumber}: ${failDetails.length} check(s) failed`);
     bus.emit("merge:ci_failed", { taskId: task.id, prNumber });
+
+    // Store CI failure context so the worker knows what to fix when re-dispatched
+    const fixInstructions = [
+      `\n\n## CI Failure (PR #${prNumber})`,
+      failSummary,
+      "",
+      "### Instructions",
+      "Fix these CI failures. Common issues:",
+      "- **Validate Commit Messages**: Amend the commit to use conventional format: `feat: (TASK-ID) description`. Task ID goes in the subject after the colon, NOT in the scope parentheses (commitlint rejects unknown scopes). Use `git commit --amend -m 'new message'`.",
+      "- **Test failures**: Read the test output, fix the code, commit the fix.",
+      "- **Lint failures**: Run the linter, fix violations, commit.",
+      "",
+      "After fixing, commit (or amend) and the PR will be re-checked automatically.",
+    ].join("\n");
+    db.run(
+      "UPDATE tasks SET session_summary = COALESCE(session_summary, '') || ? WHERE id = ?",
+      [fixInstructions, task.id]
+    );
+
+    const { onStepComplete } = await import("../engine/step-engine");
+    onStepComplete(task.id, "failure");
+  }
+}
+
+/** Clean up worktree and branches after a successful merge (best-effort) */
+function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
+  const cleaned: string[] = [];
+
+  // Remove git worktree
+  if (task.worktree_path) {
+    try {
+      cleanupWorktree(task.id, tree.path);
+      cleaned.push("worktree");
+    } catch { /* best-effort */ }
+  }
+
+  // Delete local and remote branch
+  if (task.branch) {
+    const repoPath = tree.path.startsWith("~/")
+      ? tree.path.replace("~", process.env.HOME || "~")
+      : tree.path;
+    const { localOk, remoteOk } = gitDeleteBranch(repoPath, task.branch);
+    if (localOk) cleaned.push("local branch");
+    if (remoteOk) cleaned.push("remote branch");
+  }
+
+  if (cleaned.length > 0) {
+    db.addEvent(task.id, null, "cleanup", `Post-merge cleanup: removed ${cleaned.join(", ")}`);
   }
 }
 
