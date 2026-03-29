@@ -43,7 +43,6 @@ export function ghPrCreate(repo: string, opts: {
   title: string;
   body: string;
   head: string;
-  base?: string;
   draft?: boolean;
 }): { number: number; url: string } {
   const args = [
@@ -52,18 +51,13 @@ export function ghPrCreate(repo: string, opts: {
     "--body", opts.body,
     "--head", opts.head,
   ];
-  if (opts.base) args.push("--base", opts.base);
   if (opts.draft) args.push("--draft");
 
-  const result = gh(args);
+  const result = gh([...args, "--json", "number,url"]);
   if (!result.ok) {
     throw new Error(`gh pr create failed: ${result.stderr}`);
   }
-  // gh pr create outputs the PR URL to stdout (e.g. https://github.com/owner/repo/pull/123)
-  const url = result.stdout.trim();
-  const prNumberMatch = url.match(/\/pull\/(\d+)/);
-  const number = prNumberMatch ? parseInt(prNumberMatch[1], 10) : 0;
-  return { number, url };
+  return JSON.parse(result.stdout) as { number: number; url: string };
 }
 
 export function ghPrMerge(repo: string, prNumber: number): void {
@@ -85,10 +79,9 @@ export interface PrCheckStatus {
 export function resolveCheckState(
   checks: Array<{ name: string; state: string; conclusion: string }>,
 ): PrCheckStatus {
-  if (checks.length === 0) return { state: "success", total: 0, passing: 0, failing: 0, pending: 0 };
   const total = checks.length;
-  const passing = checks.filter(c => c.state === "SUCCESS" || (c.state === "COMPLETED" && c.conclusion === "SUCCESS")).length;
-  const failing = checks.filter(c => c.state === "FAILURE" || (c.state === "COMPLETED" && c.conclusion === "FAILURE")).length;
+  const passing = checks.filter(c => c.conclusion === "SUCCESS" || c.conclusion === "success").length;
+  const failing = checks.filter(c => c.conclusion === "FAILURE" || c.conclusion === "failure").length;
   const pending = total - passing - failing;
 
   let state: "pending" | "success" | "failure" = "pending";
@@ -106,37 +99,6 @@ export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
 
   const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string; conclusion: string }>;
   return resolveCheckState(checks);
-}
-
-export interface PrCheckDetail {
-  name: string;
-  conclusion: string;
-  link: string;
-}
-
-/** Get details of failed CI checks on a PR */
-export function ghPrCheckDetails(repo: string, prNumber: number): PrCheckDetail[] {
-  const result = gh(["pr", "checks", String(prNumber), "-R", repo]);
-  if (!result.ok || !result.stdout) return [];
-  // Output format: name\tstate\tduration\tlink (tab-separated)
-  const failures: PrCheckDetail[] = [];
-  for (const line of result.stdout.split("\n")) {
-    const parts = line.split("\t");
-    if (parts.length >= 2 && parts[1] === "fail") {
-      failures.push({
-        name: parts[0].trim(),
-        conclusion: "failure",
-        link: parts[3]?.trim() ?? "",
-      });
-    }
-  }
-  return failures;
-}
-
-/** Update a PR title */
-export function ghPrEditTitle(repo: string, prNumber: number, title: string): boolean {
-  const result = gh(["pr", "edit", String(prNumber), "-R", repo, "--title", title]);
-  return result.ok;
 }
 
 export function ghPrList(repo: string, opts?: { head?: string; state?: string; limit?: number }): GhPr[] {
@@ -205,7 +167,7 @@ export function ghPrMergeable(repo: string, prNumber: number): MergeableState {
 }
 
 // ---------------------------------------------------------------------------
-// Git push, branch cleanup & rebase
+// Git push / rebase
 // ---------------------------------------------------------------------------
 
 export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr: string } {
@@ -213,16 +175,6 @@ export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr
   return {
     ok: result.exitCode === 0,
     stderr: result.stderr.toString().trim(),
-  };
-}
-
-/** Delete a branch locally and on the remote (best-effort, won't throw) */
-export function gitDeleteBranch(repoPath: string, branch: string): { localOk: boolean; remoteOk: boolean } {
-  const local = Bun.spawnSync(["git", "-C", repoPath, "branch", "-D", branch]);
-  const remote = Bun.spawnSync(["git", "-C", repoPath, "push", "origin", "--delete", branch]);
-  return {
-    localOk: local.exitCode === 0,
-    remoteOk: remote.exitCode === 0,
   };
 }
 

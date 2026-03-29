@@ -75,8 +75,6 @@ export interface OverlayContext {
   pathName?: string;
   sessionSummary?: string | null;
   filesModified?: string | null;
-  stepPrompt?: string;
-  seedSpec?: string | null;
 }
 
 /** Build the CLAUDE.md overlay content for a worker's worktree */
@@ -94,14 +92,6 @@ export function buildOverlay(ctx: OverlayContext): string {
     parts.push("");
   }
 
-  if (ctx.seedSpec) {
-    parts.push("### Seed (Design Spec)");
-    parts.push("The following design spec was produced during a brainstorming session. Follow it closely.");
-    parts.push("");
-    parts.push(ctx.seedSpec);
-    parts.push("");
-  }
-
   if (ctx.pathName) {
     parts.push("### Workflow");
     parts.push(`This task follows the **${ctx.pathName}** path.`);
@@ -112,16 +102,10 @@ export function buildOverlay(ctx: OverlayContext): string {
   parts.push("You are the sole worker on this task. Complete it end-to-end: implement, test, and commit.");
   parts.push("");
 
-  if (ctx.stepPrompt) {
-    parts.push("### Step Instructions");
-    parts.push(ctx.stepPrompt);
-    parts.push("");
-  }
-
   if (ctx.branch) {
     parts.push("### Git Branch");
     parts.push(`Work on branch: \`${ctx.branch}\``);
-    parts.push(`Commit message format: conventional commits — \`feat: (${ctx.taskId}) description\`, \`fix: (${ctx.taskId}) description\`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.`);
+    parts.push(`Commit message format: \`grove(${ctx.taskId}): description of change\``);
     parts.push("");
   }
 
@@ -152,7 +136,7 @@ export function buildOverlay(ctx: OverlayContext): string {
 
   parts.push("### Working Guidelines");
   if (ctx.branch) {
-    parts.push(`- Make atomic commits: \`feat: (${ctx.taskId}) description\`, \`fix: (${ctx.taskId}) description\``);
+    parts.push(`- Make atomic commits: \`grove(${ctx.taskId}): description\``);
   }
   parts.push("- Run tests if available before marking done");
   parts.push("- Write the session summary file before finishing");

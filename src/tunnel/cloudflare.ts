@@ -1,4 +1,4 @@
-// Grove v3 — Cloudflare quick tunnel provider
+// Grove v3 — Cloudflare tunnel (cloudflared quick tunnels)
 // Spawns `cloudflared tunnel --url http://localhost:{port}` and parses the assigned URL.
 import type { TunnelProvider } from "./provider";
 
@@ -31,10 +31,12 @@ export class CloudflareTunnel implements TunnelProvider {
       this.proc = proc;
       this.pid = proc.pid;
 
+      // cloudflared prints the tunnel URL to stderr
       const timeout = setTimeout(() => {
         reject(new Error("Timed out waiting for cloudflared to assign a URL (30s)"));
       }, 30_000);
 
+      // Read stderr for the URL
       this.readStderrForUrl(proc, (url) => {
         clearTimeout(timeout);
         this.url = url;
@@ -68,6 +70,9 @@ export class CloudflareTunnel implements TunnelProvider {
 
         buffer += new TextDecoder().decode(value);
 
+        // cloudflared prints something like:
+        // | https://some-random-string.trycloudflare.com |
+        // or: Your quick Tunnel has been created! Visit it at (URL): https://...
         const urlMatch = buffer.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
         if (urlMatch) {
           found = true;

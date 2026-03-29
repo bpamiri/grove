@@ -53,15 +53,10 @@ jobs:
       - name: Build web assets
         run: bun run build:web
 
-      - name: Embed web assets
-        run: bun run build:embed
-
-      - name: Build binary
-        env:
-          TARGET: ${{ matrix.target }}
+      - name: Build binary (${{ matrix.target }})
         run: |
           mkdir -p bin
-          bun build src/cli/index.ts --compile --target="$TARGET" --outfile bin/grove
+          bun build src/cli/index.ts --compile --target=${{ matrix.target }} --outfile bin/grove
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -97,9 +92,8 @@ jobs:
       - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          tag="v${VERSION}"
+          tag="v${{ steps.version.outputs.version }}"
           if gh release view "$tag" &>/dev/null; then
             gh release upload "$tag" release/* --clobber
           else

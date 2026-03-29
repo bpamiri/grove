@@ -5,9 +5,13 @@
 // ---------------------------------------------------------------------------
 
 export enum TaskStatus {
-  Draft = "draft",
-  Queued = "queued",
-  Active = "active",
+  Planned = "planned",
+  Ready = "ready",
+  Running = "running",
+  Paused = "paused",
+  Done = "done",
+  Evaluating = "evaluating",
+  Merged = "merged",
   Completed = "completed",
   CiFailed = "ci_failed",
   Conflict = "conflict",
@@ -101,9 +105,6 @@ export interface Task {
   title: string;
   description: string | null;
   status: string;
-  current_step: string | null;
-  step_index: number;
-  paused: number;
   path_name: string;
   priority: number;
   depends_on: string | null;
@@ -164,13 +165,13 @@ export interface TreeConfig {
   path: string;
   github?: string;
   branch_prefix?: string;
-  default_branch?: string; // e.g. "develop", "main" — branch to fork worktrees from
+  default_branch?: string; // defaults to "main" if not set
   quality_gates?: QualityGatesConfig;
 }
 
 export interface PathConfig {
   description: string;
-  steps: Array<string | Record<string, any>>;
+  steps: string[];
 }
 
 export interface BudgetConfig {
@@ -188,9 +189,7 @@ export interface ServerConfig {
 export interface TunnelConfig {
   provider: "cloudflare" | "bore" | "ngrok";
   auth: "token" | "none";
-  domain?: string;      // e.g. "grove.cloud" — register with Worker proxy for stable vanity URL
-  subdomain?: string;   // auto-generated on first start, persisted across restarts
-  secret?: string;      // auto-generated, proves subdomain ownership with Worker
+  domain?: string;
 }
 
 export interface SettingsConfig {
@@ -201,16 +200,6 @@ export interface SettingsConfig {
   quality_gates?: QualityGatesConfig;
 }
 
-export interface NotificationConfig {
-  channels?: {
-    slack?: { webhook_url?: string; env?: string };
-    system?: { enabled?: boolean };
-    webhook?: { url?: string; secret?: string };
-  };
-  routes?: Record<string, string[]>;
-  quiet_hours?: { start?: string; end?: string };
-}
-
 export interface GroveConfig {
   workspace: { name: string };
   trees: Record<string, TreeConfig>;
@@ -219,7 +208,6 @@ export interface GroveConfig {
   server: ServerConfig;
   tunnel: TunnelConfig;
   settings: SettingsConfig;
-  notifications?: NotificationConfig;
 }
 
 export interface QualityGatesConfig {
@@ -231,24 +219,6 @@ export interface QualityGatesConfig {
   max_diff_lines?: number;
   test_timeout?: number;
   lint_timeout?: number;
-  test_command?: string;  // e.g. "npm test", "pytest", "wheels test run"
-  lint_command?: string;  // e.g. "npx eslint .", "ruff check ."
-  base_ref?: string;      // git ref to diff against (default: auto-detect origin/main or main)
-}
-
-export interface PipelineStep {
-  id: string;
-  type: "worker" | "gate" | "merge";
-  prompt?: string;
-  on_success: string;
-  on_failure: string;
-  max_retries?: number;
-  label?: string;
-}
-
-export interface NormalizedPathConfig {
-  description: string;
-  steps: PipelineStep[];
 }
 
 // ---------------------------------------------------------------------------
@@ -312,29 +282,15 @@ export const GROVE_VERSION = "3.0.0-alpha.0";
 export const DEFAULT_PATHS: Record<string, PathConfig> = {
   development: {
     description: "Standard dev workflow with QA",
-    steps: [
-      { id: "plan", type: "worker", prompt: "Analyze the task requirements. Identify which files need changes and outline your implementation approach." },
-      { id: "implement", type: "worker", prompt: "Implement the task. Commit your changes with conventional commit messages." },
-      { id: "evaluate", type: "gate", on_failure: "implement" },
-      { id: "merge", type: "merge" },
-    ],
+    steps: ["plan", "implement", "evaluate", "merge"],
   },
   research: {
     description: "Research task — produces a report, no code changes",
-    steps: [
-      { id: "plan", type: "worker", prompt: "Analyze what needs to be researched. Identify sources and outline your approach." },
-      { id: "research", type: "worker", prompt: "Conduct the research. Document findings as you go." },
-      { id: "report", type: "worker", prompt: "Write a clear summary report of your findings in .grove/report.md in the worktree.", on_success: "$done" },
-    ],
+    steps: ["plan", "research", "report"],
   },
   content: {
     description: "Documentation and content creation",
-    steps: [
-      { id: "plan", type: "worker", prompt: "Outline the content structure, audience, and key points." },
-      { id: "implement", type: "worker", prompt: "Write the content following the plan." },
-      { id: "evaluate", type: "gate", on_failure: "implement" },
-      { id: "publish", type: "merge" },
-    ],
+    steps: ["plan", "implement", "evaluate", "publish"],
   },
 };
 

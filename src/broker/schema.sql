@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   parent_task_id TEXT REFERENCES tasks(id),
   title TEXT NOT NULL,
   description TEXT,
-  status TEXT NOT NULL DEFAULT 'draft',
+  status TEXT NOT NULL DEFAULT 'planned',
   path_name TEXT DEFAULT 'development',
   priority INTEGER DEFAULT 0,
   depends_on TEXT,
@@ -40,10 +40,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   max_retries INTEGER DEFAULT 2,
   created_at TEXT DEFAULT (datetime('now')),
   started_at TEXT,
-  completed_at TEXT,
-  current_step TEXT,
-  step_index INTEGER DEFAULT 0,
-  paused INTEGER DEFAULT 0
+  completed_at TEXT
 );
 
 -- Sessions: one per agent spawn (orchestrator, worker, evaluator)
@@ -81,18 +78,6 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Seeds: brainstorming design artifacts attached to tasks
-CREATE TABLE IF NOT EXISTS seeds (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
-  summary TEXT,
-  spec TEXT,
-  conversation TEXT,
-  status TEXT DEFAULT 'active',
-  created_at TEXT DEFAULT (datetime('now')),
-  completed_at TEXT
-);
-
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_tree ON tasks(tree_id);
@@ -104,4 +89,3 @@ CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_seeds_task ON seeds(task_id);

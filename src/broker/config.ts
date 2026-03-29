@@ -2,8 +2,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { getEnv } from "./db";
-import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig, NormalizedPathConfig, NotificationConfig } from "../shared/types";
-import { normalizeAllPaths, stripPrompts } from "../engine/normalize";
+import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig } from "../shared/types";
 import { DEFAULT_PATHS, DEFAULT_BUDGETS, DEFAULT_SETTINGS } from "../shared/types";
 
 let _config: GroveConfig | null = null;
@@ -89,14 +88,6 @@ export function configPaths(): Record<string, PathConfig> {
   return loadConfig().paths || DEFAULT_PATHS;
 }
 
-export function configNormalizedPaths(): Record<string, NormalizedPathConfig> {
-  return normalizeAllPaths(configPaths());
-}
-
-export function configNormalizedPathsForApi(): Record<string, NormalizedPathConfig> {
-  return stripPrompts(configNormalizedPaths());
-}
-
 export function budgetGet<K extends keyof BudgetConfig>(field: K): number {
   const config = loadConfig();
   return config.budgets?.[field] ?? DEFAULT_BUDGETS[field];
@@ -113,10 +104,6 @@ export function serverConfig(): ServerConfig {
 
 export function tunnelConfig(): TunnelConfig {
   return loadConfig().tunnel ?? { provider: "cloudflare" as const, auth: "token" as const };
-}
-
-export function notificationsConfig(): NotificationConfig | undefined {
-  return loadConfig().notifications;
 }
 
 export function workspaceName(): string {
@@ -137,6 +124,5 @@ function mergeDefaults(partial: Partial<GroveConfig>): GroveConfig {
     server: { ...DEFAULT_CONFIG.server, ...partial.server },
     tunnel: { ...DEFAULT_CONFIG.tunnel, ...partial.tunnel },
     settings: { ...DEFAULT_SETTINGS, ...partial.settings },
-    notifications: partial.notifications,
   };
 }
