@@ -2,7 +2,8 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { getEnv } from "./db";
-import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig } from "../shared/types";
+import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig, NormalizedPathConfig } from "../shared/types";
+import { normalizeAllPaths, stripPrompts } from "../engine/normalize";
 import { DEFAULT_PATHS, DEFAULT_BUDGETS, DEFAULT_SETTINGS } from "../shared/types";
 
 let _config: GroveConfig | null = null;
@@ -86,6 +87,14 @@ export function configTrees(): Record<string, TreeConfig> {
 
 export function configPaths(): Record<string, PathConfig> {
   return loadConfig().paths || DEFAULT_PATHS;
+}
+
+export function configNormalizedPaths(): Record<string, NormalizedPathConfig> {
+  return normalizeAllPaths(configPaths());
+}
+
+export function configNormalizedPathsForApi(): Record<string, NormalizedPathConfig> {
+  return stripPrompts(configNormalizedPaths());
 }
 
 export function budgetGet<K extends keyof BudgetConfig>(field: K): number {

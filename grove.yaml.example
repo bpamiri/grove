@@ -11,7 +11,6 @@ trees:
   #   path: ~/code/api-server
   #   github: myorg/api-server
   #   branch_prefix: grove/
-  #   default_branch: main      # Base branch for rebase (default: main)
   #   quality_gates:
   #     tests: true
   #     lint: true
@@ -45,7 +44,9 @@ server:
 tunnel:
   provider: cloudflare  # Free quick tunnels, no account needed
   auth: token           # Random token for security
-  # domain: mygrove.example.com  # Persistent tunnel (requires Cloudflare account)
+  # For a stable vanity URL on grove.cloud (free, no Cloudflare account needed):
+  # domain: grove.cloud
+  # subdomain and secret are auto-generated on first start
 
 # General settings
 settings:

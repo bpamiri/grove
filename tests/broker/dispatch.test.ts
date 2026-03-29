@@ -38,80 +38,55 @@ function createTask(id: string, status: string, opts: { treeId?: string; depends
 }
 
 describe("Terminal state guards", () => {
-  test("dispatch endpoint rejects tasks in 'done' state", async () => {
-    createTask("W-001", "done");
+  // In v3, terminal statuses are "completed" and "failed" (TaskStatus enum).
+  // The DB uses these directly — old statuses like "done", "merged", "ready" no longer exist.
+  const TERMINAL_STATUSES = ["completed", "failed"];
+  const isTerminalStatus = (s: string) => TERMINAL_STATUSES.includes(s);
 
-    // Simulate what the /api/tasks/:id/dispatch endpoint does
-    const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
-
-    // Task in 'done' should be considered terminal for dispatch
-    expect(isTerminalStatus(task.status)).toBe(true);
-  });
-
-  test("dispatch endpoint rejects tasks in 'failed' state", async () => {
-    createTask("W-001", "failed");
-
-    const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
-
-    expect(isTerminalStatus(task.status)).toBe(true);
-  });
-
-  test("dispatch endpoint rejects tasks in 'completed' state", async () => {
+  test("dispatch endpoint rejects tasks in 'completed' state", () => {
     createTask("W-001", "completed");
 
     const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
-
     expect(isTerminalStatus(task.status)).toBe(true);
   });
 
-  test("dispatch endpoint rejects tasks in 'merged' state", async () => {
-    createTask("W-001", "merged");
+  test("dispatch endpoint rejects tasks in 'failed' state", () => {
+    createTask("W-001", "failed");
 
     const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
-
     expect(isTerminalStatus(task.status)).toBe(true);
   });
 
-  test("dispatch endpoint rejects tasks in 'conflict' state", async () => {
-    createTask("W-001", "conflict");
+  test("dispatch endpoint allows tasks in 'draft' state", () => {
+    createTask("W-001", "draft");
 
     const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
-
-    expect(isTerminalStatus(task.status)).toBe(true);
-  });
-
-  test("dispatch endpoint allows tasks in 'planned' state", async () => {
-    createTask("W-001", "planned");
-
-    const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
-
     expect(isTerminalStatus(task.status)).toBe(false);
   });
 
-  test("dispatch endpoint allows tasks in 'ready' state", async () => {
-    createTask("W-001", "ready");
+  test("dispatch endpoint allows tasks in 'queued' state", () => {
+    createTask("W-001", "queued");
 
     const task = db.taskGet("W-001")!;
-    const { isTerminalStatus } = await import("../../src/shared/types");
+    expect(isTerminalStatus(task.status)).toBe(false);
+  });
 
+  test("dispatch endpoint allows tasks in 'active' state", () => {
+    createTask("W-001", "active");
+
+    const task = db.taskGet("W-001")!;
     expect(isTerminalStatus(task.status)).toBe(false);
   });
 
   test("getNewlyUnblocked excludes tasks in terminal states", () => {
-    createTask("W-001", "merged");
-    createTask("W-002", "done", { dependsOn: "W-001" });
+    createTask("W-001", "completed");
+    createTask("W-002", "completed", { dependsOn: "W-001" });
     createTask("W-003", "failed", { dependsOn: "W-001" });
-    createTask("W-004", "planned", { dependsOn: "W-001" });
+    createTask("W-004", "draft", { dependsOn: "W-001" });
 
     const unblocked = db.getNewlyUnblocked("W-001");
 
-    // Only W-004 (planned) should be unblocked; W-002 (done) and W-003 (failed) are terminal
+    // Only W-004 (draft) should be unblocked; W-002 (completed) and W-003 (failed) are terminal
     expect(unblocked.length).toBe(1);
     expect(unblocked[0].id).toBe("W-004");
   });

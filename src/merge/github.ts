@@ -43,6 +43,7 @@ export function ghPrCreate(repo: string, opts: {
   title: string;
   body: string;
   head: string;
+  base?: string;
   draft?: boolean;
 }): { number: number; url: string } {
   const args = [
@@ -51,13 +52,18 @@ export function ghPrCreate(repo: string, opts: {
     "--body", opts.body,
     "--head", opts.head,
   ];
+  if (opts.base) args.push("--base", opts.base);
   if (opts.draft) args.push("--draft");
 
-  const result = gh([...args, "--json", "number,url"]);
+  const result = gh(args);
   if (!result.ok) {
     throw new Error(`gh pr create failed: ${result.stderr}`);
   }
-  return JSON.parse(result.stdout) as { number: number; url: string };
+  // gh pr create outputs the PR URL to stdout (e.g. https://github.com/owner/repo/pull/123)
+  const url = result.stdout.trim();
+  const prNumberMatch = url.match(/\/pull\/(\d+)/);
+  const number = prNumberMatch ? parseInt(prNumberMatch[1], 10) : 0;
+  return { number, url };
 }
 
 export function ghPrMerge(repo: string, prNumber: number): void {
@@ -75,30 +81,54 @@ export interface PrCheckStatus {
   pending: number;
 }
 
-/** Pure logic: resolve check state from an array of check results */
-export function resolveCheckState(
-  checks: Array<{ name: string; state: string; conclusion: string }>,
-): PrCheckStatus {
-  const total = checks.length;
-  const passing = checks.filter(c => c.conclusion === "SUCCESS" || c.conclusion === "success").length;
-  const failing = checks.filter(c => c.conclusion === "FAILURE" || c.conclusion === "failure").length;
-  const pending = total - passing - failing;
-
-  let state: "pending" | "success" | "failure" = "pending";
-  if (failing > 0) state = "failure";
-  else if (pending === 0) state = "success";
-
-  return { state, total, passing, failing, pending };
-}
-
 export function ghPrChecks(repo: string, prNumber: number): PrCheckStatus {
-  const result = gh(["pr", "checks", String(prNumber), "-R", repo, "--json", "name,state,conclusion"]);
+  const result = gh(["pr", "checks", String(prNumber), "-R", repo, "--json", "name,state"]);
   if (!result.ok) {
     return { state: "pending", total: 0, passing: 0, failing: 0, pending: 0 };
   }
 
-  const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string; conclusion: string }>;
-  return resolveCheckState(checks);
+  const checks = JSON.parse(result.stdout || "[]") as Array<{ name: string; state: string }>;
+  const total = checks.length;
+  const passing = checks.filter(c => c.state === "SUCCESS").length;
+  const failing = checks.filter(c => c.state === "FAILURE").length;
+  const pending = total - passing - failing;
+
+  let state: "pending" | "success" | "failure" = "pending";
+  if (failing > 0) state = "failure";
+  else if (pending === 0 && total > 0) state = "success";
+
+  return { state, total, passing, failing, pending };
+}
+
+export interface PrCheckDetail {
+  name: string;
+  conclusion: string;
+  link: string;
+}
+
+/** Get details of failed CI checks on a PR */
+export function ghPrCheckDetails(repo: string, prNumber: number): PrCheckDetail[] {
+  const result = gh(["pr", "checks", String(prNumber), "-R", repo]);
+  if (!result.ok || !result.stdout) return [];
+  // Output format: name\tstate\tduration\tlink (tab-separated)
+  const failures: PrCheckDetail[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length >= 2 && parts[1] === "fail") {
+      failures.push({
+        name: parts[0].trim(),
+        conclusion: "failure",
+        link: parts[3]?.trim() ?? "",
+      });
+    }
+  }
+  return failures;
+}
+
+/** Update a PR title */
+export function ghPrEditTitle(repo: string, prNumber: number, title: string): boolean {
+  const result = gh(["pr", "edit", String(prNumber), "-R", repo, "--title", title]);
+  return result.ok;
 }
 
 export function ghPrList(repo: string, opts?: { head?: string; state?: string; limit?: number }): GhPr[] {
@@ -141,33 +171,7 @@ export function ghIssueList(repo: string, opts?: { state?: string; limit?: numbe
 }
 
 // ---------------------------------------------------------------------------
-// Mergeable state
-// ---------------------------------------------------------------------------
-
-export type MergeableState = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
-
-/** Pure logic: resolve GitHub's mergeable field to a typed state */
-export function resolveMergeableState(mergeable: string): MergeableState {
-  const upper = mergeable?.toUpperCase();
-  if (upper === "MERGEABLE") return "MERGEABLE";
-  if (upper === "CONFLICTING") return "CONFLICTING";
-  return "UNKNOWN";
-}
-
-/** Fetch the mergeable status of a PR */
-export function ghPrMergeable(repo: string, prNumber: number): MergeableState {
-  const result = gh(["pr", "view", String(prNumber), "-R", repo, "--json", "mergeable"]);
-  if (!result.ok) return "UNKNOWN";
-  try {
-    const parsed = JSON.parse(result.stdout) as { mergeable?: string };
-    return resolveMergeableState(parsed.mergeable ?? "");
-  } catch {
-    return "UNKNOWN";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Git push / rebase
+// Git push & branch cleanup
 // ---------------------------------------------------------------------------
 
 export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr: string } {
@@ -178,110 +182,61 @@ export function gitPush(repoPath: string, branch: string): { ok: boolean; stderr
   };
 }
 
-/** Force-push with lease (safe for rebased branches) */
-export function gitPushForce(repoPath: string, branch: string): { ok: boolean; stderr: string } {
-  const result = Bun.spawnSync(["git", "-C", repoPath, "push", "--force-with-lease", "origin", branch]);
+/** Delete a branch locally and on the remote (best-effort, won't throw) */
+export function gitDeleteBranch(repoPath: string, branch: string): { localOk: boolean; remoteOk: boolean } {
+  const local = Bun.spawnSync(["git", "-C", repoPath, "branch", "-D", branch]);
+  const remote = Bun.spawnSync(["git", "-C", repoPath, "push", "origin", "--delete", branch]);
   return {
-    ok: result.exitCode === 0,
-    stderr: result.stderr.toString().trim(),
+    localOk: local.exitCode === 0,
+    remoteOk: remote.exitCode === 0,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Trivial conflict resolution
+// Merge-state helpers (pure functions, easy to unit-test)
 // ---------------------------------------------------------------------------
 
-/** Files that can be safely resolved with --theirs during rebase */
-export const TRIVIAL_CONFLICT_PATTERNS: string[] = [
+/** Resolve an array of CI check objects into an aggregate status */
+export function resolveCheckState(checks: Array<{ name: string; state: string; conclusion?: string }>): PrCheckStatus {
+  const total = checks.length;
+  if (total === 0) return { state: "success", total: 0, passing: 0, failing: 0, pending: 0 };
+
+  const passing = checks.filter(c => c.state === "COMPLETED" && c.conclusion === "SUCCESS").length;
+  const failing = checks.filter(c => c.state === "COMPLETED" && c.conclusion === "FAILURE").length;
+  const pending = total - passing - failing;
+
+  let state: "pending" | "success" | "failure" = "pending";
+  if (failing > 0) state = "failure";
+  else if (pending === 0) state = "success";
+
+  return { state, total, passing, failing, pending };
+}
+
+/** Normalize a GitHub mergeable state string */
+export function resolveMergeableState(raw: string): "MERGEABLE" | "CONFLICTING" | "UNKNOWN" {
+  const upper = raw.toUpperCase();
+  if (upper === "MERGEABLE") return "MERGEABLE";
+  if (upper === "CONFLICTING") return "CONFLICTING";
+  return "UNKNOWN";
+}
+
+/** Lockfile patterns considered trivial merge conflicts */
+export const TRIVIAL_CONFLICT_PATTERNS = [
   "package-lock.json",
   "yarn.lock",
-  "bun.lockb",
   "pnpm-lock.yaml",
+  "bun.lockb",
   "Gemfile.lock",
   "Cargo.lock",
-  "poetry.lock",
   "composer.lock",
-  "go.sum",
-  "flake.lock",
+  "poetry.lock",
 ];
 
-/** Check if a filename matches a known trivial conflict pattern */
+/** Check if a conflicting file is a trivial lockfile conflict */
 export function isTrivialConflict(filePath: string): boolean {
-  const basename = filePath.split("/").pop() ?? filePath;
-  return TRIVIAL_CONFLICT_PATTERNS.includes(basename);
-}
-
-/** List files with unmerged conflicts during an active rebase */
-export function gitConflictFiles(repoPath: string): string[] {
-  const result = Bun.spawnSync(["git", "-C", repoPath, "diff", "--name-only", "--diff-filter=U"]);
-  if (result.exitCode !== 0) return [];
-  return result.stdout.toString().trim().split("\n").filter(Boolean);
-}
-
-/** Resolve a conflicting file with the upstream (theirs) version and stage it */
-export function gitResolveTheirs(repoPath: string, filePath: string): boolean {
-  const checkout = Bun.spawnSync(["git", "-C", repoPath, "checkout", "--theirs", filePath]);
-  if (checkout.exitCode !== 0) return false;
-  const add = Bun.spawnSync(["git", "-C", repoPath, "add", filePath]);
-  return add.exitCode === 0;
-}
-
-// ---------------------------------------------------------------------------
-// Rebase
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch from origin and rebase onto base branch.
- * On conflict, checks if all conflicting files are trivial (lockfiles etc.)
- * and auto-resolves them with --theirs. Aborts rebase if any non-trivial
- * file conflicts.
- */
-export function gitRebase(repoPath: string, baseBranch: string): { ok: boolean; stderr: string; autoResolved?: string[] } {
-  const fetch = Bun.spawnSync(["git", "-C", repoPath, "fetch", "origin"]);
-  if (fetch.exitCode !== 0) {
-    return { ok: false, stderr: fetch.stderr.toString().trim() };
-  }
-
-  const rebase = Bun.spawnSync(["git", "-C", repoPath, "rebase", `origin/${baseBranch}`]);
-  if (rebase.exitCode === 0) {
-    return { ok: true, stderr: "" };
-  }
-
-  // Rebase failed — check if we can auto-resolve trivial conflicts
-  const conflictFiles = gitConflictFiles(repoPath);
-  if (conflictFiles.length === 0) {
-    Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
-    return { ok: false, stderr: rebase.stderr.toString().trim() };
-  }
-
-  const nonTrivial = conflictFiles.filter(f => !isTrivialConflict(f));
-  if (nonTrivial.length > 0) {
-    // Non-trivial conflicts — abort
-    Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
-    return { ok: false, stderr: `Non-trivial conflicts in: ${nonTrivial.join(", ")}` };
-  }
-
-  // All conflicts are trivial — resolve with --theirs
-  const resolved: string[] = [];
-  for (const file of conflictFiles) {
-    if (!gitResolveTheirs(repoPath, file)) {
-      Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
-      return { ok: false, stderr: `Failed to auto-resolve: ${file}` };
-    }
-    resolved.push(file);
-  }
-
-  // Continue the rebase (may hit more conflicts in subsequent commits)
-  const cont = Bun.spawnSync(["git", "-C", repoPath, "rebase", "--continue"], {
-    env: { ...process.env, GIT_EDITOR: "true" }, // skip editor
+  return TRIVIAL_CONFLICT_PATTERNS.some(pattern => {
+    // Match exact filename or path ending with /filename
+    const regex = new RegExp(`(^|/)${pattern.replace(".", "\\.")}$`);
+    return regex.test(filePath);
   });
-
-  if (cont.exitCode !== 0) {
-    // Could be more conflicts in later commits — check again recursively would be complex.
-    // For now, abort if continue fails.
-    Bun.spawnSync(["git", "-C", repoPath, "rebase", "--abort"]);
-    return { ok: false, stderr: `Rebase continue failed after auto-resolve: ${cont.stderr.toString().trim()}` };
-  }
-
-  return { ok: true, stderr: "", autoResolved: resolved };
 }
