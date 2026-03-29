@@ -7,6 +7,16 @@ import { cleanupWorktree } from "../shared/worktree";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
+/** Extract the default branch from a tree's JSON config (falls back to "main") */
+export function treeDefaultBranch(tree: Tree): string {
+  try {
+    const cfg = tree.config ? JSON.parse(tree.config) : {};
+    return cfg.default_branch || "main";
+  } catch {
+    return "main";
+  }
+}
+
 // Per-tree merge queue (sequential to avoid conflicts)
 const mergeQueues = new Map<string, Promise<void>>();
 

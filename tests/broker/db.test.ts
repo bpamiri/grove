@@ -118,17 +118,17 @@ describe("Task operations", () => {
   });
 
   test("isTaskBlocked checks dependencies", () => {
-    db.run("INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)", ["W-001", "A", "running"]);
-    db.run("INSERT INTO tasks (id, title, status, depends_on) VALUES (?, ?, ?, ?)", ["W-002", "B", "planned", "W-001"]);
+    db.run("INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)", ["W-001", "A", "active"]);
+    db.run("INSERT INTO tasks (id, title, status, depends_on) VALUES (?, ?, ?, ?)", ["W-002", "B", "draft", "W-001"]);
     expect(db.isTaskBlocked("W-002")).toBe(true);
 
-    db.taskSetStatus("W-001", "done");
+    db.taskSetStatus("W-001", "completed");
     expect(db.isTaskBlocked("W-002")).toBe(false);
   });
 
   test("getNewlyUnblocked finds dependent tasks", () => {
-    db.run("INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)", ["W-001", "A", "done"]);
-    db.run("INSERT INTO tasks (id, title, status, depends_on) VALUES (?, ?, ?, ?)", ["W-002", "B", "planned", "W-001"]);
+    db.run("INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)", ["W-001", "A", "completed"]);
+    db.run("INSERT INTO tasks (id, title, status, depends_on) VALUES (?, ?, ?, ?)", ["W-002", "B", "draft", "W-001"]);
     const unblocked = db.getNewlyUnblocked("W-001");
     expect(unblocked.length).toBe(1);
     expect(unblocked[0].id).toBe("W-002");

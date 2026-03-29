@@ -191,3 +191,52 @@ export function gitDeleteBranch(repoPath: string, branch: string): { localOk: bo
     remoteOk: remote.exitCode === 0,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Merge-state helpers (pure functions, easy to unit-test)
+// ---------------------------------------------------------------------------
+
+/** Resolve an array of CI check objects into an aggregate status */
+export function resolveCheckState(checks: Array<{ name: string; state: string; conclusion?: string }>): PrCheckStatus {
+  const total = checks.length;
+  if (total === 0) return { state: "success", total: 0, passing: 0, failing: 0, pending: 0 };
+
+  const passing = checks.filter(c => c.state === "COMPLETED" && c.conclusion === "SUCCESS").length;
+  const failing = checks.filter(c => c.state === "COMPLETED" && c.conclusion === "FAILURE").length;
+  const pending = total - passing - failing;
+
+  let state: "pending" | "success" | "failure" = "pending";
+  if (failing > 0) state = "failure";
+  else if (pending === 0) state = "success";
+
+  return { state, total, passing, failing, pending };
+}
+
+/** Normalize a GitHub mergeable state string */
+export function resolveMergeableState(raw: string): "MERGEABLE" | "CONFLICTING" | "UNKNOWN" {
+  const upper = raw.toUpperCase();
+  if (upper === "MERGEABLE") return "MERGEABLE";
+  if (upper === "CONFLICTING") return "CONFLICTING";
+  return "UNKNOWN";
+}
+
+/** Lockfile patterns considered trivial merge conflicts */
+export const TRIVIAL_CONFLICT_PATTERNS = [
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lockb",
+  "Gemfile.lock",
+  "Cargo.lock",
+  "composer.lock",
+  "poetry.lock",
+];
+
+/** Check if a conflicting file is a trivial lockfile conflict */
+export function isTrivialConflict(filePath: string): boolean {
+  return TRIVIAL_CONFLICT_PATTERNS.some(pattern => {
+    // Match exact filename or path ending with /filename
+    const regex = new RegExp(`(^|/)${pattern.replace(".", "\\.")}$`);
+    return regex.test(filePath);
+  });
+}
