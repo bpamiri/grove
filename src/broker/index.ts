@@ -103,6 +103,11 @@ export async function startBroker(): Promise<BrokerInfo> {
   });
   startCostMonitor({ db, budgets: config.budgets });
 
+  // Wire notifications
+  const { wireNotifications } = await import("../notifications");
+  const { notificationsConfig: getNotificationsConfig } = await import("./config");
+  wireNotifications(getNotificationsConfig());
+
   // Spawn orchestrator
   orchestrator.spawn(db, GROVE_LOG_DIR);
 

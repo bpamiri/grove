@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { getEnv } from "./db";
-import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig, NormalizedPathConfig } from "../shared/types";
+import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig, NormalizedPathConfig, NotificationConfig } from "../shared/types";
 import { normalizeAllPaths, stripPrompts } from "../engine/normalize";
 import { DEFAULT_PATHS, DEFAULT_BUDGETS, DEFAULT_SETTINGS } from "../shared/types";
 
@@ -115,6 +115,10 @@ export function tunnelConfig(): TunnelConfig {
   return loadConfig().tunnel ?? { provider: "cloudflare" as const, auth: "token" as const };
 }
 
+export function notificationsConfig(): NotificationConfig | undefined {
+  return loadConfig().notifications;
+}
+
 export function workspaceName(): string {
   return loadConfig().workspace?.name || "Grove";
 }
@@ -133,5 +137,6 @@ function mergeDefaults(partial: Partial<GroveConfig>): GroveConfig {
     server: { ...DEFAULT_CONFIG.server, ...partial.server },
     tunnel: { ...DEFAULT_CONFIG.tunnel, ...partial.tunnel },
     settings: { ...DEFAULT_SETTINGS, ...partial.settings },
+    notifications: partial.notifications,
   };
 }

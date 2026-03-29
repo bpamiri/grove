@@ -199,6 +199,16 @@ export interface SettingsConfig {
   quality_gates?: QualityGatesConfig;
 }
 
+export interface NotificationConfig {
+  channels?: {
+    slack?: { webhook_url?: string; env?: string };
+    system?: { enabled?: boolean };
+    webhook?: { url?: string; secret?: string };
+  };
+  routes?: Record<string, string[]>;
+  quiet_hours?: { start?: string; end?: string };
+}
+
 export interface GroveConfig {
   workspace: { name: string };
   trees: Record<string, TreeConfig>;
@@ -207,6 +217,7 @@ export interface GroveConfig {
   server: ServerConfig;
   tunnel: TunnelConfig;
   settings: SettingsConfig;
+  notifications?: NotificationConfig;
 }
 
 export interface QualityGatesConfig {
