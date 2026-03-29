@@ -29,6 +29,15 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: bun-linux-x64
+            artifact: grove-linux-x64
+          - target: bun-darwin-arm64
+            artifact: grove-darwin-arm64
+          - target: bun-darwin-x64
+            artifact: grove-darwin-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -41,21 +50,55 @@ jobs:
           bun install
           cd web && bun install
 
-      - name: Extract version
-        id: version
-        run: echo "version=$(bun -e 'console.log(require("./package.json").version)')" >> "$GITHUB_OUTPUT"
-
       - name: Build web assets
         run: bun run build:web
 
-      - name: Embed web assets
-        run: bun run build:embed
-
-      - name: Build binary
-        run: bun run build:bin
+      - name: Build binary (${{ matrix.target }})
+        run: |
+          mkdir -p bin
+          bun build src/cli/index.ts --compile --target=${{ matrix.target }} --outfile bin/grove
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: grove-linux-x64-v${{ steps.version.outputs.version }}
+          name: ${{ matrix.artifact }}
           path: bin/grove
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/grove-linux-x64/grove release/grove-linux-x64
+          cp artifacts/grove-darwin-arm64/grove release/grove-darwin-arm64
+          cp artifacts/grove-darwin-x64/grove release/grove-darwin-x64
+          chmod +x release/*
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" &>/dev/null; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* \
+              --title "Grove $tag" \
+              --generate-notes \
+              --prerelease
+          fi
