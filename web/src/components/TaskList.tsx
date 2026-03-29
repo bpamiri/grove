@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Task } from "../hooks/useTasks";
+import { useLocalStorage } from "../hooks/useLocalStorage";
 import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
 
@@ -32,7 +33,7 @@ const STATUS_BORDER: Record<string, string> = {
 
 export default function TaskList({ tasks, getActivity, onRefresh }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "active" | "done">("all");
+  const [filter, setFilter] = useLocalStorage<"all" | "active" | "done">("grove-ui-task-filter", "all");
 
   const filtered = tasks.filter((t) => {
     if (filter === "active") return ["planned", "ready", "running", "paused", "evaluating"].includes(t.status);

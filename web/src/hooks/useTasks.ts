@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { WsMessage } from "./useWebSocket";
+import { useLocalStorage } from "./useLocalStorage";
 import { api } from "../api/client";
 
 export interface Task {
@@ -53,7 +54,7 @@ export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [trees, setTrees] = useState<Tree[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
-  const [selectedTree, setSelectedTree] = useState<string | null>(null);
+  const [selectedTree, setSelectedTree] = useLocalStorage<string | null>("grove-ui-selected-tree", null);
   const selectedTreeRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -76,6 +77,13 @@ export function useTasks() {
     selectedTreeRef.current = selectedTree;
     refresh();
   }, [selectedTree, refresh]);
+
+  // Reset persisted tree selection if the tree no longer exists
+  useEffect(() => {
+    if (selectedTree && trees.length > 0 && !trees.some((t) => t.id === selectedTree)) {
+      setSelectedTree(null);
+    }
+  }, [trees, selectedTree, setSelectedTree]);
 
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
