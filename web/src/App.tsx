@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 import { useTasks } from "./hooks/useTasks";
 import { useChat } from "./hooks/useChat";
 import { usePaneSizes } from "./hooks/usePaneSizes";
+import { useLocalStorage } from "./hooks/useLocalStorage";
 import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
 import Chat from "./components/Chat";
@@ -12,7 +13,7 @@ import ResizeHandle from "./components/ResizeHandle";
 type View = "tasks" | "settings";
 
 export default function App() {
-  const [view, setView] = useState<View>("tasks");
+  const [view, setView] = useLocalStorage<View>("grove-ui-view", "tasks");
   const taskState = useTasks();
   const { connected, send } = useWebSocket({
     onMessage: useCallback((msg: WsMessage) => {
