@@ -4,6 +4,7 @@ import type { Task, Tree } from "../hooks/useTasks";
 import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
 import SeedBadge from "./SeedBadge";
+import ActivityIndicator from "./ActivityIndicator";
 import { useSeed } from "../hooks/useSeed";
 import type { WsMessage } from "../hooks/useWebSocket";
 
@@ -255,7 +256,14 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                   </div>
                   {task.status === "active" && !task.paused && (
                     <div className="text-xs text-blue-400 mt-1.5">
-                      {getActivity(task.id) ?? "working..."}
+                      {getActivity(task.id) ?? (
+                        <ActivityIndicator since={task.started_at} label="Working" />
+                      )}
+                    </div>
+                  )}
+                  {task.status === "queued" && (
+                    <div className="text-xs text-cyan-400/70 mt-1.5">
+                      <ActivityIndicator since={null} label="Queued" />
                     </div>
                   )}
                   {task.cost_usd > 0 && (

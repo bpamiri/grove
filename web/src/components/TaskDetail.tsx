@@ -4,6 +4,7 @@ import Pipeline from "./Pipeline";
 import type { PathStep } from "./Pipeline";
 import SeedChat from "./SeedChat";
 import type { Seed, SeedMessage } from "../hooks/useSeed";
+import ActivityIndicator from "./ActivityIndicator";
 
 interface Props {
   task: Task;
@@ -43,8 +44,8 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
       </div>
 
       {/* Activity feed — live when running, historical for completed/failed */}
-      {(activityLog ?? []).length > 0 && (
-        <ActivityFeed log={activityLog!} live={task.status === "active" && !task.paused} />
+      {((activityLog ?? []).length > 0 || (task.status === "active" && !task.paused)) && (
+        <ActivityFeed log={activityLog ?? []} live={task.status === "active" && !task.paused} since={task.started_at} />
       )}
 
       {/* Description */}
@@ -160,7 +161,7 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
   );
 }
 
-function ActivityFeed({ log, live }: { log: Array<{ ts: number; msg: string }>; live?: boolean }) {
+function ActivityFeed({ log, live, since }: { log: Array<{ ts: number; msg: string }>; live?: boolean; since?: string | null }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -170,8 +171,10 @@ function ActivityFeed({ log, live }: { log: Array<{ ts: number; msg: string }>; 
     <div>
       <Label>{live ? "Live Activity" : "Activity Log"}</Label>
       <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
-        {log.length === 0 && (
-          <div className="text-zinc-600 text-center py-2">Waiting for activity...</div>
+        {log.length === 0 && live && (
+          <div className="text-blue-400/70 text-center py-3">
+            <ActivityIndicator since={since} label="Waiting for activity" size="md" />
+          </div>
         )}
         {log.map((entry, i) => {
           const time = new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -182,6 +185,11 @@ function ActivityFeed({ log, live }: { log: Array<{ ts: number; msg: string }>; 
             </div>
           );
         })}
+        {log.length > 0 && live && (
+          <div className="text-blue-400/60 px-1 pt-1">
+            <ActivityIndicator since={log[log.length - 1]?.ts} />
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
     </div>

@@ -128,6 +128,7 @@ export default function App() {
               onSend={chatState.sendMessage}
               bottomRef={chatState.bottomRef}
               connected={connected}
+              thinking={chatState.thinking}
             />
           )}
         </div>
@@ -216,6 +217,7 @@ export default function App() {
           onSend={chatState.sendMessage}
           bottomRef={chatState.bottomRef}
           connected={connected}
+          thinking={chatState.thinking}
         />
       </div>
     </div>

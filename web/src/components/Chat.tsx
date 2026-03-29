@@ -1,14 +1,16 @@
 import { useState, type RefObject } from "react";
 import type { ChatMessage } from "../hooks/useChat";
+import { TypingIndicator } from "./ActivityIndicator";
 
 interface Props {
   messages: ChatMessage[];
   onSend: (text: string) => void;
   bottomRef: RefObject<HTMLDivElement | null>;
   connected: boolean;
+  thinking?: boolean;
 }
 
-export default function Chat({ messages, onSend, bottomRef, connected }: Props) {
+export default function Chat({ messages, onSend, bottomRef, connected, thinking }: Props) {
   const [input, setInput] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -46,29 +48,50 @@ export default function Chat({ messages, onSend, bottomRef, connected }: Props) 
           </div>
         ))}
 
+        {thinking && (
+          <div className="text-left">
+            <div className="inline-block px-3 py-2 rounded-lg bg-emerald-500/10 rounded-tl-sm">
+              <TypingIndicator />
+            </div>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="p-3 border-t border-zinc-800">
-        <div className="flex gap-2">
-          <input
-            type="text"
+        <div className="flex gap-2 items-end">
+          <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={connected ? "Message the orchestrator..." : "Connecting..."}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Auto-resize: reset then grow to content
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit(e);
+              }
+            }}
+            placeholder={connected ? "Message the orchestrator... (Shift+Enter for newline)" : "Connecting..."}
             disabled={!connected}
+            rows={3}
             className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm
-                       text-zinc-100 placeholder-zinc-500
+                       text-zinc-100 placeholder-zinc-500 resize-none
                        focus:outline-none focus:border-emerald-500/50
                        disabled:opacity-50"
+            style={{ minHeight: "76px", maxHeight: "200px" }}
           />
           <button
             type="submit"
             disabled={!connected || !input.trim()}
             className="bg-emerald-500 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm
                        hover:bg-emerald-400 disabled:opacity-50 disabled:hover:bg-emerald-500
-                       transition-colors"
+                       transition-colors flex-shrink-0"
+            style={{ height: "38px" }}
           >
             &rarr;
           </button>
