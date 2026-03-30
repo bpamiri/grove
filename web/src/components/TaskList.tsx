@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
 import type { StatusFilter } from "../App";
@@ -6,6 +6,7 @@ import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
 import SeedBadge from "./SeedBadge";
 import ActivityIndicator from "./ActivityIndicator";
+import BatchPlan from "./BatchPlan";
 import { useSeed } from "../hooks/useSeed";
 import type { WsMessage } from "../hooks/useWebSocket";
 
@@ -22,6 +23,8 @@ interface Props {
   filter: StatusFilter;
   onFilterChange: (f: StatusFilter) => void;
   selectedTreeName?: string | null;
+  selectedTree?: string | null;
+  allTasks?: Task[];
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -38,9 +41,16 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage, filter, onFilterChange, selectedTreeName }: Props) {
+export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage, filter, onFilterChange, selectedTreeName, selectedTree, allTasks }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const seedState = useSeed(expandedId, send);
+  const [showBatchPlan, setShowBatchPlan] = useState(false);
+
+  // Count draft tasks for the selected tree (use allTasks to avoid filter bias)
+  const draftCount = useMemo(() => {
+    if (!selectedTree) return 0;
+    return (allTasks ?? tasks).filter(t => t.tree_id === selectedTree && t.status === "draft").length;
+  }, [selectedTree, allTasks, tasks]);
 
   useEffect(() => {
     if (wsMessage) seedState.handleWsMessage(wsMessage);
@@ -137,6 +147,14 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
       <div className="flex justify-between items-center mb-5">
         <h2 className="text-lg font-semibold">Tasks</h2>
         <div className="flex gap-2 text-xs items-center">
+          {selectedTree && draftCount >= 2 && (
+            <button
+              onClick={() => setShowBatchPlan(!showBatchPlan)}
+              className="bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full hover:bg-cyan-500/30 mr-1"
+            >
+              Plan Batch
+            </button>
+          )}
           <button
             onClick={() => setShowNewTask(!showNewTask)}
             className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full hover:bg-emerald-500/30 mr-2"
@@ -223,6 +241,17 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
             </button>
           </div>
         </form>
+      )}
+
+      {/* Batch Plan */}
+      {showBatchPlan && selectedTree && (
+        <div className="mb-4">
+          <BatchPlan
+            treeId={selectedTree}
+            onClose={() => setShowBatchPlan(false)}
+            onRefresh={onRefresh}
+          />
+        </div>
       )}
 
       {/* Task cards */}
