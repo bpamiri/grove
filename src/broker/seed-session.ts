@@ -27,6 +27,8 @@ interface SeedSession {
   pid: number | null;
   stopPoller: () => void;
   conversation: ConversationMessage[];
+  /** When set, auto-sent as the first user message once Claude is idle */
+  pendingDescription?: string;
 }
 
 type BroadcastFn = (type: string, data: any) => void;
@@ -111,6 +113,7 @@ export function startSeedSession(
     pid,
     stopPoller,
     conversation: [],
+    pendingDescription: task.description || undefined,
   };
 
   sessions.set(taskId, session);
@@ -134,7 +137,7 @@ export function sendSeedMessage(taskId: string, text: string, db: Database): boo
   // Broadcast user message
   broadcast("seed:message", {
     taskId,
-    role: "user",
+    source: "user",
     content: text,
   });
 
@@ -234,6 +237,17 @@ function startPoller(taskId: string, target: string, db: Database): () => void {
       try {
         const content = tmux.capturePane(target, 500);
 
+        // Auto-send pending description once Claude shows its idle prompt
+        const session = sessions.get(taskId);
+        if (session?.pendingDescription) {
+          const lastNonEmpty = content.split("\n").filter(l => l.trim()).pop()?.trim();
+          if (lastNonEmpty === "❯" || lastNonEmpty === "❯ ") {
+            const desc = session.pendingDescription;
+            session.pendingDescription = undefined;
+            sendSeedMessage(taskId, desc, db);
+          }
+        }
+
         // Scan for structured JSON events first
         scanForJsonEvents(taskId, content, db);
 
@@ -264,7 +278,7 @@ function startPoller(taskId: string, target: string, db: Database): () => void {
 
             broadcast("seed:message", {
               taskId,
-              role: "assistant",
+              source: "ai",
               content: text,
             });
           }
@@ -328,7 +342,7 @@ function handleSeedEvent(taskId: string, event: any, db: Database): void {
       }
       broadcast("seed:message", {
         taskId,
-        role: "assistant",
+        source: "ai",
         content: "",
         html: event.html,
       });

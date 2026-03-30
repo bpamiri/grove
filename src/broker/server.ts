@@ -684,10 +684,16 @@ async function handleApi(
     if (seedGetMatch && req.method === "GET") {
       const seed = db.seedGet(seedGetMatch[1]);
       if (!seed) return json(null);
+      // Map internal role field to frontend source field
+      const conv = seed.conversation ? JSON.parse(seed.conversation) : [];
       return json({
         ...seed,
         active: isSeedSessionActive(seedGetMatch[1]),
-        conversation: seed.conversation ? JSON.parse(seed.conversation) : [],
+        conversation: conv.map((m: any) => ({
+          source: m.source ?? (m.role === "assistant" ? "ai" : "user"),
+          content: m.content,
+          ...(m.html ? { html: m.html } : {}),
+        })),
       });
     }
 
