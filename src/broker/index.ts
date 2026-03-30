@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { Database, getEnv } from "./db";
 import { startServer, stopServer, setRemoteUrl } from "./server";
-import * as tmux from "./tmux";
 import * as orchestrator from "../agents/orchestrator";
 import { loadConfig, configTrees, tunnelConfig, configSet } from "./config";
 import { bus } from "./event-bus";
@@ -60,14 +59,6 @@ export async function startBroker(): Promise<BrokerInfo> {
     });
   }
 
-  // Check tmux
-  if (!tmux.isTmuxAvailable()) {
-    throw new Error("tmux is not installed. Install it with: brew install tmux");
-  }
-
-  // Create tmux session
-  tmux.createSession();
-
   // Find available port
   const port = config.server.port === "auto" ? await findAvailablePort() : config.server.port;
 
@@ -78,7 +69,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     port,
     staticDir: existsSync(webDistDir) ? webDistDir : undefined,
     onChat: (text) => {
-      orchestrator.sendMessage(text);
+      orchestrator.sendMessage(text, db);
     },
   });
 
@@ -98,8 +89,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     db,
     stallTimeoutMinutes: config.settings.stall_timeout_minutes,
     onOrchestratorCrash: () => {
-      console.log("Orchestrator crashed — restarting...");
-      orchestrator.spawn(db, GROVE_LOG_DIR);
+      console.log("Orchestrator process ended — will restart on next message");
     },
   });
   startCostMonitor({ db, budgets: config.budgets });
@@ -107,8 +97,8 @@ export async function startBroker(): Promise<BrokerInfo> {
   // Wire notification channels (opt-in via grove.yaml)
   wireNotifications();
 
-  // Spawn orchestrator
-  orchestrator.spawn(db, GROVE_LOG_DIR);
+  // Initialize orchestrator
+  orchestrator.init(db);
 
   // Start tunnel (if configured)
   let tunnelUrl: string | null = null;
@@ -169,7 +159,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     url,
     tunnelUrl,
     remoteUrl,
-    tmuxSession: "grove",
+    tmuxSession: "none",
     startedAt: new Date().toISOString(),
   };
   writeFileSync(join(GROVE_HOME, "broker.json"), JSON.stringify(info, null, 2));
@@ -193,7 +183,6 @@ export async function startBroker(): Promise<BrokerInfo> {
     }
     tunnel?.stop();
     orchestrator.stop(db);
-    tmux.killSession();
     stopServer();
     db.addEvent(null, null, "broker_stopped", "Broker stopped");
     db.close();

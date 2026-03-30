@@ -18,7 +18,6 @@ export async function run(_args: string[]) {
   console.log();
   console.log(`  Broker:  ${brokerAlive ? pc.green("running") : pc.red("dead")} (PID ${info.pid})`);
   console.log(`  URL:     ${pc.bold(info.url)}`);
-  console.log(`  tmux:    ${info.tmuxSession}`);
   console.log(`  Started: ${info.startedAt}`);
 
   if (brokerAlive) {

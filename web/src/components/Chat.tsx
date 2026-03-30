@@ -1,6 +1,7 @@
 import { useState, type RefObject } from "react";
 import type { ChatMessage } from "../hooks/useChat";
 import { TypingIndicator } from "./ActivityIndicator";
+import { api } from "../api/client";
 
 interface Props {
   messages: ChatMessage[];
@@ -23,10 +24,21 @@ export default function Chat({ messages, onSend, bottomRef, connected, thinking 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-3 border-b border-zinc-800">
+      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
         <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest">
           Orchestrator
         </div>
+        <button
+          onClick={async () => {
+            try {
+              await api("/api/orchestrator/reset", { method: "POST" });
+            } catch {}
+          }}
+          className="text-zinc-500 hover:text-zinc-300 text-[10px] px-2 py-0.5 rounded border border-zinc-700 hover:border-zinc-600 transition-colors"
+          title="Start a fresh orchestrator session"
+        >
+          New Session
+        </button>
       </div>
 
       {/* Messages */}
