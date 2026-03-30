@@ -307,6 +307,93 @@ export class Database {
       "SELECT COALESCE(SUM(cost_usd), 0) FROM sessions WHERE started_at >= date('now', 'weekday 1', '-7 days')"
     ) ?? 0;
   }
+
+  // ---- Analytics helpers ----
+  // Note: these methods aggregate from tasks.cost_usd (per-task accumulated cost),
+  // whereas costToday/costWeek aggregate from sessions.cost_usd (per-session cost).
+
+  costByTree(since: string): { tree_name: string; tree_id: string; total_cost: number; task_count: number }[] {
+    return this.all(
+      `SELECT t.name AS tree_name, t.id AS tree_id,
+              COALESCE(SUM(tk.cost_usd), 0) AS total_cost,
+              COUNT(tk.id) AS task_count
+       FROM tasks tk
+       JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.created_at >= ?
+       GROUP BY t.id
+       ORDER BY total_cost DESC`,
+      [since]
+    );
+  }
+
+  costDaily(since: string): { date: string; total_cost: number; task_count: number }[] {
+    return this.all(
+      `SELECT date(created_at) AS date,
+              COALESCE(SUM(cost_usd), 0) AS total_cost,
+              COUNT(id) AS task_count
+       FROM tasks
+       WHERE created_at >= ?
+       GROUP BY date(created_at)
+       ORDER BY date ASC`,
+      [since]
+    );
+  }
+
+  costTopTasks(since: string, limit: number): { task_id: string; title: string; tree_name: string | null; cost_usd: number }[] {
+    return this.all(
+      `SELECT tk.id AS task_id, tk.title, t.name AS tree_name, tk.cost_usd
+       FROM tasks tk
+       LEFT JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.created_at >= ? AND tk.cost_usd > 0
+       ORDER BY tk.cost_usd DESC
+       LIMIT ?`,
+      [since, limit]
+    );
+  }
+
+  gateAnalytics(since: string): { gate_type: string; pass_count: number; fail_count: number; total: number }[] {
+    return this.all(
+      `SELECT
+         j.key AS gate_type,
+         SUM(CASE WHEN json_extract(j.value, '$.passed') = 1 THEN 1 ELSE 0 END) AS pass_count,
+         SUM(CASE WHEN json_extract(j.value, '$.passed') = 0 THEN 1 ELSE 0 END) AS fail_count,
+         COUNT(*) AS total
+       FROM tasks, json_each(tasks.gate_results) AS j
+       WHERE tasks.gate_results IS NOT NULL
+         AND tasks.created_at >= ?
+       GROUP BY j.key
+       ORDER BY total DESC`,
+      [since]
+    );
+  }
+
+  retryStats(since: string): { total_retried: number; avg_retries: number; max_retries: number } {
+    const row = this.get<{ total_retried: number; avg_retries: number; max_retries: number }>(
+      `SELECT
+         COUNT(*) AS total_retried,
+         COALESCE(AVG(retry_count), 0) AS avg_retries,
+         COALESCE(MAX(retry_count), 0) AS max_retries
+       FROM tasks
+       WHERE retry_count > 0
+         AND created_at >= ?`,
+      [since]
+    );
+    return row ?? { total_retried: 0, avg_retries: 0, max_retries: 0 };
+  }
+
+  taskTimeline(since: string): { task_id: string; title: string; tree_name: string | null; status: string; started_at: string; completed_at: string | null; cost_usd: number; current_step: string | null }[] {
+    return this.all(
+      `SELECT tk.id AS task_id, tk.title, t.name AS tree_name,
+              tk.status, tk.started_at, tk.completed_at,
+              tk.cost_usd, tk.current_step
+       FROM tasks tk
+       LEFT JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.started_at IS NOT NULL
+         AND tk.started_at >= ?
+       ORDER BY tk.started_at ASC`,
+      [since]
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

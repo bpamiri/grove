@@ -7,8 +7,9 @@ import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
+import Dashboard from "./components/Dashboard";
 
-type View = "tasks" | "settings";
+type View = "tasks" | "settings" | "dashboard";
 type MobileTab = "trees" | "tasks" | "chat";
 
 function useIsMobile(breakpoint = 768) {
@@ -64,12 +65,14 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<MobileTab>("tasks");
   const isMobile = useIsMobile();
   const [lastWsMsg, setLastWsMsg] = useState<WsMessage | null>(null);
+  const [wsMessages, setWsMessages] = useState<WsMessage[]>([]);
   const taskState = useTasks();
   const { connected, send } = useWebSocket({
     onMessage: useCallback((msg: WsMessage) => {
       taskState.handleWsMessage(msg);
       chatState.handleWsMessage(msg);
       setLastWsMsg(msg);
+      setWsMessages(prev => [...prev.slice(-50), msg]);
     }, []),
   });
   const chatState = useChat(send);
@@ -99,6 +102,7 @@ export default function App() {
               }}
               connected={connected}
               onSettingsClick={() => { setView("settings"); setMobileTab("tasks"); }}
+              onDashboardClick={() => { setView("dashboard"); setMobileTab("tasks"); }}
             />
           )}
           {mobileTab === "tasks" && (
@@ -114,6 +118,8 @@ export default function App() {
                 send={send}
                 wsMessage={lastWsMsg}
               />
+            ) : view === "dashboard" ? (
+              <Dashboard wsMessages={wsMessages} status={taskState.status} />
             ) : (
               <Settings
                 trees={taskState.trees}
@@ -172,6 +178,7 @@ export default function App() {
           }}
           connected={connected}
           onSettingsClick={() => setView("settings")}
+          onDashboardClick={() => { setView("dashboard"); }}
         />
       </div>
 
@@ -195,6 +202,8 @@ export default function App() {
             send={send}
             wsMessage={lastWsMsg}
           />
+        ) : view === "dashboard" ? (
+          <Dashboard wsMessages={wsMessages} status={taskState.status} />
         ) : (
           <Settings
             trees={taskState.trees}

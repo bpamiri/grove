@@ -26,9 +26,10 @@ interface Props {
   onSelectTree: (id: string | null) => void;
   connected: boolean;
   onSettingsClick: () => void;
+  onDashboardClick: () => void;
 }
 
-export default function Sidebar({ trees, status, taskCount, selectedTree, onSelectTree, connected, onSettingsClick }: Props) {
+export default function Sidebar({ trees, status, taskCount, selectedTree, onSelectTree, connected, onSettingsClick, onDashboardClick }: Props) {
   return (
     <aside className="h-full flex flex-col bg-zinc-900/50 p-4 text-sm overflow-y-auto">
       {/* Header: Logo + Gear */}
@@ -46,6 +47,18 @@ export default function Sidebar({ trees, status, taskCount, selectedTree, onSele
       >
         <span>All Tasks</span>
         <span className="text-[11px] opacity-70">{taskCount}</span>
+      </button>
+
+      <button
+        onClick={onDashboardClick}
+        className="w-full text-left px-2 py-1.5 rounded text-sm text-zinc-400 hover:text-zinc-200 mb-4 flex items-center gap-2"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" className="flex-shrink-0">
+          <rect x="1" y="8" width="3" height="5" rx="0.5" fill="currentColor" opacity="0.6" />
+          <rect x="5.5" y="4" width="3" height="9" rx="0.5" fill="currentColor" opacity="0.8" />
+          <rect x="10" y="1" width="3" height="12" rx="0.5" fill="currentColor" />
+        </svg>
+        <span>Dashboard</span>
       </button>
 
       {/* Trees grouped by org */}

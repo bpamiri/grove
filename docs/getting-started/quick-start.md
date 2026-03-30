@@ -71,7 +71,7 @@ grove tasks     # List all tasks with status
 grove cost      # Spend breakdown
 ```
 
-The web GUI shows real-time updates via WebSocket.
+The web GUI shows real-time updates via WebSocket. Use the **Dashboard** view for analytics: task timeline, cost breakdown by tree, and gate pass/fail rates.
 
 ## Stop Grove
 
