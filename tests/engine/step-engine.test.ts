@@ -169,8 +169,10 @@ describe("startPipeline", () => {
     db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     bus.removeAll();
+    // Flush pending microtasks (async executeStep from startPipeline) before closing DB
+    await new Promise((r) => setTimeout(r, 0));
     cleanup();
   });
 
@@ -289,8 +291,9 @@ describe("onStepComplete", () => {
     _setDb(db);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     bus.removeAll();
+    await new Promise((r) => setTimeout(r, 0));
     cleanup();
   });
 
@@ -432,8 +435,9 @@ describe("resumePipeline", () => {
     // No need to call startPipeline here — resumePipeline sets _db itself.
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     bus.removeAll();
+    await new Promise((r) => setTimeout(r, 0));
     cleanup();
   });
 
