@@ -386,6 +386,9 @@ async function handleApi(
         const { ghIssueList } = await import("../merge/github");
         const issues = ghIssueList(tree.github, { state: "open", limit: 50 });
 
+        // Sort by issue number ascending so tasks are created in chronological order
+        issues.sort((a, b) => a.number - b.number);
+
         // Find issues that already have tasks (by github_issue column)
         const existingIssueNums = new Set<number>(
           db.all<{ github_issue: number }>(
