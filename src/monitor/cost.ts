@@ -38,6 +38,11 @@ export function isSpawningPaused(): boolean {
   return spawningPaused;
 }
 
+/** Reset paused state — for test isolation only */
+export function resetPausedState(): void {
+  spawningPaused = false;
+}
+
 /** Check a specific task's cost against per-task budget */
 export function checkTaskBudget(taskId: string, db: Database, budgets: BudgetConfig): {
   ok: boolean;
@@ -53,7 +58,7 @@ export function checkTaskBudget(taskId: string, db: Database, budgets: BudgetCon
   };
 }
 
-function checkBudgets(db: Database, budgets: BudgetConfig): void {
+export function checkBudgets(db: Database, budgets: BudgetConfig): void {
   const today = db.costToday();
   const week = db.costWeek();
 
