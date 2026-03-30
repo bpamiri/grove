@@ -1,6 +1,7 @@
 import { useState, useCallback, type RefObject } from "react";
 import DOMPurify from "dompurify";
 import type { Seed, SeedMessage } from "../hooks/useSeed";
+import { TypingIndicator } from "./ActivityIndicator";
 import "./SeedFrame.css";
 
 interface Props {
@@ -9,6 +10,8 @@ interface Props {
   isActive: boolean;
   isSeeded: boolean;
   bottomRef: RefObject<HTMLDivElement | null>;
+  taskId?: string;
+  taskTitle?: string;
   onSend: (text: string) => void;
   onStart: () => void;
   onStop: () => void;
@@ -41,7 +44,7 @@ function HtmlFragment({ html, onChoice }: { html: string; onChoice: (value: stri
   );
 }
 
-export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, onSend, onStart, onStop, onDiscard }: Props) {
+export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, taskId, taskTitle, onSend, onStart, onStop, onDiscard }: Props) {
   const [input, setInput] = useState("");
   const [expanded, setExpanded] = useState(false);
 
@@ -96,17 +99,22 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
     );
   }
 
+  // Determine if AI is "thinking" — active session with either no messages or last message from user
+  const aiThinking = isActive && (messages.length === 0 || messages[messages.length - 1]?.source === "user");
+
   // State 2: Active session
   return (
     <div className="border border-emerald-500/30 rounded-lg overflow-hidden">
-      {/* Header */}
+      {/* Header with task context */}
       <div className="flex items-center justify-between px-3 py-2 bg-emerald-500/5 border-b border-emerald-500/20">
-        <span className="text-xs text-emerald-400 flex items-center gap-1.5">
-          🌱 Seeding...
+        <span className="text-xs text-emerald-400 flex items-center gap-1.5 min-w-0">
+          🌱 Seeding
+          {taskId && <span className="text-zinc-500 font-mono">{taskId}</span>}
+          {taskTitle && <span className="text-zinc-400 truncate">&mdash; {taskTitle}</span>}
         </span>
         <button
           onClick={onStop}
-          className="text-zinc-500 hover:text-zinc-300 text-xs transition-colors"
+          className="text-zinc-500 hover:text-zinc-300 text-xs transition-colors flex-shrink-0 ml-2"
         >
           ✕
         </button>
@@ -114,6 +122,17 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
 
       {/* Messages */}
       <div className="max-h-80 overflow-y-auto p-3 space-y-2">
+        {/* Welcome guidance when no messages yet */}
+        {messages.length === 0 && (
+          <div className="text-center py-4 space-y-2">
+            <div className="text-xs text-zinc-400">
+              Claude is reading the codebase and preparing a brainstorming session.
+            </div>
+            <div className="text-xs text-zinc-500">
+              It will ask you questions one at a time to understand your goals, then propose a design.
+            </div>
+          </div>
+        )}
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.source === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
@@ -129,6 +148,14 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
             </div>
           </div>
         ))}
+        {/* Typing indicator while AI is thinking */}
+        {aiThinking && (
+          <div className="flex justify-start">
+            <div className="rounded-lg px-3 py-2 bg-emerald-500/10">
+              <TypingIndicator />
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
