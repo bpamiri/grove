@@ -41,7 +41,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
   useEffect(() => {
     if (wsMessage) seedState.handleWsMessage(wsMessage);
   }, [wsMessage, seedState.handleWsMessage]);
-  const [filter, setFilter] = useState<"all" | "active" | "done">("active");
+  const [filter, setFilter] = useState<"all" | "active" | "failed" | "done">("active");
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -127,7 +127,8 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
 
   const filtered = tasks.filter((t) => {
     if (filter === "active") return ["draft", "queued", "active"].includes(t.status);
-    if (filter === "done") return ["completed"].includes(t.status);
+    if (filter === "failed") return t.status === "failed";
+    if (filter === "done") return t.status === "completed";
     return true;
   });
 
@@ -143,7 +144,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
           >
             + New
           </button>
-          {(["all", "active", "done"] as const).map((f) => (
+          {(["all", "active", "failed", "done"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
