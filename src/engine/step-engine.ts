@@ -8,6 +8,9 @@ import type { Task, Tree, PipelineStep, NormalizedPathConfig } from "../shared/t
 // Module-level DB reference so onStepComplete can access it without threading db through events.
 let _db: Database | null = null;
 
+/** Test-only: set _db without side effects (no bus handlers, no async imports). */
+export function _setDb(db: Database): void { _db = db; }
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------

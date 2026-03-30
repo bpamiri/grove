@@ -156,7 +156,7 @@ mock.module("../../src/agents/worker", () => ({
 }));
 
 // Dynamic import AFTER mocks are set up
-const { startPipeline, onStepComplete, resumePipeline, wireStepEngine } = await import("../../src/engine/step-engine");
+const { startPipeline, onStepComplete, resumePipeline, _setDb } = await import("../../src/engine/step-engine");
 
 describe("startPipeline", () => {
   let db: Database;
@@ -285,8 +285,8 @@ describe("onStepComplete", () => {
     cleanup = t.cleanup;
     db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
 
-    // Set module-level _db without triggering async executeStep side effects.
-    wireStepEngine(db);
+    // Set module-level _db without side effects (no bus handlers, no async imports).
+    _setDb(db);
   });
 
   afterEach(() => {
