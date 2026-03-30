@@ -1,6 +1,33 @@
 # Changelog
 
 
+## v0.1.7
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.6...v0.1.7)
+
+### 🚀 Enhancements
+
+- **analytics:** Add costByTree, costDaily, costTopTasks DB methods ([#40](https://github.com/bpamiri/grove/pull/40))
+- **analytics:** Add gateAnalytics, retryStats, taskTimeline DB methods ([#40](https://github.com/bpamiri/grove/pull/40))
+- **analytics:** Add /api/analytics/cost, gates, timeline endpoints ([#40](https://github.com/bpamiri/grove/pull/40))
+- **analytics:** Add useAnalytics hook with live/static refresh ([#40](https://github.com/bpamiri/grove/pull/40))
+- **analytics:** Add Dashboard component with tabs, KPIs, Gantt, charts ([#40](https://github.com/bpamiri/grove/pull/40))
+- **analytics:** Integrate Dashboard into App routing and Sidebar ([#40](https://github.com/bpamiri/grove/pull/40))
+
+### 📖 Documentation
+
+- Add analytics dashboard design spec ([#40](https://github.com/bpamiri/grove/pull/40))
+- Add analytics dashboard implementation plan ([#40](https://github.com/bpamiri/grove/pull/40))
+- Update architecture and quick-start with dashboard view ([#40](https://github.com/bpamiri/grove/pull/40))
+
+### 🏡 Chore
+
+- Add web package-lock.json ([711c65e](https://github.com/bpamiri/grove/commit/711c65e))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.6
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.5...v0.1.6)
