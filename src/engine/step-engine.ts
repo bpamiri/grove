@@ -60,7 +60,7 @@ export function startPipeline(task: Task, tree: Tree, db: Database): void {
  */
 export function onStepComplete(
   taskId: string,
-  outcome: "success" | "failure",
+  outcome: "success" | "failure" | "fatal",
   context?: string,
 ): void {
   const db = _db;
@@ -68,6 +68,12 @@ export function onStepComplete(
 
   const task = db.taskGet(taskId);
   if (!task) return;
+
+  // Fatal failure — immediate task failure, no retry or transition (W-030)
+  if (outcome === "fatal") {
+    failTask(db, taskId, context ?? "Fatal failure — manual intervention required");
+    return;
+  }
 
   const paths = configNormalizedPaths();
   const pathConfig = paths[task.path_name];
@@ -200,7 +206,8 @@ async function executeStep(
     case "gate": {
       const { evaluate } = await import("../agents/evaluator");
       const result = evaluate(task, tree, db);
-      onStepComplete(task.id, result.passed ? "success" : "failure", result.feedback);
+      const gateOutcome = result.passed ? "success" : (result.fatal ? "fatal" : "failure");
+      onStepComplete(task.id, gateOutcome, result.feedback);
       break;
     }
 

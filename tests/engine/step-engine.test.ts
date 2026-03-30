@@ -392,4 +392,32 @@ describe("onStepComplete", () => {
     const updated = db.taskGet("T-106")!;
     expect(updated.status).toBe("failed");
   });
+
+  test("fatal outcome fails the task immediately, bypassing on_failure routing", () => {
+    createTaskAt("T-107", "evaluate", 2);
+
+    onStepComplete("T-107", "fatal", "Rebase conflict loop — needs manual resolution");
+
+    const updated = db.taskGet("T-107")!;
+    expect(updated.status).toBe("failed");
+    expect(updated.current_step).toBe("$fail");
+
+    // Verify event was logged with the context
+    const events = db.eventsByTask("T-107");
+    const failEvent = events.find(e => e.event_type === "task_failed");
+    expect(failEvent).toBeDefined();
+    expect(failEvent!.summary).toContain("Rebase conflict loop");
+  });
+
+  test("fatal outcome does not retry even when retries are available", () => {
+    createTaskAt("T-108", "evaluate", 2, { retry_count: 0, max_retries: 5 });
+
+    onStepComplete("T-108", "fatal", "Unrecoverable failure");
+
+    const updated = db.taskGet("T-108")!;
+    expect(updated.status).toBe("failed");
+    expect(updated.current_step).toBe("$fail");
+    // retry_count should NOT be incremented
+    expect(updated.retry_count).toBe(0);
+  });
 });

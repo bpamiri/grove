@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createTestDb, createFixtureRepo } from "../fixtures/helpers";
 import {
   capOutput,
@@ -14,6 +15,7 @@ import {
   runGates,
   evaluate,
   buildRetryPrompt,
+  MAX_REBASE_FAILURES,
 } from "../../src/agents/evaluator";
 import { bus } from "../../src/broker/event-bus";
 import type { Database } from "../../src/broker/db";
@@ -499,5 +501,133 @@ describe("buildRetryPrompt", () => {
     );
     expect(prompt).toContain("Seed (Design Spec)");
     expect(prompt).toContain("Build a REST API with CRUD endpoints");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rebase conflict loop detection (W-030)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create two repos that will produce a rebase conflict:
+ * - An "origin" repo with a commit on main that conflicts
+ * - A "worktree" clone on a feature branch with conflicting changes
+ */
+function createConflictingRepos(): { worktreePath: string; cleanup: () => void } {
+  // Create "origin" repo
+  const origin = createFixtureRepo();
+
+  // Clone it to create the "worktree" with a real remote
+  const worktreePath = join(tmpdir(), `grove-conflict-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  Bun.spawnSync(["git", "clone", origin.repoPath, worktreePath], { stdin: "ignore" });
+  Bun.spawnSync(["git", "config", "user.email", "test@grove.dev"], { cwd: worktreePath, stdin: "ignore" });
+  Bun.spawnSync(["git", "config", "user.name", "Grove Test"], { cwd: worktreePath, stdin: "ignore" });
+
+  // Create feature branch in worktree with conflicting change
+  Bun.spawnSync(["git", "checkout", "-b", "feature/conflict-test"], { cwd: worktreePath, stdin: "ignore" });
+  writeFileSync(join(worktreePath, "README.md"), "# Feature\nConflicting line from feature branch\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: worktreePath, stdin: "ignore" });
+  Bun.spawnSync(["git", "commit", "-m", "feat: conflicting change"], { cwd: worktreePath, stdin: "ignore" });
+
+  // Push a conflicting change to origin's main
+  writeFileSync(join(origin.repoPath, "README.md"), "# Main\nConflicting line from main branch\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: origin.repoPath, stdin: "ignore" });
+  Bun.spawnSync(["git", "commit", "-m", "chore: main diverges"], { cwd: origin.repoPath, stdin: "ignore" });
+
+  return {
+    worktreePath,
+    cleanup: () => {
+      origin.cleanup();
+      rmSync(worktreePath, { recursive: true, force: true });
+    },
+  };
+}
+
+describe("rebase conflict loop detection", () => {
+  let db: Database;
+  let dbCleanup: () => void;
+
+  beforeEach(() => {
+    const result = createTestDb();
+    db = result.db;
+    dbCleanup = result.cleanup;
+    db.treeUpsert({ id: "t1", name: "Test", path: "/tmp/test" });
+  });
+
+  afterEach(() => {
+    bus.removeAll("eval:started");
+    bus.removeAll("eval:passed");
+    bus.removeAll("eval:failed");
+    bus.removeAll("gate:result");
+    dbCleanup();
+  });
+
+  test("exports MAX_REBASE_FAILURES constant", () => {
+    expect(MAX_REBASE_FAILURES).toBe(3);
+  });
+
+  test("first rebase failure is not fatal", () => {
+    const repos = createConflictingRepos();
+
+    db.run(
+      "INSERT INTO tasks (id, title, tree_id, status, worktree_path) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "Test", "t1", "active", repos.worktreePath],
+    );
+    const task = db.taskGet("W-001")!;
+    db.treeUpsert({ id: "t1", name: "Test", path: repos.worktreePath, config: "{}" });
+    const tree = db.treeGet("t1")!;
+
+    const result = evaluate(task, tree, db);
+    expect(result.passed).toBe(false);
+    expect(result.fatal).not.toBe(true);
+    expect(result.gateResults[0].gate).toBe("rebase");
+    repos.cleanup();
+  });
+
+  test("rebase failure becomes fatal after MAX_REBASE_FAILURES consecutive failures", () => {
+    const repos = createConflictingRepos();
+
+    db.run(
+      "INSERT INTO tasks (id, title, tree_id, status, worktree_path) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "Test", "t1", "active", repos.worktreePath],
+    );
+    db.treeUpsert({ id: "t1", name: "Test", path: repos.worktreePath, config: "{}" });
+
+    // Simulate MAX_REBASE_FAILURES - 1 previous rebase failures in event history
+    for (let i = 0; i < MAX_REBASE_FAILURES - 1; i++) {
+      db.addEvent("W-001", null, "eval_failed", "Rebase failed: Merge conflicts with origin/main — rebase aborted");
+    }
+
+    const task = db.taskGet("W-001")!;
+    const tree = db.treeGet("t1")!;
+
+    const result = evaluate(task, tree, db);
+    expect(result.passed).toBe(false);
+    expect(result.fatal).toBe(true);
+    expect(result.feedback).toContain("manual resolution");
+    repos.cleanup();
+  });
+
+  test("non-rebase eval failures do not count toward rebase failure limit", () => {
+    const repos = createConflictingRepos();
+
+    db.run(
+      "INSERT INTO tasks (id, title, tree_id, status, worktree_path) VALUES (?, ?, ?, ?, ?)",
+      ["W-001", "Test", "t1", "active", repos.worktreePath],
+    );
+    db.treeUpsert({ id: "t1", name: "Test", path: repos.worktreePath, config: "{}" });
+
+    // Add non-rebase eval failures — these should NOT count
+    for (let i = 0; i < 5; i++) {
+      db.addEvent("W-001", null, "eval_failed", "Evaluation failed: 1 hard failures");
+    }
+
+    const task = db.taskGet("W-001")!;
+    const tree = db.treeGet("t1")!;
+
+    const result = evaluate(task, tree, db);
+    expect(result.passed).toBe(false);
+    expect(result.fatal).not.toBe(true); // only 1st rebase failure, non-rebase failures ignored
+    repos.cleanup();
   });
 });
