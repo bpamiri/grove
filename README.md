@@ -4,7 +4,7 @@
 
 Grove gives you a head agent (the orchestrator) that you chat with to plan work, decompose tasks across repos, and delegate to Claude Code workers — all observable through a web GUI accessible via secure tunnel.
 
-> **Status:** Alpha (v0.1.1). Core infrastructure works. Actively iterating.
+> **Status:** Alpha (![GitHub release](https://img.shields.io/github/v/release/bpamiri/grove?label=latest)). Core infrastructure works. Actively iterating.
 
 ## Quick Start
 
@@ -47,7 +47,7 @@ You --- Browser (GUI) --- Tunnel ---+
 
 The system separates **infrastructure** from **intelligence**:
 
-- **Broker** — Bun process managing HTTP+WebSocket server, SQLite state, tmux sessions, tunnel, health/cost monitoring, and merge queue. Stable, lightweight, never makes decisions.
+- **Broker** — Bun process managing HTTP+WebSocket server, SQLite state, tmux sessions, tunnel, health/cost monitoring, merge queue, and notifications. Stable, lightweight, never makes decisions.
 - **Orchestrator** — Persistent Claude Code session. You chat with it to plan and delegate.
 - **Workers** — Ephemeral Claude Code sessions in isolated git worktrees with sandboxed guard hooks.
 - **Evaluator** — Runs quality gates (tests, lint, diff size) on worker output. Separate agent because models are poor critics of their own output.
@@ -85,6 +85,7 @@ The system separates **infrastructure** from **intelligence**:
   - [Upgrading](docs/getting-started/upgrading.md)
 - **Guides**
   - [Configuration](docs/guides/configuration.md)
+  - [Notifications](docs/guides/configuration.md#notifications) — Slack, system, and webhook alerts
   - [CLI Reference](docs/guides/cli-reference.md)
   - [Architecture](docs/guides/architecture.md)
   - [Security](docs/guides/security.md)
@@ -93,7 +94,7 @@ The system separates **infrastructure** from **intelligence**:
 
 ```bash
 bun run dev -- help    # Run from source
-bun run test           # Run tests (96 tests)
+bun run test           # Run tests (121 tests)
 bun run build          # Build binary + frontend
 ```
 

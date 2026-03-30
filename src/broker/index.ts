@@ -16,6 +16,7 @@ import { CloudflareTunnel } from "../tunnel/cloudflare";
 import type { TunnelProvider } from "../tunnel/provider";
 import { generateSubdomain, generateSecret } from "./subdomain";
 import { registerGrove, startHeartbeat, stopHeartbeat, deregisterGrove } from "./registry";
+import { wireNotifications } from "../notifications/index";
 
 export interface BrokerInfo {
   pid: number;
@@ -102,6 +103,9 @@ export async function startBroker(): Promise<BrokerInfo> {
     },
   });
   startCostMonitor({ db, budgets: config.budgets });
+
+  // Wire notification channels (opt-in via grove.yaml)
+  wireNotifications();
 
   // Spawn orchestrator
   orchestrator.spawn(db, GROVE_LOG_DIR);
