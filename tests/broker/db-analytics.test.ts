@@ -130,3 +130,97 @@ describe("costTopTasks", () => {
     expect(db.costTopTasks(since, 1).length).toBe(1);
   });
 });
+
+describe("gateAnalytics", () => {
+  test("aggregates pass/fail by gate type", () => {
+    insertTree("t", "T");
+    const now = new Date().toISOString();
+    insertTask("W-001", "t", {
+      status: "completed", started_at: now,
+      gate_results: JSON.stringify({ tests: { passed: true }, lint: { passed: true } }),
+    });
+    insertTask("W-002", "t", {
+      status: "failed", started_at: now,
+      gate_results: JSON.stringify({ tests: { passed: false, reason: "2 failures" }, lint: { passed: true } }),
+    });
+    insertTask("W-003", "t", {
+      status: "completed", started_at: now,
+      gate_results: JSON.stringify({ tests: { passed: true }, diff_size: { passed: false, reason: "too large" } }),
+    });
+
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const result = db.gateAnalytics(since);
+
+    const tests = result.find(r => r.gate_type === "tests");
+    expect(tests!.pass_count).toBe(2);
+    expect(tests!.fail_count).toBe(1);
+    expect(tests!.total).toBe(3);
+
+    const lint = result.find(r => r.gate_type === "lint");
+    expect(lint!.pass_count).toBe(2);
+    expect(lint!.fail_count).toBe(0);
+
+    const diff = result.find(r => r.gate_type === "diff_size");
+    expect(diff!.pass_count).toBe(0);
+    expect(diff!.fail_count).toBe(1);
+  });
+
+  test("returns empty when no gate_results", () => {
+    insertTree("t", "T");
+    insertTask("W-001", "t", { started_at: new Date().toISOString() });
+    const since = new Date(Date.now() - 86400000).toISOString();
+    expect(db.gateAnalytics(since)).toEqual([]);
+  });
+});
+
+describe("retryStats", () => {
+  test("aggregates retry statistics", () => {
+    insertTree("t", "T");
+    const now = new Date().toISOString();
+    insertTask("W-001", "t", { started_at: now, retry_count: 2 });
+    insertTask("W-002", "t", { started_at: now, retry_count: 0 });
+    insertTask("W-003", "t", { started_at: now, retry_count: 3 });
+
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const result = db.retryStats(since);
+    expect(result.total_retried).toBe(2);
+    expect(result.avg_retries).toBe(2.5);
+    expect(result.max_retries).toBe(3);
+  });
+
+  test("returns zeros when no retries", () => {
+    insertTree("t", "T");
+    insertTask("W-001", "t", { started_at: new Date().toISOString(), retry_count: 0 });
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const result = db.retryStats(since);
+    expect(result.total_retried).toBe(0);
+    expect(result.avg_retries).toBe(0);
+    expect(result.max_retries).toBe(0);
+  });
+});
+
+describe("taskTimeline", () => {
+  test("returns tasks with timing data ordered by started_at", () => {
+    insertTree("t", "T");
+    const t1 = new Date(Date.now() - 3600000).toISOString();
+    const t2 = new Date(Date.now() - 1800000).toISOString();
+    insertTask("W-001", "t", { status: "completed", started_at: t1, completed_at: t2 });
+    insertTask("W-002", "t", { status: "active", started_at: t2 });
+
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const result = db.taskTimeline(since);
+    expect(result.length).toBe(2);
+    expect(result[0].task_id).toBe("W-001");
+    expect(result[0].tree_name).toBe("T");
+    expect(result[0].started_at).toBe(t1);
+    expect(result[1].task_id).toBe("W-002");
+    expect(result[1].completed_at).toBeNull();
+  });
+
+  test("excludes tasks without started_at", () => {
+    insertTree("t", "T");
+    insertTask("W-001", "t", { status: "draft" });
+    const since = new Date(Date.now() - 86400000).toISOString();
+    expect(db.taskTimeline(since)).toEqual([]);
+  });
+});

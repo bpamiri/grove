@@ -350,6 +350,50 @@ export class Database {
       [since, limit]
     );
   }
+
+  gateAnalytics(since: string): { gate_type: string; pass_count: number; fail_count: number; total: number }[] {
+    return this.all(
+      `SELECT
+         j.key AS gate_type,
+         SUM(CASE WHEN json_extract(j.value, '$.passed') = 1 THEN 1 ELSE 0 END) AS pass_count,
+         SUM(CASE WHEN json_extract(j.value, '$.passed') = 0 THEN 1 ELSE 0 END) AS fail_count,
+         COUNT(*) AS total
+       FROM tasks, json_each(tasks.gate_results) AS j
+       WHERE tasks.gate_results IS NOT NULL
+         AND tasks.created_at >= ?
+       GROUP BY j.key
+       ORDER BY total DESC`,
+      [since]
+    );
+  }
+
+  retryStats(since: string): { total_retried: number; avg_retries: number; max_retries: number } {
+    const row = this.get<{ total_retried: number; avg_retries: number; max_retries: number }>(
+      `SELECT
+         COUNT(*) AS total_retried,
+         COALESCE(AVG(retry_count), 0) AS avg_retries,
+         COALESCE(MAX(retry_count), 0) AS max_retries
+       FROM tasks
+       WHERE retry_count > 0
+         AND created_at >= ?`,
+      [since]
+    );
+    return row ?? { total_retried: 0, avg_retries: 0, max_retries: 0 };
+  }
+
+  taskTimeline(since: string): { task_id: string; title: string; tree_name: string | null; status: string; started_at: string; completed_at: string | null; cost_usd: number; current_step: string | null }[] {
+    return this.all(
+      `SELECT tk.id AS task_id, tk.title, t.name AS tree_name,
+              tk.status, tk.started_at, tk.completed_at,
+              tk.cost_usd, tk.current_step
+       FROM tasks tk
+       LEFT JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.started_at IS NOT NULL
+         AND tk.started_at >= ?
+       ORDER BY tk.started_at ASC`,
+      [since]
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
