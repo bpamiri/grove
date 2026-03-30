@@ -66,6 +66,8 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
             isActive={seedActive ?? false}
             isSeeded={seedComplete ?? false}
             bottomRef={seedBottomRef ?? { current: null }}
+            taskId={task.id}
+            taskTitle={task.title}
             onSend={onSeedSend ?? (() => {})}
             onStart={onSeedStart}
             onStop={onSeedStop ?? (() => {})}
