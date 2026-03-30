@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 
 import { useTasks, type Task } from "./hooks/useTasks";
+import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
@@ -82,7 +83,7 @@ export default function App() {
   const sidebar = useDragResize(240, 160, 400, "left");
   const chat = useDragResize(320, 200, 600, "right");
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useLocalStorage<StatusFilter>("grove-status-filter", "active");
 
   /** Apply status filter to a task list */
   const applyStatusFilter = useCallback((tasks: Task[], filter: StatusFilter) => {
@@ -98,6 +99,11 @@ export default function App() {
     if (!taskState.selectedTree) return statusFiltered;
     return statusFiltered.filter(t => t.tree_id === taskState.selectedTree);
   }, [statusFiltered, taskState.selectedTree]);
+
+  const selectedTreeName = useMemo(() => {
+    if (!taskState.selectedTree) return null;
+    return taskState.trees.find(t => t.id === taskState.selectedTree)?.name ?? null;
+  }, [taskState.selectedTree, taskState.trees]);
 
   /** Per-tree task counts reflecting the active status filter */
   const treeCounts = useMemo(() => {
@@ -145,6 +151,7 @@ export default function App() {
                 wsMessage={lastWsMsg}
                 filter={statusFilter}
                 onFilterChange={setStatusFilter}
+                selectedTreeName={selectedTreeName}
               />
             ) : view === "dashboard" ? (
               <Dashboard wsMessages={wsMessages} status={taskState.status} />
@@ -232,6 +239,7 @@ export default function App() {
             wsMessage={lastWsMsg}
             filter={statusFilter}
             onFilterChange={setStatusFilter}
+            selectedTreeName={selectedTreeName}
           />
         ) : view === "dashboard" ? (
           <Dashboard wsMessages={wsMessages} status={taskState.status} />

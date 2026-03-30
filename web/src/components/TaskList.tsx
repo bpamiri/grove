@@ -21,6 +21,7 @@ interface Props {
   wsMessage?: WsMessage | null;
   filter: StatusFilter;
   onFilterChange: (f: StatusFilter) => void;
+  selectedTreeName?: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -37,7 +38,7 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage, filter, onFilterChange }: Props) {
+export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage, filter, onFilterChange, selectedTreeName }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const seedState = useSeed(expandedId, send);
 
@@ -228,7 +229,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
       <div className="space-y-2">
         {filtered.length === 0 && (
           <div className="text-zinc-600 text-center py-12">
-            No tasks{filter !== "all" ? ` (${filter})` : ""}. Chat with the orchestrator to create one.
+            No {filter !== "all" ? `${filter} ` : ""}tasks{selectedTreeName ? ` in ${selectedTreeName}` : ""}.
           </div>
         )}
 
