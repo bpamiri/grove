@@ -284,6 +284,30 @@ function handleWsAction(data: any, db: Database) {
       stopWorker(data.taskId, db);
       break;
     }
+    case "resume_task": {
+      const task = db.taskGet(data.taskId);
+      if (!task || task.status === "completed") break;
+      if (task.status === "active" && !task.paused) {
+        const { stopWorker } = require("../agents/worker");
+        stopWorker(data.taskId, db);
+      }
+      const step = data.step;
+      if (step) {
+        const { configNormalizedPaths } = require("./config");
+        const paths = configNormalizedPaths();
+        const pathConfig = paths[task.path_name];
+        if (!pathConfig) break;
+        const targetStep = pathConfig.steps.find((s: any) => s.id === step);
+        if (!targetStep) break;
+        const stepIndex = pathConfig.steps.indexOf(targetStep);
+        db.run("UPDATE tasks SET current_step = ?, step_index = ? WHERE id = ?", [step, stepIndex, data.taskId]);
+      }
+      db.run("UPDATE tasks SET status = 'queued', retry_count = 0, paused = 0 WHERE id = ?", [data.taskId]);
+      db.addEvent(data.taskId, null, "task_resume_requested", `Resume requested at step "${step ?? task.current_step ?? "current"}"`);
+      const { enqueue } = require("./dispatch");
+      enqueue(data.taskId);
+      break;
+    }
   }
 }
 
@@ -494,13 +518,7 @@ async function handleApi(
         createIssueForTask(db, taskId, ghIssueCreate);
       }
 
-      const { configNormalizedPaths } = await import("./config");
-      const paths = configNormalizedPaths();
-      const pathConfig = paths[task.path_name];
-      if (pathConfig && pathConfig.steps.length > 0) {
-        db.run("UPDATE tasks SET current_step = ?, step_index = 0 WHERE id = ?",
-          [pathConfig.steps[0].id, taskId]);
-      }
+      // Leave current_step null — startPipeline sets it (including seed-skip logic)
       db.taskSetStatus(taskId, "queued");
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
@@ -578,6 +596,49 @@ async function handleApi(
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
       return json({ ok: true, taskId, status: "queued" });
+    }
+
+    // POST /api/tasks/:id/resume — resume a task at its current step or a specific step
+    const resumeMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/resume$/);
+    if (resumeMatch && req.method === "POST") {
+      const taskId = resumeMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+
+      // Parse optional step from request body
+      let step: string | undefined;
+      try {
+        const body = await req.json();
+        if (body.step) step = body.step;
+      } catch {}
+
+      // Only allow resume on failed, paused, or queued tasks
+      if (task.status === "completed") {
+        return json({ error: "Cannot resume a completed task" }, 400);
+      }
+      if (task.status === "active" && !task.paused) {
+        // Kill active worker before resuming at a different step
+        const { stopWorker } = await import("../agents/worker");
+        stopWorker(taskId, db);
+      }
+
+      // If a step is specified, update current_step before enqueue
+      if (step) {
+        const { configNormalizedPaths } = await import("./config");
+        const paths = configNormalizedPaths();
+        const pathConfig = paths[task.path_name];
+        if (!pathConfig) return json({ error: `Path "${task.path_name}" not found` }, 400);
+        const targetStep = pathConfig.steps.find((s: any) => s.id === step);
+        if (!targetStep) return json({ error: `Step "${step}" not found in path "${task.path_name}"` }, 400);
+        const stepIndex = pathConfig.steps.indexOf(targetStep);
+        db.run("UPDATE tasks SET current_step = ?, step_index = ? WHERE id = ?", [step, stepIndex, taskId]);
+      }
+
+      db.run("UPDATE tasks SET status = 'queued', retry_count = 0, paused = 0 WHERE id = ?", [taskId]);
+      db.addEvent(taskId, null, "task_resume_requested", `Resume requested at step "${step ?? task.current_step ?? "current"}"`);
+      const { enqueue } = await import("./dispatch");
+      enqueue(taskId);
+      return json({ ok: true, taskId, step: step ?? task.current_step, status: "queued" });
     }
 
     // POST /api/rotate-credentials — regenerate auth token + subdomain + secret

@@ -105,8 +105,14 @@ function processQueue(): void {
     // Dispatch!
     pendingQueue.shift();
     try {
-      const { startPipeline } = require("../engine/step-engine");
-      startPipeline(task, tree, db);
+      const { startPipeline, resumePipeline } = require("../engine/step-engine");
+      // If task already has a valid mid-pipeline step, resume there instead of restarting
+      const cs = task.current_step;
+      if (cs && cs !== "$done" && cs !== "$fail") {
+        resumePipeline(task, tree, db);
+      } else {
+        startPipeline(task, tree, db);
+      }
     } catch (err: any) {
       db.addEvent(taskId, null, "dispatch_failed", `Spawn failed: ${err.message}`);
       db.taskSetStatus(taskId, "failed");

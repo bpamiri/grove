@@ -156,7 +156,7 @@ mock.module("../../src/agents/worker", () => ({
 }));
 
 // Dynamic import AFTER mocks are set up
-const { startPipeline, onStepComplete } = await import("../../src/engine/step-engine");
+const { startPipeline, onStepComplete, resumePipeline } = await import("../../src/engine/step-engine");
 
 describe("startPipeline", () => {
   let db: Database;
@@ -419,5 +419,171 @@ describe("onStepComplete", () => {
     expect(updated.current_step).toBe("$fail");
     // retry_count should NOT be incremented
     expect(updated.retry_count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resumePipeline tests
+// ---------------------------------------------------------------------------
+
+describe("resumePipeline", () => {
+  let db: Database;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    const t = createTestDb();
+    db = t.db;
+    cleanup = t.cleanup;
+    db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
+
+    // Set module-level _db via startPipeline
+    db.run(
+      "INSERT INTO tasks (id, title, status, tree_id, path_name) VALUES (?, ?, 'draft', 'tree-1', 'development')",
+      ["SETUP-002", "Setup Task"],
+    );
+    const setupTask = db.taskGet("SETUP-002")!;
+    const tree = db.treeGet("tree-1")!;
+    startPipeline(setupTask, tree, db);
+  });
+
+  afterEach(() => {
+    bus.removeAll();
+    cleanup();
+  });
+
+  function createTaskAt(id: string, step: string, stepIndex: number, opts: { retry_count?: number; max_retries?: number; status?: string } = {}) {
+    db.run(
+      `INSERT INTO tasks (id, title, status, tree_id, path_name, current_step, step_index, retry_count, max_retries)
+       VALUES (?, ?, ?, 'tree-1', 'development', ?, ?, ?, ?)`,
+      [
+        id,
+        `Task ${id}`,
+        opts.status ?? "failed",
+        step,
+        stepIndex,
+        opts.retry_count ?? 1,
+        opts.max_retries ?? 2,
+      ],
+    );
+  }
+
+  test("resumes at task's current_step when no stepId provided", () => {
+    createTaskAt("T-200", "evaluate", 2);
+    const task = db.taskGet("T-200")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const result = resumePipeline(task, tree, db);
+
+    expect(result.ok).toBe(true);
+    const updated = db.taskGet("T-200")!;
+    expect(updated.status).toBe("active");
+    expect(updated.current_step).toBe("evaluate");
+    expect(updated.step_index).toBe(2);
+    expect(updated.retry_count).toBe(0);
+  });
+
+  test("resumes at explicit stepId", () => {
+    createTaskAt("T-201", "evaluate", 2);
+    const task = db.taskGet("T-201")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const result = resumePipeline(task, tree, db, "implement");
+
+    expect(result.ok).toBe(true);
+    const updated = db.taskGet("T-201")!;
+    expect(updated.status).toBe("active");
+    expect(updated.current_step).toBe("implement");
+    expect(updated.step_index).toBe(1);
+    expect(updated.retry_count).toBe(0);
+  });
+
+  test("rejects invalid stepId", () => {
+    createTaskAt("T-202", "evaluate", 2);
+    const task = db.taskGet("T-202")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const result = resumePipeline(task, tree, db, "nonexistent");
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("nonexistent");
+    // Task should not be modified
+    const updated = db.taskGet("T-202")!;
+    expect(updated.status).toBe("failed");
+  });
+
+  test("rejects when current_step is $done", () => {
+    createTaskAt("T-203", "$done", 3, { status: "completed" });
+    const task = db.taskGet("T-203")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const result = resumePipeline(task, tree, db);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("$done");
+  });
+
+  test("rejects when current_step is null", () => {
+    db.run(
+      "INSERT INTO tasks (id, title, status, tree_id, path_name, current_step) VALUES (?, ?, 'draft', 'tree-1', 'development', NULL)",
+      ["T-204", "Task T-204"],
+    );
+    const task = db.taskGet("T-204")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const result = resumePipeline(task, tree, db);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("no current step");
+  });
+
+  test("resets retry_count to 0", () => {
+    createTaskAt("T-205", "implement", 1, { retry_count: 3 });
+    const task = db.taskGet("T-205")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db);
+
+    const updated = db.taskGet("T-205")!;
+    expect(updated.retry_count).toBe(0);
+  });
+
+  test("rejects when path config not found", () => {
+    db.run(
+      "INSERT INTO tasks (id, title, status, tree_id, path_name, current_step, step_index) VALUES (?, ?, 'failed', 'tree-1', 'nonexistent', 'plan', 0)",
+      ["T-206", "Task T-206"],
+    );
+    const task = db.taskGet("T-206")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const result = resumePipeline(task, tree, db);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("nonexistent");
+  });
+
+  test("emits task:status event", () => {
+    createTaskAt("T-207", "evaluate", 2);
+    const task = db.taskGet("T-207")!;
+    const tree = db.treeGet("tree-1")!;
+
+    const statuses: string[] = [];
+    bus.on("task:status", ({ status }) => statuses.push(status));
+
+    resumePipeline(task, tree, db);
+
+    expect(statuses).toContain("active");
+  });
+
+  test("logs step_resumed event", () => {
+    createTaskAt("T-208", "evaluate", 2);
+    const task = db.taskGet("T-208")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db, "implement");
+
+    const events = db.eventsByTask("T-208");
+    const resumed = events.find(e => e.event_type === "step_resumed");
+    expect(resumed).toBeDefined();
+    expect(resumed!.summary).toContain("implement");
   });
 });
