@@ -151,3 +151,55 @@ jobs:
           name: Grove ${{ needs.version-bump.outputs.tag }}
           generate_release_notes: true
           files: release/*
+
+  update-homebrew:
+    needs: [version-bump, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download checksum artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract checksums
+        id: checksums
+        run: |
+          sha_darwin_arm64=$(awk '{print $1}' artifacts/grove-darwin-arm64/grove-darwin-arm64.tar.gz.sha256)
+          sha_darwin_x64=$(awk '{print $1}' artifacts/grove-darwin-x64/grove-darwin-x64.tar.gz.sha256)
+          sha_linux_x64=$(awk '{print $1}' artifacts/grove-linux-x64/grove-linux-x64.tar.gz.sha256)
+          echo "sha_darwin_arm64=$sha_darwin_arm64" >> "$GITHUB_OUTPUT"
+          echo "sha_darwin_x64=$sha_darwin_x64" >> "$GITHUB_OUTPUT"
+          echo "sha_linux_x64=$sha_linux_x64" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+
+      - name: Clone homebrew-grove
+        run: |
+          git clone https://x-access-token:${{ secrets.RELEASE_PAT }}@github.com/bpamiri/homebrew-grove.git
+          cd homebrew-grove
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update formula
+        env:
+          VERSION: ${{ needs.version-bump.outputs.version }}
+          SHA_DARWIN_ARM64: ${{ steps.checksums.outputs.sha_darwin_arm64 }}
+          SHA_DARWIN_X64: ${{ steps.checksums.outputs.sha_darwin_x64 }}
+          SHA_LINUX_X64: ${{ steps.checksums.outputs.sha_linux_x64 }}
+        run: |
+          sed \
+            -e "s|__VERSION__|${VERSION}|g" \
+            -e "s|__SHA_DARWIN_ARM64__|${SHA_DARWIN_ARM64}|g" \
+            -e "s|__SHA_DARWIN_X64__|${SHA_DARWIN_X64}|g" \
+            -e "s|__SHA_LINUX_X64__|${SHA_LINUX_X64}|g" \
+            homebrew/formula-template.rb > homebrew-grove/Formula/grove.rb
+
+      - name: Push formula update
+        env:
+          VERSION: ${{ needs.version-bump.outputs.version }}
+        run: |
+          cd homebrew-grove
+          git add Formula/grove.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "grove v${VERSION}"
+          git push
