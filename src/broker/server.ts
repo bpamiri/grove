@@ -624,6 +624,36 @@ async function handleApi(
       return json({ ok: true, message: "Restarting..." });
     }
 
+    // GET /api/analytics/cost?range=1h|4h|24h|7d
+    if (path === "/api/analytics/cost" && req.method === "GET") {
+      const url = new URL(req.url);
+      const since = rangeToSince(url.searchParams.get("range") ?? "24h");
+      return json({
+        by_tree: db.costByTree(since),
+        daily: db.costDaily(since),
+        top_tasks: db.costTopTasks(since, 10),
+      });
+    }
+
+    // GET /api/analytics/gates?range=1h|4h|24h|7d
+    if (path === "/api/analytics/gates" && req.method === "GET") {
+      const url = new URL(req.url);
+      const since = rangeToSince(url.searchParams.get("range") ?? "24h");
+      return json({
+        gates: db.gateAnalytics(since),
+        retries: db.retryStats(since),
+      });
+    }
+
+    // GET /api/analytics/timeline?range=1h|4h|24h|7d
+    if (path === "/api/analytics/timeline" && req.method === "GET") {
+      const url = new URL(req.url);
+      const since = rangeToSince(url.searchParams.get("range") ?? "24h");
+      return json({
+        tasks: db.taskTimeline(since),
+      });
+    }
+
     // GET /api/events
     if (path === "/api/events" && req.method === "GET") {
       const url = new URL(req.url);
@@ -715,4 +745,16 @@ function isAuthorized(req: Request): boolean {
   }
 
   return false;
+}
+
+/** Convert a range string (1h, 4h, 24h, 7d) to an ISO since timestamp */
+function rangeToSince(range: string): string {
+  const ms: Record<string, number> = {
+    "1h": 3600000,
+    "4h": 14400000,
+    "24h": 86400000,
+    "7d": 604800000,
+  };
+  const offset = ms[range] ?? ms["24h"];
+  return new Date(Date.now() - offset).toISOString();
 }
