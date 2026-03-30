@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.5
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.4...v0.1.5)
+
+### 🚀 Enhancements
+
+- Add notification system with Slack, system, and webhook channels ([b5a5c0b](https://github.com/bpamiri/grove/commit/b5a5c0b))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.4
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.0...v0.1.4)
