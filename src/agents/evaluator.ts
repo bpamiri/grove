@@ -10,10 +10,14 @@ import type { Task, Tree } from "../shared/types";
 
 export interface EvalResult {
   passed: boolean;
+  fatal?: boolean;
   gateResults: GateResult[];
   feedback: string;
   costUsd: number;
 }
+
+/** After this many consecutive rebase failures, mark the task as fatally failed. */
+export const MAX_REBASE_FAILURES = 3;
 
 export interface GateResult {
   gate: string;
@@ -280,10 +284,20 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
   // Rebase onto latest main before running gates — prevents stale-worktree bloat
   const rebaseResult = rebaseOntoMain(worktreePath, tree.config);
   if (!rebaseResult.ok) {
+    // Count previous consecutive rebase failures to detect infinite loops (W-030)
+    const prevRebaseFailures = db.scalar<number>(
+      "SELECT COUNT(*) FROM events WHERE task_id = ? AND event_type = 'eval_failed' AND summary LIKE 'Rebase failed%'",
+      [task.id],
+    ) ?? 0;
+    const fatal = prevRebaseFailures >= MAX_REBASE_FAILURES - 1;
+
     const result: EvalResult = {
       passed: false,
+      fatal,
       gateResults: [{ gate: "rebase", passed: false, tier: "hard", message: rebaseResult.message, output: rebaseResult.output }],
-      feedback: `Rebase failed: ${rebaseResult.message}`,
+      feedback: fatal
+        ? `Rebase conflict loop detected (${prevRebaseFailures + 1} consecutive failures) — needs manual resolution`
+        : `Rebase failed: ${rebaseResult.message}`,
       costUsd: 0,
     };
     db.run("UPDATE tasks SET gate_results = ? WHERE id = ?", [JSON.stringify(result.gateResults), task.id]);
