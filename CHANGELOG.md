@@ -1,6 +1,32 @@
 # Changelog
 
 
+## v0.1.4
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.0...v0.1.4)
+
+### 🚀 Enhancements
+
+- Homebrew tap with auto-bump on release ([#37](https://github.com/bpamiri/grove/pull/37))
+
+### 🩹 Fixes
+
+- Re-tag after amending release commit to include synced version ([e7a3108](https://github.com/bpamiri/grove/commit/e7a3108))
+
+### 📖 Documentation
+
+- Full documentation set + README refresh ([0db69ce](https://github.com/bpamiri/grove/commit/0db69ce))
+- Homebrew tap design spec ([#37](https://github.com/bpamiri/grove/pull/37))
+
+### 🏡 Chore
+
+- **release:** V0.1.2 ([8bf7f62](https://github.com/bpamiri/grove/commit/8bf7f62))
+- **release:** V0.1.3 ([ea827bc](https://github.com/bpamiri/grove/commit/ea827bc))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.3
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.0...v0.1.3)
