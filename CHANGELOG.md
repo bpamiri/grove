@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.1.14
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.13...v0.1.14)
+
+### 🚀 Enhancements
+
+- (W-022) add guidance, task context, and thinking indicator to seed panel ([26c6af6](https://github.com/bpamiri/grove/commit/26c6af6))
+- (W-023) auto-populate task description as initial seed prompt ([25952e6](https://github.com/bpamiri/grove/commit/25952e6))
+
+### 🩹 Fixes
+
+- Sort imported GitHub issues by number ascending ([1e459cf](https://github.com/bpamiri/grove/commit/1e459cf))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.13
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.12...v0.1.13)
