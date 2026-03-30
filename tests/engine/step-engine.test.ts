@@ -117,24 +117,38 @@ const TEST_PATHS = {
   },
 };
 
-// Mock dependencies BEFORE importing step-engine
+// Capture real module references BEFORE mocking.
+// Bun's mock.module is process-global — it replaces the module for ALL test files.
+// By capturing first, we can spread real exports into each mock and only override
+// what the step-engine tests need, preserving everything for other test files.
+const _realConfig = await import("../../src/broker/config");
+const _realEvaluator = await import("../../src/agents/evaluator");
+const _realManager = await import("../../src/merge/manager");
+const _realWorker = await import("../../src/agents/worker");
+const _realDb = await import("../../src/broker/db");
+
 mock.module("../../src/broker/config", () => ({
+  ..._realConfig,
   configNormalizedPaths: () => TEST_PATHS,
 }));
 
 mock.module("../../src/agents/worker", () => ({
+  ..._realWorker,
   spawnWorker: mock(() => {}),
 }));
 
 mock.module("../../src/agents/evaluator", () => ({
+  ..._realEvaluator,
   evaluate: mock(() => ({ passed: true, feedback: "" })),
 }));
 
 mock.module("../../src/merge/manager", () => ({
+  ..._realManager,
   queueMerge: mock(() => {}),
 }));
 
 mock.module("../../src/broker/db", () => ({
+  ..._realDb,
   getEnv: () => ({
     GROVE_HOME: "/tmp/grove-test",
     GROVE_DB: "/tmp/grove-test/grove.db",
