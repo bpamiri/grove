@@ -1,6 +1,37 @@
 # Changelog
 
 
+## v0.1.6
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.5...v0.1.6)
+
+### 🩹 Fixes
+
+- Spread real module exports in mock.module to prevent global leaks ([f50e55b](https://github.com/bpamiri/grove/commit/f50e55b))
+- Minimize mock.module scope to only config and worker ([b8d475c](https://github.com/bpamiri/grove/commit/b8d475c))
+
+### 💅 Refactors
+
+- Export cost monitor internals for testing ([f72eb7f](https://github.com/bpamiri/grove/commit/f72eb7f))
+- Export evaluator internals for testing ([f49e22e](https://github.com/bpamiri/grove/commit/f49e22e))
+
+### 📖 Documentation
+
+- Add integration test suite design spec for #39 ([#39](https://github.com/bpamiri/grove/issues/39))
+- Add integration test suite implementation plan ([2e7b7e0](https://github.com/bpamiri/grove/commit/2e7b7e0))
+
+### ✅ Tests
+
+- Add shared test helpers (createTestDb, createFixtureRepo) ([701b98d](https://github.com/bpamiri/grove/commit/701b98d))
+- Add stream parser tests (27 tests) ([75600bd](https://github.com/bpamiri/grove/commit/75600bd))
+- Add cost monitor tests (15 tests) ([9399db2](https://github.com/bpamiri/grove/commit/9399db2))
+- Add evaluator gate tests (~36 tests) ([e2329f2](https://github.com/bpamiri/grove/commit/e2329f2))
+- Add step engine tests (~22 tests) ([a409ea4](https://github.com/bpamiri/grove/commit/a409ea4))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.5
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.4...v0.1.5)
