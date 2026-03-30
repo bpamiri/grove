@@ -67,6 +67,21 @@ describe("normalizePath", () => {
     expect(result.steps[0].label).toBe("Implement");
   });
 
+  test("gate step on_failure defaults to nearest preceding worker", () => {
+    const result = normalizePath({
+      description: "test",
+      steps: ["plan", "implement", "evaluate", "merge"],
+    });
+    expect(result.steps[2].type).toBe("gate");
+    expect(result.steps[2].on_failure).toBe("implement");
+  });
+
+  test("gate step with no preceding worker defaults on_failure to $fail", () => {
+    const result = normalizePath({ description: "test", steps: ["evaluate"] });
+    expect(result.steps[0].type).toBe("gate");
+    expect(result.steps[0].on_failure).toBe("$fail");
+  });
+
   test("multi-step path wires full chain correctly", () => {
     const result = normalizePath({
       description: "dev",

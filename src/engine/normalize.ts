@@ -18,7 +18,7 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
         id: raw,
         type: TYPE_INFERENCE[raw] ?? "worker",
         on_success: "",
-        on_failure: "$fail",
+        on_failure: "",
       };
     } else if (typeof raw === "object" && raw !== null) {
       let id: string;
@@ -38,7 +38,7 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
         id,
         type: props.type ?? TYPE_INFERENCE[id] ?? "worker",
         on_success: props.on_success ?? "",
-        on_failure: props.on_failure ?? "$fail",
+        on_failure: props.on_failure ?? "",
         prompt: props.prompt,
         max_retries: props.max_retries,
         label: props.label,
@@ -61,6 +61,24 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
   for (let i = 0; i < steps.length; i++) {
     if (steps[i].on_success === "") {
       steps[i].on_success = i < steps.length - 1 ? steps[i + 1].id : "$done";
+    }
+  }
+
+  // Gate steps without explicit on_failure loop back to the nearest preceding worker.
+  // All other steps default to $fail.
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i].on_failure === "") {
+      if (steps[i].type === "gate") {
+        for (let j = i - 1; j >= 0; j--) {
+          if (steps[j].type === "worker") {
+            steps[i].on_failure = steps[j].id;
+            break;
+          }
+        }
+      }
+      if (steps[i].on_failure === "") {
+        steps[i].on_failure = "$fail";
+      }
     }
   }
 
