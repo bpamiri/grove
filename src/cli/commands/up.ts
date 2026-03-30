@@ -2,6 +2,7 @@
 import pc from "picocolors";
 import { startBroker, readBrokerInfo } from "../../broker/index";
 import { getOrCreateToken } from "../../broker/auth";
+import { checkForUpdate } from "../update-check";
 
 export async function run(_args: string[]) {
   // Check if already running
@@ -39,6 +40,9 @@ export async function run(_args: string[]) {
     console.log(`  tmux:    ${pc.dim("tmux attach -t grove")}`);
     console.log();
     console.log(`${pc.dim("Press Ctrl+C to stop.")}`);
+
+    // Fire-and-forget update check
+    checkForUpdate();
 
     // Keep the process alive
     await new Promise(() => {});

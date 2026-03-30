@@ -15,6 +15,7 @@ const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void
   chat:   () => import("./commands/chat"),
   cost:   () => import("./commands/cost"),
   help:   () => import("./commands/help"),
+  upgrade: () => import("./commands/upgrade"),
 };
 
 async function main() {
@@ -58,6 +59,7 @@ ${pc.bold("Commands:")}
   ${pc.green("chat")}      Send a message to the orchestrator
   ${pc.green("cost")}      Spend breakdown
   ${pc.green("help")}      Show this help
+  ${pc.green("upgrade")}   Upgrade to latest version
 `);
 }
 
