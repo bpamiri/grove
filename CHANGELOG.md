@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.9
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.8...v0.1.9)
+
+### 🚀 Enhancements
+
+- Show version in grove up output ([b9e1147](https://github.com/bpamiri/grove/commit/b9e1147))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.8
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.7...v0.1.8)
