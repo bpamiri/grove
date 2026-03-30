@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { WsMessage } from "./useWebSocket";
+import { useLocalStorage } from "./useLocalStorage";
 import { api } from "../api/client";
 
 export interface Task {
@@ -62,7 +63,7 @@ export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [trees, setTrees] = useState<Tree[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
-  const [selectedTree, setSelectedTree] = useState<string | null>(null);
+  const [selectedTree, setSelectedTree] = useLocalStorage<string | null>("grove-selected-tree", null);
   const [paths, setPaths] = useState<Record<string, { description: string; steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>>({});
 
   const refresh = useCallback(async () => {
