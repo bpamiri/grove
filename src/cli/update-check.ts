@@ -1,5 +1,8 @@
 // Grove v3 — Update checking and platform detection
 import { GROVE_VERSION } from "../shared/types";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import pc from "picocolors";
 
 const GITHUB_REPO = "bpamiri/grove";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -42,4 +45,61 @@ export async function fetchLatestVersion(): Promise<LatestRelease> {
     tarballUrl: `${base}/${asset}.tar.gz`,
     checksumUrl: `${base}/${asset}.tar.gz.sha256`,
   };
+}
+
+interface UpdateCache {
+  checked_at: string;
+  latest_version: string;
+}
+
+function getGroveHome(): string {
+  return process.env.GROVE_HOME || join(process.env.HOME || "~", ".grove");
+}
+
+function getCachePath(): string {
+  return join(getGroveHome(), "update-check.json");
+}
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Non-blocking update check — call from `grove up`. Silently swallows all errors. */
+export async function checkForUpdate(): Promise<void> {
+  try {
+    if (process.env.GROVE_NO_UPDATE_CHECK === "1") return;
+
+    const cachePath = getCachePath();
+    let latestVersion: string | null = null;
+
+    // Check cache
+    if (existsSync(cachePath)) {
+      const cache: UpdateCache = JSON.parse(readFileSync(cachePath, "utf-8"));
+      const age = Date.now() - new Date(cache.checked_at).getTime();
+      if (age < CACHE_TTL_MS) {
+        latestVersion = cache.latest_version;
+      }
+    }
+
+    // Fetch if cache miss or stale
+    if (!latestVersion) {
+      const release = await fetchLatestVersion();
+      latestVersion = release.version;
+
+      const groveHome = getGroveHome();
+      if (!existsSync(groveHome)) mkdirSync(groveHome, { recursive: true });
+
+      writeFileSync(cachePath, JSON.stringify({
+        checked_at: new Date().toISOString(),
+        latest_version: latestVersion,
+      } satisfies UpdateCache));
+    }
+
+    // Only print to TTY
+    if (process.stdout.isTTY && latestVersion !== GROVE_VERSION) {
+      console.log(
+        `\n  ${pc.yellow("Grove v" + latestVersion + " available.")} Run ${pc.bold("grove upgrade")} to update.`
+      );
+    }
+  } catch {
+    // Silent — never block startup
+  }
 }

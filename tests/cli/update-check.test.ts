@@ -41,3 +41,86 @@ describe("fetchLatestVersion", () => {
     globalThis.fetch = originalFetch;
   });
 });
+
+import { checkForUpdate } from "../../src/cli/update-check";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+describe("checkForUpdate", () => {
+  const testHome = join(tmpdir(), "grove-test-update-" + Date.now());
+  const cacheFile = join(testHome, "update-check.json");
+  const origEnv = process.env.GROVE_HOME;
+
+  function setup() {
+    mkdirSync(testHome, { recursive: true });
+    process.env.GROVE_HOME = testHome;
+  }
+
+  function teardown() {
+    if (existsSync(testHome)) rmSync(testHome, { recursive: true });
+    process.env.GROVE_HOME = origEnv;
+    globalThis.fetch = originalFetch;
+  }
+
+  test("writes cache file after checking", async () => {
+    setup();
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ tag_name: "v3.0.0-alpha.0" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+
+    await checkForUpdate();
+
+    expect(existsSync(cacheFile)).toBe(true);
+    const cache = JSON.parse(readFileSync(cacheFile, "utf-8"));
+    expect(cache.latest_version).toBe("3.0.0-alpha.0");
+    expect(cache.checked_at).toBeTruthy();
+    teardown();
+  });
+
+  test("uses cache when recent", async () => {
+    setup();
+    let fetchCalled = false;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      return new Response(JSON.stringify({ tag_name: "v3.0.0-alpha.0" }));
+    };
+
+    // Write fresh cache
+    writeFileSync(cacheFile, JSON.stringify({
+      checked_at: new Date().toISOString(),
+      latest_version: "3.0.0-alpha.0",
+    }));
+
+    await checkForUpdate();
+
+    expect(fetchCalled).toBe(false);
+    teardown();
+  });
+
+  test("skips when GROVE_NO_UPDATE_CHECK=1", async () => {
+    setup();
+    let fetchCalled = false;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      return new Response(JSON.stringify({ tag_name: "v99.0.0" }));
+    };
+
+    process.env.GROVE_NO_UPDATE_CHECK = "1";
+    await checkForUpdate();
+    delete process.env.GROVE_NO_UPDATE_CHECK;
+
+    expect(fetchCalled).toBe(false);
+    teardown();
+  });
+
+  test("silently swallows errors", async () => {
+    setup();
+    globalThis.fetch = async () => { throw new Error("network down"); };
+
+    // Should not throw
+    await checkForUpdate();
+    teardown();
+  });
+});
