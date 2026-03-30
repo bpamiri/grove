@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Task } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
 import type { PathStep } from "./Pipeline";
@@ -25,6 +25,8 @@ interface Props {
 export default function TaskDetail({ task, activityLog, steps, send, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
+  const [resumeStep, setResumeStep] = useState(task.current_step ?? steps[0]?.id ?? "");
+  const canResume = task.status === "failed" || (task.status === "active" && !!task.paused);
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 mt-1 text-sm space-y-4">
@@ -152,12 +154,29 @@ export default function TaskDetail({ task, activityLog, steps, send, seed, seedM
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 pt-2 border-t border-zinc-800">
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-800 items-center">
         {task.status === "active" && !task.paused && (
           <ActionButton label="Pause" onClick={() => send({ type: "action", action: "pause_task", taskId: task.id })} />
         )}
         {task.status !== "completed" && task.status !== "failed" && (
           <ActionButton label="Cancel" variant="danger" onClick={() => send({ type: "action", action: "cancel_task", taskId: task.id })} />
+        )}
+        {canResume && steps.length > 0 && (
+          <>
+            <select
+              value={resumeStep}
+              onChange={(e) => setResumeStep(e.target.value)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+            >
+              {steps.map((s) => (
+                <option key={s.id} value={s.id}>{s.label ?? s.id}</option>
+              ))}
+            </select>
+            <ActionButton
+              label="Resume"
+              onClick={() => send({ type: "action", action: "resume_task", taskId: task.id, step: resumeStep })}
+            />
+          </>
         )}
       </div>
     </div>

@@ -1,6 +1,12 @@
 # Changelog
 
 
+## Unreleased
+
+### 🚀 Enhancements
+
+- (W-032) resume task at specific pipeline step — `POST /api/tasks/:id/resume`, `resume_task` WS action, UI controls
+
 ## v0.1.15
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.14...v0.1.15)

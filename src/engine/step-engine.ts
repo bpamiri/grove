@@ -8,6 +8,9 @@ import type { Task, Tree, PipelineStep, NormalizedPathConfig } from "../shared/t
 // Module-level DB reference so onStepComplete can access it without threading db through events.
 let _db: Database | null = null;
 
+/** Test-only: set _db without side effects (no bus handlers, no async imports). */
+export function _setDb(db: Database): void { _db = db; }
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -52,6 +55,56 @@ export function startPipeline(task: Task, tree: Tree, db: Database): void {
   if (!updated) return;
 
   executeStep(updated, startStep, tree, db);
+}
+
+/**
+ * Resume a task's pipeline at its current step or an explicit step.
+ * Used after manual conflict resolution or re-enqueue at a specific step.
+ * Returns { ok, error? } so callers can surface validation failures.
+ */
+export function resumePipeline(
+  task: Task,
+  tree: Tree,
+  db: Database,
+  stepId?: string,
+): { ok: boolean; error?: string } {
+  _db = db;
+
+  // Validate current_step exists (not null, not terminal)
+  const targetStepId = stepId ?? task.current_step;
+  if (!targetStepId) {
+    return { ok: false, error: "Cannot resume task with no current step" };
+  }
+  if (targetStepId === "$done" || targetStepId === "$fail") {
+    return { ok: false, error: `Cannot resume task at terminal state "${targetStepId}"` };
+  }
+
+  const paths = configNormalizedPaths();
+  const pathConfig = paths[task.path_name];
+  if (!pathConfig || !pathConfig.steps.length) {
+    return { ok: false, error: `Path config "${task.path_name}" not found or has no steps` };
+  }
+
+  const step = pathConfig.steps.find((s) => s.id === targetStepId);
+  if (!step) {
+    return { ok: false, error: `Step "${targetStepId}" not found in path "${task.path_name}"` };
+  }
+
+  const stepIndex = pathConfig.steps.indexOf(step);
+
+  // Reset retry count and set step/status
+  db.run(
+    "UPDATE tasks SET status = 'active', current_step = ?, step_index = ?, retry_count = 0 WHERE id = ?",
+    [step.id, stepIndex, task.id],
+  );
+  db.addEvent(task.id, null, "step_resumed", `Resumed at step "${step.id}" (index ${stepIndex})`);
+  bus.emit("task:status", { taskId: task.id, status: "active" });
+
+  const updated = db.taskGet(task.id);
+  if (!updated) return { ok: false, error: "Task disappeared after update" };
+
+  executeStep(updated, step, tree, db);
+  return { ok: true };
 }
 
 /**
