@@ -61,6 +61,10 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
+      - name: Re-tag after amend
+        run: |
+          git tag -f "v${{ steps.version.outputs.version }}"
+
       - name: Push commit and tag
         run: |
           git push origin main
