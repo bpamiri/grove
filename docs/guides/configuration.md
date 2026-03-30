@@ -184,6 +184,71 @@ settings:
 
 ---
 
+## Notifications
+
+Grove can send notifications when async events occur — task completions, failures, budget alerts, etc. Notifications are opt-in: if the `notifications` section is absent, nothing fires.
+
+```yaml
+notifications:
+  slack:
+    webhook_url: "https://hooks.slack.com/services/T00/B00/xxx"
+    events: [task_completed, task_failed, ci_failed]
+  system:
+    enabled: true
+    quiet_hours:
+      start: "22:00"
+      end: "07:00"
+    events: [task_completed, task_failed]
+  webhook:
+    url: "https://example.com/grove-events"
+    secret: "hmac-secret-here"
+    events: [task_completed, task_failed, pr_merged, budget_exceeded]
+```
+
+### Channels
+
+**Slack** — Posts to a Slack incoming webhook with Block Kit formatting and color-coded severity bars (green for success, red for failure, yellow for warnings).
+
+| Field | Description |
+|-------|-------------|
+| `webhook_url` | Slack incoming webhook URL. Required. |
+| `events` | List of event names to receive. Omit to receive all events. |
+
+**System** — Desktop notifications via macOS `osascript` or Linux `notify-send`. Suppressed during quiet hours.
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Set to `true` to activate. Required. |
+| `quiet_hours` | Optional `start`/`end` times (24-hour `"HH:MM"` format) during which notifications are suppressed. |
+| `events` | List of event names to receive. Omit to receive all events. |
+
+**Webhook** — Generic HTTP POST to any URL, with HMAC-SHA256 signature in the `X-Hub-Signature-256` header for payload verification.
+
+| Field | Description |
+|-------|-------------|
+| `url` | Webhook endpoint URL. Required. |
+| `secret` | Shared secret for HMAC-SHA256 signing. Required. |
+| `events` | List of event names to receive. Omit to receive all events. |
+
+### Notification Events
+
+| Event | Fires when |
+|-------|------------|
+| `task_completed` | A task finishes successfully. |
+| `task_failed` | A task fails. |
+| `gate_failed` | A quality gate (tests, lint, diff size) fails. |
+| `pr_merged` | A pull request is merged. |
+| `ci_failed` | CI fails on a pull request. |
+| `budget_warning` | Spend approaches a budget limit. |
+| `budget_exceeded` | Spend exceeds a budget limit. |
+| `orchestrator_crashed` | The orchestrator or a worker session crashes. |
+
+### Rate Limiting
+
+Notifications are rate-limited to **1 per event type per task per 60 seconds**. Different tasks completing within the same window each fire independently. Budget events (which have no task affiliation) are rate-limited globally.
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Description |

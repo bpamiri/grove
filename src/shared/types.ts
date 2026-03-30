@@ -199,6 +199,39 @@ export interface SettingsConfig {
   quality_gates?: QualityGatesConfig;
 }
 
+export type NotificationEventName =
+  | "task_completed"
+  | "task_failed"
+  | "gate_failed"
+  | "pr_merged"
+  | "ci_failed"
+  | "budget_warning"
+  | "budget_exceeded"
+  | "orchestrator_crashed";
+
+export interface SlackChannelConfig {
+  webhook_url: string;
+  events?: NotificationEventName[];
+}
+
+export interface SystemChannelConfig {
+  enabled: boolean;
+  quiet_hours?: { start: string; end: string }; // "HH:MM" format, e.g. "22:00"
+  events?: NotificationEventName[];
+}
+
+export interface WebhookChannelConfig {
+  url: string;
+  secret: string;
+  events?: NotificationEventName[];
+}
+
+export interface NotificationsConfig {
+  slack?: SlackChannelConfig;
+  system?: SystemChannelConfig;
+  webhook?: WebhookChannelConfig;
+}
+
 export interface GroveConfig {
   workspace: { name: string };
   trees: Record<string, TreeConfig>;
@@ -207,6 +240,7 @@ export interface GroveConfig {
   server: ServerConfig;
   tunnel: TunnelConfig;
   settings: SettingsConfig;
+  notifications?: NotificationsConfig;
 }
 
 export interface QualityGatesConfig {
