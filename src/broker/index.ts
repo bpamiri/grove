@@ -16,6 +16,7 @@ import type { TunnelProvider } from "../tunnel/provider";
 import { generateSubdomain, generateSecret } from "./subdomain";
 import { registerGrove, startHeartbeat, stopHeartbeat, deregisterGrove } from "./registry";
 import { wireNotifications } from "../notifications/index";
+import { wireGitHubSync } from "./github-sync";
 
 export interface BrokerInfo {
   pid: number;
@@ -96,6 +97,9 @@ export async function startBroker(): Promise<BrokerInfo> {
 
   // Wire notification channels (opt-in via grove.yaml)
   wireNotifications();
+
+  // Wire GitHub issue auto-creation on task creation
+  wireGitHubSync(db);
 
   // Initialize orchestrator
   orchestrator.init(db);

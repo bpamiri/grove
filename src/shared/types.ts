@@ -46,11 +46,13 @@ export enum EventType {
   GatePassed = "gate_passed",
   GateFailed = "gate_failed",
 
-  // Merge
+  // Merge & Issues
   PrCreated = "pr_created",
   CiPassed = "ci_passed",
   CiFailed = "ci_failed",
   PrMerged = "pr_merged",
+  IssueCreated = "issue_created",
+  IssueCreateFailed = "issue_create_failed",
 
   // Cost
   BudgetWarning = "budget_warning",
