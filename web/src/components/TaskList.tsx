@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocalStorage } from "../hooks/useLocalStorage";
 import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
 import TaskDetail from "./TaskDetail";
@@ -41,7 +42,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
   useEffect(() => {
     if (wsMessage) seedState.handleWsMessage(wsMessage);
   }, [wsMessage, seedState.handleWsMessage]);
-  const [filter, setFilter] = useState<"all" | "active" | "failed" | "done">("active");
+  const [filter, setFilter] = useLocalStorage<"all" | "active" | "failed" | "done">("grove-task-filter", "active");
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
