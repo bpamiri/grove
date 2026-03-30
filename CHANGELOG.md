@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.13
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.12...v0.1.13)
+
+### 🩹 Fixes
+
+- Gate steps default on_failure to preceding worker, not $fail ([3e7f708](https://github.com/bpamiri/grove/commit/3e7f708))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.12
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.11...v0.1.12)
