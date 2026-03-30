@@ -307,6 +307,49 @@ export class Database {
       "SELECT COALESCE(SUM(cost_usd), 0) FROM sessions WHERE started_at >= date('now', 'weekday 1', '-7 days')"
     ) ?? 0;
   }
+
+  // ---- Analytics helpers ----
+  // Note: these methods aggregate from tasks.cost_usd (per-task accumulated cost),
+  // whereas costToday/costWeek aggregate from sessions.cost_usd (per-session cost).
+
+  costByTree(since: string): { tree_name: string; tree_id: string; total_cost: number; task_count: number }[] {
+    return this.all(
+      `SELECT t.name AS tree_name, t.id AS tree_id,
+              COALESCE(SUM(tk.cost_usd), 0) AS total_cost,
+              COUNT(tk.id) AS task_count
+       FROM tasks tk
+       JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.created_at >= ?
+       GROUP BY t.id
+       ORDER BY total_cost DESC`,
+      [since]
+    );
+  }
+
+  costDaily(since: string): { date: string; total_cost: number; task_count: number }[] {
+    return this.all(
+      `SELECT date(created_at) AS date,
+              COALESCE(SUM(cost_usd), 0) AS total_cost,
+              COUNT(id) AS task_count
+       FROM tasks
+       WHERE created_at >= ?
+       GROUP BY date(created_at)
+       ORDER BY date ASC`,
+      [since]
+    );
+  }
+
+  costTopTasks(since: string, limit: number): { task_id: string; title: string; tree_name: string | null; cost_usd: number }[] {
+    return this.all(
+      `SELECT tk.id AS task_id, tk.title, t.name AS tree_name, tk.cost_usd
+       FROM tasks tk
+       LEFT JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.created_at >= ? AND tk.cost_usd > 0
+       ORDER BY tk.cost_usd DESC
+       LIMIT ?`,
+      [since, limit]
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
