@@ -1,0 +1,88 @@
+# Quick Start
+
+## Initialize Grove
+
+```bash
+grove init
+```
+
+Creates `~/.grove/` with:
+- `grove.yaml` — configuration file
+- `grove.db` — SQLite database for task state
+- `logs/` — session logs
+
+## Add Your Repositories
+
+Grove manages repos as "trees" — a grove is a collection of trees.
+
+```bash
+grove tree add ~/code/my-project
+```
+
+Auto-detects the GitHub remote and registers the tree. Add multiple repos:
+
+```bash
+grove tree add ~/code/api-server
+grove tree add ~/code/frontend
+grove trees   # List all trees
+```
+
+Options:
+- `--github org/repo` — override remote detection
+- `--name my-name` — override auto-generated ID
+
+## Start Grove
+
+```bash
+grove up
+```
+
+```
+  Grove v0.1.1
+
+  Broker started (PID 12345)
+  Orchestrator spawned in tmux:grove
+  Tunnel active
+
+  Local:   http://localhost:49231
+  Tunnel:  https://random.trycloudflare.com
+  tmux:    tmux attach -t grove
+```
+
+Three ways to interact:
+
+1. **Web GUI** — open the Local URL in a browser
+2. **tmux** — `tmux attach -t grove` for direct orchestrator terminal
+3. **CLI** — `grove chat "message"` from any terminal
+
+## Chat with the Orchestrator
+
+```bash
+grove chat "Add error handling to the auth module in api-server"
+```
+
+Or use the web GUI's chat panel, or the tmux session directly. The orchestrator plans the work, decomposes it into tasks, and delegates to workers.
+
+## Monitor Progress
+
+```bash
+grove status    # Broker health, workers, costs
+grove tasks     # List all tasks with status
+grove cost      # Spend breakdown
+```
+
+The web GUI shows real-time updates via WebSocket.
+
+## Stop Grove
+
+```bash
+grove down
+```
+
+Gracefully stops the broker, orchestrator, workers, and tunnel.
+
+## Next Steps
+
+- [Configuration](../guides/configuration.md) — customize trees, paths, budgets, tunnel
+- [CLI Reference](../guides/cli-reference.md) — all commands
+- [Architecture](../guides/architecture.md) — how it all works
