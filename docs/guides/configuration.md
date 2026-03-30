@@ -1,0 +1,205 @@
+# Configuration
+
+Grove is configured via `~/.grove/grove.yaml`. The file is created automatically by `grove init` with sensible defaults. Edit it directly to customize behavior.
+
+---
+
+## Trees
+
+Trees are repositories under Grove management. Each tree has its own path, GitHub identity, and quality gate configuration.
+
+```yaml
+trees:
+  api-server:
+    path: ~/code/api-server
+    github: myorg/api-server
+    default_branch: main
+    branch_prefix: grove/
+    quality_gates:
+      tests: true
+      lint: true
+      commits: true
+      diff_size: true
+      max_diff_lines: 5000
+      test_command: "npm test"
+      lint_command: "npx eslint ."
+      test_timeout: 300
+      lint_timeout: 60
+```
+
+**Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `path` | Filesystem path to the repo. Supports `~` expansion. |
+| `github` | `org/repo` identifier. Auto-detected from git remote by `grove tree add`. |
+| `default_branch` | Base branch for worktrees. Defaults to auto-detected value from git. |
+| `branch_prefix` | Prefix applied to worker branches. Defaults to the value in `settings.branch_prefix`. |
+| `quality_gates` | Per-tree evaluation criteria (see below). |
+
+**Quality gate fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tests` | bool | Run the test suite during gate evaluation. |
+| `lint` | bool | Run the linter during gate evaluation. |
+| `commits` | bool | Validate commit message format (conventional commits). |
+| `diff_size` | bool | Fail the gate if the diff exceeds `max_diff_lines`. |
+| `max_diff_lines` | int | Line threshold for `diff_size` check. Default: `5000`. |
+| `test_command` | string | Shell command used to run tests. |
+| `lint_command` | string | Shell command used to run the linter. |
+| `test_timeout` | int | Seconds before the test command is killed. Default: `300`. |
+| `lint_timeout` | int | Seconds before the lint command is killed. Default: `60`. |
+
+---
+
+## Paths (Workflow Templates)
+
+Paths define task pipelines — the sequence of steps a task moves through from intake to completion. Grove ships with built-in paths; you can also define custom ones.
+
+```yaml
+paths:
+  development:
+    description: "Standard dev workflow with QA"
+    steps:
+      - id: plan
+        type: worker
+        prompt: "Analyze requirements and outline approach."
+      - id: implement
+        type: worker
+        prompt: "Implement the task. Commit with conventional commits."
+      - id: evaluate
+        type: gate
+        on_failure: implement
+
+  research:
+    description: "Research without code changes"
+    steps: [plan, research, report]
+```
+
+**Step types:**
+
+| Type | Description |
+|------|-------------|
+| `worker` | Spawns a Claude Code worker session to execute the step. |
+| `gate` | Runs quality evaluation (tests, lint, diff size) against the current state. |
+
+**Step fields:**
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique identifier for the step within the path. |
+| `type` | `worker` or `gate`. |
+| `prompt` | Instructions passed to the worker (worker steps only). |
+| `on_failure` | Step ID to retry when this gate fails. |
+
+**String shorthand:** The `steps` list accepts bare step IDs as strings (`steps: [plan, implement, evaluate]`). Grove expands these to full `PipelineStep` objects using built-in defaults for each named step.
+
+**Built-in paths:**
+
+| Path | Steps | Description |
+|------|-------|-------------|
+| `development` | plan -> implement -> evaluate -> merge | Standard dev workflow with QA gate |
+| `research` | plan -> research -> report | Research task, no code changes |
+
+---
+
+## Budgets
+
+Cost controls prevent runaway spending across tasks and sessions. All values are in USD.
+
+```yaml
+budgets:
+  per_task: 5.00
+  per_session: 10.00
+  per_day: 25.00
+  per_week: 100.00
+  auto_approve_under: 2.00
+```
+
+| Field | Description |
+|-------|-------------|
+| `per_task` | Maximum spend for a single task before it is paused for approval. |
+| `per_session` | Maximum spend across all tasks in one Grove session. |
+| `per_day` | Rolling 24-hour spend ceiling. |
+| `per_week` | Rolling 7-day spend ceiling. |
+| `auto_approve_under` | Tasks estimated below this cost start without prompting for approval. |
+
+---
+
+## Server
+
+```yaml
+server:
+  port: auto
+```
+
+Set `port` to `auto` to let Grove pick a random available port on startup, or provide a specific port number. The active port is written to `~/.grove/broker.json` at runtime.
+
+---
+
+## Tunnel
+
+Grove can expose its local server over a Cloudflare tunnel for remote access or webhook ingestion.
+
+```yaml
+tunnel:
+  provider: cloudflare
+  auth: token
+  domain: grove.cloud
+  subdomain: auto
+  secret: auto
+```
+
+| Field | Description |
+|-------|-------------|
+| `provider` | Tunnel provider. Currently `cloudflare` only. |
+| `auth` | Authentication method. `token` uses a Cloudflare API token. |
+| `domain` | Optional base domain. Register `grove.cloud` for a stable vanity URL. |
+| `subdomain` | Subdomain to use. `auto` generates one on first start and persists it. |
+| `secret` | Shared secret for webhook validation. `auto` generates one on first start. |
+
+Requires `cloudflared` to be installed and on `$PATH`. If tunnel setup fails, Grove logs the error and continues with localhost-only access.
+
+---
+
+## Settings
+
+Global defaults that apply across all trees unless overridden at the tree level.
+
+```yaml
+settings:
+  max_workers: 5
+  branch_prefix: grove/
+  stall_timeout_minutes: 5
+  max_retries: 2
+```
+
+| Field | Description |
+|-------|-------------|
+| `max_workers` | Maximum number of concurrent Claude Code worker sessions. |
+| `branch_prefix` | Default git branch prefix for worker worktrees. Overridable per tree. |
+| `stall_timeout_minutes` | Health monitor flags a worker as stuck after this many minutes without output. |
+| `max_retries` | Number of times Grove will automatically retry a failed gate before surfacing the failure. |
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GROVE_HOME` | `~/.grove` | Override the Grove data directory. |
+| `GROVE_NO_UPDATE_CHECK` | unset | Set to `1` to disable automatic version checks. |
+
+---
+
+## File Locations
+
+| File | Purpose |
+|------|---------|
+| `~/.grove/grove.yaml` | Main configuration file. |
+| `~/.grove/grove.db` | SQLite database storing task state and history. |
+| `~/.grove/auth.token` | Authentication token for the Grove API. |
+| `~/.grove/broker.json` | Runtime broker info: PID, port, tunnel URLs. Recreated on each start. |
+| `~/.grove/update-check.json` | Cached result of the last version check. |
+| `~/.grove/logs/` | Per-session worker logs. |
