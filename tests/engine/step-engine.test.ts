@@ -156,7 +156,7 @@ mock.module("../../src/agents/worker", () => ({
 }));
 
 // Dynamic import AFTER mocks are set up
-const { startPipeline, onStepComplete, resumePipeline } = await import("../../src/engine/step-engine");
+const { startPipeline, onStepComplete, resumePipeline, wireStepEngine } = await import("../../src/engine/step-engine");
 
 describe("startPipeline", () => {
   let db: Database;
@@ -285,14 +285,8 @@ describe("onStepComplete", () => {
     cleanup = t.cleanup;
     db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
 
-    // CRITICAL: call startPipeline on a throwaway task to set module-level _db
-    db.run(
-      "INSERT INTO tasks (id, title, status, tree_id, path_name) VALUES (?, ?, 'draft', 'tree-1', 'development')",
-      ["SETUP-001", "Setup Task"],
-    );
-    const setupTask = db.taskGet("SETUP-001")!;
-    const tree = db.treeGet("tree-1")!;
-    startPipeline(setupTask, tree, db);
+    // Set module-level _db without triggering async executeStep side effects.
+    wireStepEngine(db);
   });
 
   afterEach(() => {
