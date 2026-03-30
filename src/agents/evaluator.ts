@@ -15,7 +15,7 @@ export interface EvalResult {
   costUsd: number;
 }
 
-interface GateResult {
+export interface GateResult {
   gate: string;
   passed: boolean;
   tier: "hard" | "soft";
@@ -25,7 +25,7 @@ interface GateResult {
 
 const OUTPUT_CAP = 5_000;
 
-function capOutput(buf: Buffer): string {
+export function capOutput(buf: Buffer): string {
   const str = buf.toString().trim();
   return str.length > OUTPUT_CAP ? str.slice(0, OUTPUT_CAP) + "\n[... truncated]" : str;
 }
@@ -97,7 +97,7 @@ function rebaseOntoMain(worktreePath: string, treeConfig: string | null): Rebase
 }
 
 /** Extract base_ref from tree config JSON */
-function parseBaseRefFromConfig(treeConfig: string | null): string | undefined {
+export function parseBaseRefFromConfig(treeConfig: string | null): string | undefined {
   if (!treeConfig) return undefined;
   try {
     const parsed = JSON.parse(treeConfig);
@@ -113,7 +113,7 @@ function parseBaseRefFromConfig(treeConfig: string | null): string | undefined {
 // ---------------------------------------------------------------------------
 
 /** Resolve the base git ref for a worktree (origin/main, main, origin/master, etc.) */
-function resolveBaseRef(worktreePath: string, configRef?: string): string {
+export function resolveBaseRef(worktreePath: string, configRef?: string): string {
   if (configRef) return configRef;
   // Try common refs in order of preference
   for (const ref of ["origin/main", "main", "origin/master", "master"]) {
@@ -125,7 +125,7 @@ function resolveBaseRef(worktreePath: string, configRef?: string): string {
   return "origin/main"; // fallback
 }
 
-function checkCommits(worktreePath: string, baseRef: string): GateResult {
+export function checkCommits(worktreePath: string, baseRef: string): GateResult {
   const result = Bun.spawnSync(["git", "log", `${baseRef}..HEAD`, "--oneline"], {
     cwd: worktreePath, stdin: "ignore",
   });
@@ -138,7 +138,7 @@ function checkCommits(worktreePath: string, baseRef: string): GateResult {
   };
 }
 
-function checkTests(worktreePath: string, timeoutSec: number = 60, testCommand?: string): GateResult {
+export function checkTests(worktreePath: string, timeoutSec: number = 60, testCommand?: string): GateResult {
   if (!testCommand) {
     // No test command configured — skip rather than guess wrong
     return { gate: "tests", passed: true, tier: "hard", message: "No test command configured — skipped" };
@@ -160,7 +160,7 @@ function checkTests(worktreePath: string, timeoutSec: number = 60, testCommand?:
   };
 }
 
-function checkLint(worktreePath: string, timeoutSec: number = 30, lintCommand?: string): GateResult {
+export function checkLint(worktreePath: string, timeoutSec: number = 30, lintCommand?: string): GateResult {
   if (!lintCommand) {
     return { gate: "lint", passed: true, tier: "soft", message: "No lint command configured — skipped" };
   }
@@ -181,7 +181,7 @@ function checkLint(worktreePath: string, timeoutSec: number = 30, lintCommand?: 
   };
 }
 
-function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000, baseRef: string = "origin/main"): GateResult {
+export function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000, baseRef: string = "origin/main"): GateResult {
   const result = Bun.spawnSync(["git", "diff", "--stat", `${baseRef}..HEAD`], {
     cwd: worktreePath, stdin: "ignore",
   });
@@ -202,7 +202,7 @@ function checkDiffSize(worktreePath: string, min: number = 1, max: number = 5000
 // Gate orchestrator
 // ---------------------------------------------------------------------------
 
-interface GateConfig {
+export interface GateConfig {
   commits: boolean;
   tests: boolean;
   lint: boolean;
@@ -221,7 +221,7 @@ const DEFAULT_GATE_CONFIG: GateConfig = {
   test_timeout: 60, lint_timeout: 30, min_diff_lines: 1, max_diff_lines: 5000,
 };
 
-function resolveGateConfig(treeConfig: string | null): GateConfig {
+export function resolveGateConfig(treeConfig: string | null): GateConfig {
   if (!treeConfig) return DEFAULT_GATE_CONFIG;
   try {
     const parsed = JSON.parse(treeConfig);
@@ -238,7 +238,7 @@ function resolveGateConfig(treeConfig: string | null): GateConfig {
   }
 }
 
-function runGates(worktreePath: string, config: GateConfig): GateResult[] {
+export function runGates(worktreePath: string, config: GateConfig): GateResult[] {
   const baseRef = resolveBaseRef(worktreePath, config.base_ref);
   const results: GateResult[] = [];
   if (config.commits) results.push(checkCommits(worktreePath, baseRef));
