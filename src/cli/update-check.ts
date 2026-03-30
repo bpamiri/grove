@@ -15,8 +15,9 @@ export function getPlatformAssetName(): string {
   if (platform === "darwin" && arch === "arm64") return "grove-darwin-arm64";
   if (platform === "darwin" && arch === "x64")   return "grove-darwin-x64";
   if (platform === "linux"  && arch === "x64")   return "grove-linux-x64";
+  if (platform === "win32"  && arch === "x64")   return "grove-windows-x64";
 
-  throw new Error(`Unsupported platform: ${platform}-${arch}. Grove supports darwin-arm64, darwin-x64, and linux-x64.`);
+  throw new Error(`Unsupported platform: ${platform}-${arch}. Grove supports darwin-arm64, darwin-x64, linux-x64, and windows-x64.`);
 }
 
 export interface LatestRelease {

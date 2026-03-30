@@ -73,10 +73,16 @@ jobs:
         include:
           - runner: macos-14
             artifact: grove-darwin-arm64
-          - runner: macos-13
+            target: bun-darwin-arm64
+          - runner: macos-14
             artifact: grove-darwin-x64
+            target: bun-darwin-x64
           - runner: ubuntu-latest
             artifact: grove-linux-x64
+            target: bun-linux-x64
+          - runner: ubuntu-latest
+            artifact: grove-windows-x64
+            target: bun-windows-x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -99,13 +105,19 @@ jobs:
         run: bun run build:embed
 
       - name: Build binary
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           mkdir -p bin
-          bun build src/cli/index.ts --compile --outfile bin/grove
+          bun build src/cli/index.ts --compile --target="$TARGET" --outfile bin/grove
 
       - name: Package tarball and checksum
         run: |
-          tar -czf ${{ matrix.artifact }}.tar.gz -C bin grove
+          if [ -f bin/grove.exe ]; then
+            tar -czf ${{ matrix.artifact }}.tar.gz -C bin grove.exe
+          else
+            tar -czf ${{ matrix.artifact }}.tar.gz -C bin grove
+          fi
           shasum -a 256 ${{ matrix.artifact }}.tar.gz > ${{ matrix.artifact }}.tar.gz.sha256
 
       - name: Upload artifacts
