@@ -655,6 +655,14 @@ async function handleApi(
       });
     }
 
+    // POST /api/orchestrator/reset — start a fresh orchestrator session
+    if (path === "/api/orchestrator/reset" && req.method === "POST") {
+      const { resetSession } = await import("../agents/orchestrator");
+      resetSession();
+      db.addEvent(null, null, "orchestrator_rotated", "Orchestrator session reset by user");
+      return json({ ok: true, message: "Orchestrator session reset. Next message starts a fresh session." });
+    }
+
     // GET /api/events
     if (path === "/api/events" && req.method === "GET") {
       const url = new URL(req.url);
