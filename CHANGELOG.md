@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.11
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.10...v0.1.11)
+
+### 🩹 Fixes
+
+- Use semver comparison for update check, not string inequality ([055ed6f](https://github.com/bpamiri/grove/commit/055ed6f))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.10
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.9...v0.1.10)
