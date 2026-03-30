@@ -5,6 +5,7 @@
 
 ### 🚀 Enhancements
 
+- (W-033) batch planner — analyze draft tasks, predict file overlap, build dependency graph, dispatch in execution waves (`grove batch`, API, GUI)
 - (W-032) resume task at specific pipeline step — `POST /api/tasks/:id/resume`, `resume_task` WS action, UI controls
 
 ## v0.1.15

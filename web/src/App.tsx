@@ -152,6 +152,8 @@ export default function App() {
                 filter={statusFilter}
                 onFilterChange={setStatusFilter}
                 selectedTreeName={selectedTreeName}
+                selectedTree={taskState.selectedTree}
+                allTasks={taskState.tasks}
               />
             ) : view === "dashboard" ? (
               <Dashboard wsMessages={wsMessages} status={taskState.status} />

@@ -798,6 +798,78 @@ async function handleApi(
       return json({ ok: true });
     }
 
+    // POST /api/batch/analyze — analyze draft tasks for a tree and produce a batch plan
+    if (path === "/api/batch/analyze" && req.method === "POST") {
+      const body = await req.json() as { treeId: string; mode?: "heuristic" | "agent" };
+      if (!body.treeId) return json({ error: "treeId required" }, 400);
+
+      const tree = db.treeGet(body.treeId);
+      if (!tree) return json({ error: `Tree "${body.treeId}" not found` }, 404);
+
+      const drafts = db.all<any>(
+        "SELECT * FROM tasks WHERE tree_id = ? AND status = 'draft' ORDER BY priority ASC, created_at ASC",
+        [body.treeId]
+      );
+
+      if (drafts.length === 0) {
+        return json({ treeId: body.treeId, tasks: [], overlaps: [], waves: [] });
+      }
+
+      const { analyzeBatch } = await import("../batch/analyze");
+      const plan = analyzeBatch(drafts, tree.path);
+      return json(plan);
+    }
+
+    // POST /api/batch/dispatch — set dependencies and dispatch a wave from a batch plan
+    if (path === "/api/batch/dispatch" && req.method === "POST") {
+      const body = await req.json() as { treeId: string; wave: number };
+      if (!body.treeId) return json({ error: "treeId required" }, 400);
+      if (!body.wave || body.wave < 1) return json({ error: "wave must be a positive integer" }, 400);
+
+      const tree = db.treeGet(body.treeId);
+      if (!tree) return json({ error: `Tree "${body.treeId}" not found` }, 404);
+
+      // Re-analyze to get fresh plan
+      const drafts = db.all<any>(
+        "SELECT * FROM tasks WHERE tree_id = ? AND status = 'draft' ORDER BY priority ASC, created_at ASC",
+        [body.treeId]
+      );
+
+      if (drafts.length === 0) {
+        return json({ error: "No draft tasks to dispatch" }, 400);
+      }
+
+      const { analyzeBatch, computeDependsOn } = await import("../batch/analyze");
+      const plan = analyzeBatch(drafts, tree.path);
+
+      const targetWave = plan.waves.find(w => w.wave === body.wave);
+      if (!targetWave) {
+        return json({ error: `Wave ${body.wave} not found in plan` }, 400);
+      }
+
+      // Set depends_on for tasks in later waves
+      const deps = computeDependsOn(plan.waves);
+      const dependsOnSet: Record<string, string> = {};
+      for (const [taskId, depStr] of deps) {
+        db.run("UPDATE tasks SET depends_on = ? WHERE id = ?", [depStr, taskId]);
+        dependsOnSet[taskId] = depStr;
+      }
+
+      // Dispatch tasks in the target wave
+      const dispatched: string[] = [];
+      const { enqueue } = await import("./dispatch");
+      for (const taskId of targetWave.taskIds) {
+        db.taskSetStatus(taskId, "queued");
+        enqueue(taskId);
+        dispatched.push(taskId);
+      }
+
+      db.addEvent(null, null, "batch_dispatched",
+        `Batch wave ${body.wave}: dispatched ${dispatched.join(", ")} for tree ${body.treeId}`);
+
+      return json({ ok: true, dispatched, dependsOnSet, wave: body.wave });
+    }
+
     return json({ error: "Not found" }, 404);
   } catch (err) {
     return json({ error: String(err) }, 500);
