@@ -435,15 +435,7 @@ describe("resumePipeline", () => {
     db = t.db;
     cleanup = t.cleanup;
     db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
-
-    // Set module-level _db via startPipeline
-    db.run(
-      "INSERT INTO tasks (id, title, status, tree_id, path_name) VALUES (?, ?, 'draft', 'tree-1', 'development')",
-      ["SETUP-002", "Setup Task"],
-    );
-    const setupTask = db.taskGet("SETUP-002")!;
-    const tree = db.treeGet("tree-1")!;
-    startPipeline(setupTask, tree, db);
+    // No need to call startPipeline here — resumePipeline sets _db itself.
   });
 
   afterEach(() => {
