@@ -172,7 +172,7 @@ describe("startPipeline", () => {
   afterEach(async () => {
     bus.removeAll();
     // Flush pending microtasks (async executeStep from startPipeline) before closing DB
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 10));
     cleanup();
   });
 
@@ -293,7 +293,7 @@ describe("onStepComplete", () => {
 
   afterEach(async () => {
     bus.removeAll();
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 10));
     cleanup();
   });
 
@@ -437,7 +437,7 @@ describe("resumePipeline", () => {
 
   afterEach(async () => {
     bus.removeAll();
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 10));
     cleanup();
   });
 
