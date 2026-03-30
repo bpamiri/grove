@@ -3,6 +3,7 @@ import pc from "picocolors";
 import { startBroker, readBrokerInfo } from "../../broker/index";
 import { getOrCreateToken } from "../../broker/auth";
 import { checkForUpdate } from "../update-check";
+import { GROVE_VERSION } from "../../shared/types";
 
 export async function run(_args: string[]) {
   // Check if already running
@@ -14,7 +15,7 @@ export async function run(_args: string[]) {
     return;
   }
 
-  console.log(`${pc.green("Starting Grove...")}`)
+  console.log(`${pc.green("Starting Grove")} ${pc.dim(`v${GROVE_VERSION}`)}`)
 
   try {
     const info = await startBroker();
