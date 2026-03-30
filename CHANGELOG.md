@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.8
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.7...v0.1.8)
+
+### 🚀 Enhancements
+
+- Show grove version in CLI status, API, and web sidebar ([#40](https://github.com/bpamiri/grove/pull/40))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.7
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.6...v0.1.7)
