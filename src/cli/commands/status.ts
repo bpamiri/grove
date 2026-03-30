@@ -2,6 +2,7 @@
 import pc from "picocolors";
 import { readBrokerInfo } from "../../broker/index";
 import { isAlive } from "../../agents/stream-parser";
+import { GROVE_VERSION } from "../../shared/types";
 
 export async function run(_args: string[]) {
   const info = readBrokerInfo();
@@ -13,7 +14,7 @@ export async function run(_args: string[]) {
 
   const brokerAlive = isAlive(info.pid);
 
-  console.log(`${pc.bold(pc.green("Grove Status"))}`);
+  console.log(`${pc.bold(pc.green("Grove Status"))} ${pc.dim(`v${GROVE_VERSION}`)}`);
   console.log();
   console.log(`  Broker:  ${brokerAlive ? pc.green("running") : pc.red("dead")} (PID ${info.pid})`);
   console.log(`  URL:     ${pc.bold(info.url)}`);

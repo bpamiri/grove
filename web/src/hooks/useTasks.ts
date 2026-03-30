@@ -43,6 +43,7 @@ export interface Tree {
 }
 
 export interface Status {
+  version?: string;
   broker: string;
   remoteUrl: string | null;
   orchestrator: string;

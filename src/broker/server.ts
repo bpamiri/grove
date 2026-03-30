@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join, extname } from "node:path";
 import type { Database } from "./db";
 import { bus } from "./event-bus";
-import type { EventBusMap } from "../shared/types";
+import { GROVE_VERSION, type EventBusMap } from "../shared/types";
 import { EMBEDDED_ASSETS } from "./web-assets.generated";
 import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
 
@@ -312,6 +312,7 @@ async function handleApi(
       const { queueLength } = await import("./dispatch");
       const { isSpawningPaused } = await import("../monitor/cost");
       return json({
+        version: GROVE_VERSION,
         broker: "running",
         remoteUrl: _remoteUrl,
         orchestrator: isRunning() ? "running" : "stopped",

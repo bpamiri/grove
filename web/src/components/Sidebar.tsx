@@ -97,6 +97,7 @@ export default function Sidebar({ trees, status, taskCount, selectedTree, onSele
           </div>
           <span>Workers {status?.workers ?? 0}</span>
           <span>Today ${(status?.cost.today ?? 0).toFixed(2)}</span>
+          {status?.version && <span className="text-zinc-600">v{status.version}</span>}
         </div>
         {status?.remoteUrl && (
           <a
