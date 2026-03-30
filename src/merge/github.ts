@@ -155,6 +155,25 @@ export interface GhIssue {
   labels: Array<{ name: string }>;
 }
 
+export function ghIssueCreate(repo: string, opts: {
+  title: string;
+  body: string;
+}): { number: number; url: string } {
+  const args = [
+    "issue", "create", "-R", repo,
+    "--title", opts.title,
+    "--body", opts.body,
+  ];
+  const result = gh(args);
+  if (!result.ok) {
+    throw new Error(`gh issue create failed: ${result.stderr}`);
+  }
+  const url = result.stdout.trim();
+  const issueNumberMatch = url.match(/\/issues\/(\d+)/);
+  const number = issueNumberMatch ? parseInt(issueNumberMatch[1], 10) : 0;
+  return { number, url };
+}
+
 export function ghIssueClose(repo: string, issueNumber: number): boolean {
   const result = gh(["issue", "close", String(issueNumber), "-R", repo]);
   return result.ok;

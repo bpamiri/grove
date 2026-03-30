@@ -486,6 +486,14 @@ async function handleApi(
       const taskId = dispatchMatch[1];
       const task = db.taskGet(taskId);
       if (!task) return json({ error: "Task not found" }, 404);
+
+      // Deferred GitHub issue creation: if task has a tree but no issue yet, create one now
+      if (!task.github_issue && task.tree_id) {
+        const { createIssueForTask } = await import("./github-sync");
+        const { ghIssueCreate } = await import("../merge/github");
+        createIssueForTask(db, taskId, ghIssueCreate);
+      }
+
       const { configNormalizedPaths } = await import("./config");
       const paths = configNormalizedPaths();
       const pathConfig = paths[task.path_name];
