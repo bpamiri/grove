@@ -91,9 +91,11 @@ Gate results: pass (advance to next step), fail (retry worker up to `max_retries
 
 Three-panel layout served by the broker at `http://localhost:{port}`:
 
-- **Left sidebar** — tree list, system status, navigation
-- **Center** — task cards with live status, activity stream, pipeline progress
+- **Left sidebar** — tree list, dashboard link, system status, navigation
+- **Center** — task cards with live status, activity stream, pipeline progress; or analytics dashboard (Overview, Costs, Gates tabs)
 - **Right** — orchestrator chat
+
+The **Dashboard** view provides analytics: Gantt-style task timeline, cost breakdown by tree, gate pass/fail rates, and KPI summary cards. Time range selector (1h/4h/24h/7d) with live WebSocket refresh for short ranges.
 
 Real-time updates via WebSocket. Accessible remotely through the tunnel with token authentication.
 
