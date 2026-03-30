@@ -63,6 +63,19 @@ function getCachePath(): string {
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+/** Compare semver strings: returns true if `a` is newer than `b` */
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const va = pa[i] ?? 0;
+    const vb = pb[i] ?? 0;
+    if (va > vb) return true;
+    if (va < vb) return false;
+  }
+  return false;
+}
+
 /** Non-blocking update check — call from `grove up`. Silently swallows all errors. */
 export async function checkForUpdate(): Promise<void> {
   try {
@@ -94,8 +107,8 @@ export async function checkForUpdate(): Promise<void> {
       } satisfies UpdateCache));
     }
 
-    // Only print to TTY
-    if (process.stdout.isTTY && latestVersion !== GROVE_VERSION) {
+    // Only print to TTY, and only if the latest version is actually newer
+    if (process.stdout.isTTY && isNewer(latestVersion, GROVE_VERSION)) {
       console.log(
         `\n  ${pc.yellow("Grove v" + latestVersion + " available.")} Run ${pc.bold("grove upgrade")} to update.`
       );
