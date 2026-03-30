@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.15
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.14...v0.1.15)
+
+### 🚀 Enhancements
+
+- (W-029) auto-create GitHub issues when tasks are created ([d0866d3](https://github.com/bpamiri/grove/commit/d0866d3))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.14
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.13...v0.1.14)
