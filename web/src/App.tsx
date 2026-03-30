@@ -1,13 +1,15 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 
-import { useTasks } from "./hooks/useTasks";
+import { useTasks, type Task } from "./hooks/useTasks";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
 import Dashboard from "./components/Dashboard";
+
+export type StatusFilter = "all" | "active" | "failed" | "done";
 
 type View = "tasks" | "settings" | "dashboard";
 type MobileTab = "trees" | "tasks" | "chat";
@@ -80,9 +82,32 @@ export default function App() {
   const sidebar = useDragResize(240, 160, 400, "left");
   const chat = useDragResize(320, 200, 600, "right");
 
-  const activeTaskCount = taskState.tasks.filter(t =>
-    ["draft", "queued", "active"].includes(t.status)
-  ).length || taskState.tasks.length;
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+
+  /** Apply status filter to a task list */
+  const applyStatusFilter = useCallback((tasks: Task[], filter: StatusFilter) => {
+    if (filter === "active") return tasks.filter(t => ["draft", "queued", "active"].includes(t.status));
+    if (filter === "failed") return tasks.filter(t => t.status === "failed");
+    if (filter === "done") return tasks.filter(t => t.status === "completed");
+    return tasks;
+  }, []);
+
+  /** Tasks filtered by status (for counts), then further by selected tree (for display) */
+  const statusFiltered = useMemo(() => applyStatusFilter(taskState.tasks, statusFilter), [taskState.tasks, statusFilter, applyStatusFilter]);
+  const displayedTasks = useMemo(() => {
+    if (!taskState.selectedTree) return statusFiltered;
+    return statusFiltered.filter(t => t.tree_id === taskState.selectedTree);
+  }, [statusFiltered, taskState.selectedTree]);
+
+  /** Per-tree task counts reflecting the active status filter */
+  const treeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of statusFiltered) {
+      const key = t.tree_id ?? "__none__";
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [statusFiltered]);
 
   if (isMobile) {
     return (
@@ -93,7 +118,8 @@ export default function App() {
             <Sidebar
               trees={taskState.trees}
               status={taskState.status}
-              taskCount={activeTaskCount}
+              taskCount={statusFiltered.length}
+              treeCounts={treeCounts}
               selectedTree={taskState.selectedTree}
               onSelectTree={(id) => {
                 taskState.setSelectedTree(id);
@@ -108,7 +134,7 @@ export default function App() {
           {mobileTab === "tasks" && (
             view === "tasks" ? (
               <TaskList
-                tasks={taskState.tasks}
+                tasks={displayedTasks}
                 trees={taskState.trees}
                 paths={taskState.paths}
                 getActivity={taskState.getActivity}
@@ -117,6 +143,8 @@ export default function App() {
                 onRefresh={taskState.refresh}
                 send={send}
                 wsMessage={lastWsMsg}
+                filter={statusFilter}
+                onFilterChange={setStatusFilter}
               />
             ) : view === "dashboard" ? (
               <Dashboard wsMessages={wsMessages} status={taskState.status} />
@@ -170,7 +198,8 @@ export default function App() {
         <Sidebar
           trees={taskState.trees}
           status={taskState.status}
-          taskCount={activeTaskCount}
+          taskCount={statusFiltered.length}
+          treeCounts={treeCounts}
           selectedTree={taskState.selectedTree}
           onSelectTree={(id) => {
             taskState.setSelectedTree(id);
@@ -192,7 +221,7 @@ export default function App() {
       <main className="flex-1 min-w-0 overflow-y-auto">
         {view === "tasks" ? (
           <TaskList
-            tasks={taskState.tasks}
+            tasks={displayedTasks}
             trees={taskState.trees}
             paths={taskState.paths}
             getActivity={taskState.getActivity}
@@ -201,6 +230,8 @@ export default function App() {
             onRefresh={taskState.refresh}
             send={send}
             wsMessage={lastWsMsg}
+            filter={statusFilter}
+            onFilterChange={setStatusFilter}
           />
         ) : view === "dashboard" ? (
           <Dashboard wsMessages={wsMessages} status={taskState.status} />

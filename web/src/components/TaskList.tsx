@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useLocalStorage } from "../hooks/useLocalStorage";
 import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
+import type { StatusFilter } from "../App";
 import TaskDetail from "./TaskDetail";
 import Pipeline from "./Pipeline";
 import SeedBadge from "./SeedBadge";
@@ -19,6 +19,8 @@ interface Props {
   onRefresh: () => void;
   send: (data: any) => void;
   wsMessage?: WsMessage | null;
+  filter: StatusFilter;
+  onFilterChange: (f: StatusFilter) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -35,14 +37,13 @@ const STATUS_BORDER: Record<string, string> = {
   failed: "border-red-500/30",
 };
 
-export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage }: Props) {
+export default function TaskList({ tasks, trees, paths, getActivity, getActivityLog, loadActivityLog, onRefresh, send, wsMessage, filter, onFilterChange }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const seedState = useSeed(expandedId, send);
 
   useEffect(() => {
     if (wsMessage) seedState.handleWsMessage(wsMessage);
   }, [wsMessage, seedState.handleWsMessage]);
-  const [filter, setFilter] = useLocalStorage<"all" | "active" | "failed" | "done">("grove-task-filter", "active");
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -126,12 +127,8 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
     }
   };
 
-  const filtered = tasks.filter((t) => {
-    if (filter === "active") return ["draft", "queued", "active"].includes(t.status);
-    if (filter === "failed") return t.status === "failed";
-    if (filter === "done") return t.status === "completed";
-    return true;
-  });
+  // Tasks are already filtered by status + tree in App.tsx
+  const filtered = tasks;
 
   return (
     <div className="p-5">
@@ -148,7 +145,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
           {(["all", "active", "failed", "done"] as const).map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => onFilterChange(f)}
               className={`px-3 py-1 rounded-full capitalize ${
                 filter === f
                   ? "bg-emerald-400/15 text-emerald-400"
