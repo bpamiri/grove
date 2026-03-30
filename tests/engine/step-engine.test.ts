@@ -121,40 +121,23 @@ const TEST_PATHS = {
 // Bun's mock.module is process-global — it replaces the module for ALL test files.
 // By capturing first, we can spread real exports into each mock and only override
 // what the step-engine tests need, preserving everything for other test files.
+// Capture real module references BEFORE mocking.
+// Bun's mock.module is process-global — we must spread real exports so other
+// test files that import these modules still get the real functions.
+// Only mock modules that would cause side effects (spawning processes).
 const _realConfig = await import("../../src/broker/config");
-const _realEvaluator = await import("../../src/agents/evaluator");
-const _realManager = await import("../../src/merge/manager");
 const _realWorker = await import("../../src/agents/worker");
-const _realDb = await import("../../src/broker/db");
 
+// config: override configNormalizedPaths only, preserve all other config functions
 mock.module("../../src/broker/config", () => ({
   ..._realConfig,
   configNormalizedPaths: () => TEST_PATHS,
 }));
 
+// worker: override spawnWorker to prevent spawning Claude Code processes
 mock.module("../../src/agents/worker", () => ({
   ..._realWorker,
   spawnWorker: mock(() => {}),
-}));
-
-mock.module("../../src/agents/evaluator", () => ({
-  ..._realEvaluator,
-  evaluate: mock(() => ({ passed: true, feedback: "" })),
-}));
-
-mock.module("../../src/merge/manager", () => ({
-  ..._realManager,
-  queueMerge: mock(() => {}),
-}));
-
-mock.module("../../src/broker/db", () => ({
-  ..._realDb,
-  getEnv: () => ({
-    GROVE_HOME: "/tmp/grove-test",
-    GROVE_DB: "/tmp/grove-test/grove.db",
-    GROVE_CONFIG: "/tmp/grove-test/grove.yaml",
-    GROVE_LOG_DIR: "/tmp/grove-test/logs",
-  }),
 }));
 
 // Dynamic import AFTER mocks are set up
