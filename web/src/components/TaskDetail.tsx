@@ -10,6 +10,7 @@ interface Props {
   task: Task;
   activityLog?: Array<{ ts: number; msg: string }>;
   steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
+  send: (data: any) => void;
   seed?: Seed | null;
   seedMessages?: SeedMessage[];
   seedActive?: boolean;
@@ -21,7 +22,7 @@ interface Props {
   onSeedDiscard?: () => void;
 }
 
-export default function TaskDetail({ task, activityLog, steps, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
+export default function TaskDetail({ task, activityLog, steps, send, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
 
@@ -153,10 +154,10 @@ export default function TaskDetail({ task, activityLog, steps, seed, seedMessage
       {/* Actions */}
       <div className="flex gap-2 pt-2 border-t border-zinc-800">
         {task.status === "active" && !task.paused && (
-          <ActionButton label="Pause" />
+          <ActionButton label="Pause" onClick={() => send({ type: "action", action: "pause_task", taskId: task.id })} />
         )}
         {task.status !== "completed" && task.status !== "failed" && (
-          <ActionButton label="Cancel" variant="danger" />
+          <ActionButton label="Cancel" variant="danger" onClick={() => send({ type: "action", action: "cancel_task", taskId: task.id })} />
         )}
       </div>
     </div>
@@ -221,9 +222,10 @@ function Label({ children }: { children: string }) {
   return <div className="text-zinc-500 text-xs uppercase mb-1.5">{children}</div>;
 }
 
-function ActionButton({ label, variant }: { label: string; variant?: "danger" }) {
+function ActionButton({ label, variant, onClick }: { label: string; variant?: "danger"; onClick?: () => void }) {
   return (
     <button
+      onClick={onClick}
       className={`px-3 py-1.5 rounded text-xs ${
         variant === "danger"
           ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
