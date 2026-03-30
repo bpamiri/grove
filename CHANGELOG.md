@@ -1,6 +1,31 @@
 # Changelog
 
 
+## v0.1.10
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.9...v0.1.10)
+
+### 🚀 Enhancements
+
+- **orchestrator:** Add grove-event tag extractor ([#23](https://github.com/bpamiri/grove/pull/23))
+- **orchestrator:** Rewrite from tmux to subprocess pattern ([#23](https://github.com/bpamiri/grove/pull/23))
+- **server:** Add /api/orchestrator/reset endpoint ([#23](https://github.com/bpamiri/grove/pull/23))
+- **gui:** Add New Session button to Chat panel ([#23](https://github.com/bpamiri/grove/pull/23))
+
+### 💅 Refactors
+
+- **broker:** Remove tmux from startup, make orchestrator lazy ([#23](https://github.com/bpamiri/grove/pull/23))
+- **cli:** Remove tmux references from up and status commands ([#23](https://github.com/bpamiri/grove/pull/23))
+
+### 📖 Documentation
+
+- Add orchestrator rewrite design spec ([#23](https://github.com/bpamiri/grove/pull/23))
+- Add orchestrator rewrite implementation plan ([#23](https://github.com/bpamiri/grove/pull/23))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.9
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.8...v0.1.9)
