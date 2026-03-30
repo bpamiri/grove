@@ -69,7 +69,7 @@ export function useTasks() {
   const refresh = useCallback(async () => {
     try {
       const [tasksData, treesData, statusData, pathsData] = await Promise.all([
-        api<Task[]>(selectedTree ? `/api/tasks?tree=${selectedTree}` : "/api/tasks"),
+        api<Task[]>("/api/tasks"),
         api<Tree[]>("/api/trees"),
         api<Status>("/api/status"),
         api<Record<string, any>>("/api/paths"),
@@ -81,7 +81,7 @@ export function useTasks() {
     } catch {
       // API not available
     }
-  }, [selectedTree]);
+  }, []);
 
   useEffect(() => {
     refresh();

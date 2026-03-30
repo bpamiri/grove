@@ -22,6 +22,7 @@ interface Props {
   trees: Tree[];
   status: Status | null;
   taskCount: number;
+  treeCounts: Record<string, number>;
   selectedTree: string | null;
   onSelectTree: (id: string | null) => void;
   connected: boolean;
@@ -29,7 +30,7 @@ interface Props {
   onDashboardClick: () => void;
 }
 
-export default function Sidebar({ trees, status, taskCount, selectedTree, onSelectTree, connected, onSettingsClick, onDashboardClick }: Props) {
+export default function Sidebar({ trees, status, taskCount, treeCounts, selectedTree, onSelectTree, connected, onSettingsClick, onDashboardClick }: Props) {
   return (
     <aside className="h-full flex flex-col bg-zinc-900/50 p-4 text-sm overflow-y-auto">
       {/* Header: Logo + Gear */}
@@ -38,15 +39,19 @@ export default function Sidebar({ trees, status, taskCount, selectedTree, onSele
         <button onClick={onSettingsClick} className="text-zinc-500 hover:text-zinc-300 text-lg" title="Settings">&#9881;</button>
       </div>
 
-      {/* All Tasks */}
+      {/* The Grove (all trees) */}
       <button
         onClick={() => onSelectTree(null)}
-        className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between mb-4 ${
+        className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between items-center mb-4 ${
           selectedTree === null ? "bg-emerald-400/10 text-emerald-400" : "text-zinc-400 hover:text-zinc-200"
         }`}
       >
-        <span>All Tasks</span>
-        <span className="text-[11px] opacity-70">{taskCount}</span>
+        <span>The Grove</span>
+        {taskCount > 0 && (
+          <span className="text-[10px] bg-emerald-400/15 text-emerald-400 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+            {taskCount}
+          </span>
+        )}
       </button>
 
       <button
@@ -67,20 +72,33 @@ export default function Sidebar({ trees, status, taskCount, selectedTree, onSele
           <div key={org} className="mb-3">
             <div className="flex justify-between items-center px-2 py-0.5">
               <div className="text-zinc-600 text-[10px] uppercase tracking-wider">{org}</div>
-              <span className="text-zinc-600 text-[10px]">{orgTrees.length}</span>
+              {(() => {
+                const orgCount = orgTrees.reduce((sum, t) => sum + (treeCounts[t.id] ?? 0), 0);
+                return orgCount > 0
+                  ? <span className="text-zinc-500 text-[10px]">{orgCount}</span>
+                  : <span className="text-zinc-700 text-[10px]">{orgTrees.length} trees</span>;
+              })()}
             </div>
-            {orgTrees.map((tree) => (
-              <button
-                key={tree.id}
-                onClick={() => onSelectTree(tree.id)}
-                className={`w-full text-left px-2 py-1 rounded text-sm truncate ${
-                  selectedTree === tree.id ? "bg-emerald-400/10 text-emerald-400" : "text-zinc-400 hover:text-zinc-200"
-                }`}
-                title={tree.path}
-              >
-                {tree.name}
-              </button>
-            ))}
+            {orgTrees.map((tree) => {
+              const count = treeCounts[tree.id] ?? 0;
+              return (
+                <button
+                  key={tree.id}
+                  onClick={() => onSelectTree(tree.id)}
+                  className={`w-full text-left px-2 py-1 rounded text-sm flex justify-between items-center ${
+                    selectedTree === tree.id ? "bg-emerald-400/10 text-emerald-400" : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                  title={tree.path}
+                >
+                  <span className="truncate">{tree.name}</span>
+                  {count > 0 && (
+                    <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 ml-1">
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         ))}
         {trees.length === 0 && (
