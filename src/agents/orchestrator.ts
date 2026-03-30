@@ -159,7 +159,7 @@ export function buildClaudeArgs(
     for (const tree of db.allTrees()) {
       args.push("--add-dir", tree.path);
     }
-    args.push("--permission-mode", "bypassPermissions");
+    args.push("--dangerously-skip-permissions");
   } else {
     args.push("--resume", sessionId);
   }
