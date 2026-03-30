@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.12
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.11...v0.1.12)
+
+### 🩹 Fixes
+
+- Use --dangerously-skip-permissions for orchestrator (matches workers) ([e139957](https://github.com/bpamiri/grove/commit/e139957))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.11
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.10...v0.1.11)
