@@ -314,6 +314,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                 task={task}
                 activityLog={getActivityLog(task.id)}
                 steps={paths[task.path_name]?.steps ?? []}
+                send={send}
                 seed={seedState.seed}
                 seedMessages={seedState.messages}
                 seedActive={seedState.isActive}
