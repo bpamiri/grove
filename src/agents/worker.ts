@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { bus } from "../broker/event-bus";
 import { parseCost, isAlive } from "./stream-parser";
+import { createCheckpoint } from "./checkpoint";
 import { createWorktree, branchName } from "../shared/worktree";
 import { deploySandbox, triggerPrompt, resumeTriggerPrompt, readReviewFeedback } from "../shared/sandbox";
 import type { Database } from "../broker/db";
@@ -251,16 +252,35 @@ export function stopWorker(taskId: string, db: Database): boolean {
   const handle = activeWorkers.get(taskId);
   if (!handle) return false;
 
+  // Create checkpoint before killing
+  try {
+    const task = db.taskGet(taskId);
+    if (task && handle.worktreePath) {
+      const checkpoint = createCheckpoint(handle.worktreePath, {
+        taskId,
+        stepId: task.current_step ?? "",
+        stepIndex: task.step_index ?? 0,
+        sessionSummary: task.session_summary ?? "",
+        costSoFar: task.cost_usd,
+        tokensSoFar: task.tokens_used,
+      });
+      db.checkpointSave(taskId, JSON.stringify(checkpoint));
+    }
+  } catch (err) {
+    console.error(`[worker] Checkpoint failed for ${taskId}:`, err);
+  }
+
   try {
     handle.proc.kill();
   } catch {}
 
   db.sessionEnd(handle.sessionId, "stopped");
   db.run("UPDATE tasks SET paused = 1 WHERE id = ?", [taskId]);
-  db.addEvent(taskId, null, "task_paused", "Task paused by user");
+  db.addEvent(taskId, null, "task_paused", "Task paused by user (checkpoint saved)");
   activeWorkers.delete(taskId);
 
   bus.emit("worker:ended", { taskId, sessionId: handle.sessionId, status: "stopped" });
+  bus.emit("agent:ended", { agentId: handle.sessionId, role: "worker", taskId, exitCode: -1, ts: Date.now() });
   return true;
 }
 
