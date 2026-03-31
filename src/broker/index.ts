@@ -7,7 +7,7 @@ import { startServer, stopServer, setRemoteUrl } from "./server";
 import * as orchestrator from "../agents/orchestrator";
 import { loadConfig, configTrees, tunnelConfig, configSet, validateConfig } from "./config";
 import { bus } from "./event-bus";
-import { wireStepEngine } from "../engine/step-engine";
+import { wireStepEngine, setPluginHost } from "../engine/step-engine";
 import { initDispatch } from "./dispatch";
 import { startHealthMonitor, stopHealthMonitor, recoverOrphanedTasks } from "../monitor/health";
 import { startCostMonitor, stopCostMonitor } from "../monitor/cost";
@@ -86,6 +86,7 @@ export async function startBroker(): Promise<BrokerInfo> {
   // Load plugins from ~/.grove/plugins/
   pluginHost = new PluginHost();
   await pluginHost.loadAll(join(GROVE_HOME, "plugins"));
+  setPluginHost(pluginHost);
   const loadedPlugins = pluginHost.list();
   if (loadedPlugins.length > 0) {
     console.log(`  Plugins: ${loadedPlugins.map(p => p.name).join(", ")}`);
