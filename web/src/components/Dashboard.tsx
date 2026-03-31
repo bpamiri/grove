@@ -1,7 +1,10 @@
 import { useState } from "react";
-import { useAnalytics, type TimeRange, type DashboardTab, type CostData, type GateData, type TimelineData, type TimelineTask, type GateAnalytics } from "../hooks/useAnalytics";
+import { useAnalytics, type TimeRange, type DashboardTab, type CostData, type GateData, type TimelineData, type TimelineTask, type GateAnalytics, type UtilizationBucket } from "../hooks/useAnalytics";
 import type { WsMessage } from "../hooks/useWebSocket";
 import type { Status } from "../hooks/useTasks";
+import ActivityTimeline from "./ActivityTimeline";
+import WorkerUtilization from "./WorkerUtilization";
+import EventLogViewer from "./EventLogViewer";
 
 interface Props {
   wsMessages: WsMessage[];
@@ -11,7 +14,7 @@ interface Props {
 export default function Dashboard({ wsMessages, status }: Props) {
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [range, setRange] = useState<TimeRange>("24h");
-  const { costData, gateData, timelineData, loading, refresh } = useAnalytics(range, activeTab, wsMessages);
+  const { costData, gateData, timelineData, utilizationData, loading, refresh } = useAnalytics(range, activeTab, wsMessages);
 
   const isLive = range === "1h" || range === "4h";
 
@@ -53,6 +56,12 @@ export default function Dashboard({ wsMessages, status }: Props) {
           {activeTab === "gates" && (
             <GatesTab gateData={gateData} />
           )}
+          {activeTab === "activity" && (
+            <ActivityTab timelineData={timelineData} utilizationData={utilizationData} range={range} />
+          )}
+          {activeTab === "events" && (
+            <EventsTab />
+          )}
         </>
       )}
     </div>
@@ -66,6 +75,8 @@ function TabStrip({ active, onChange }: { active: DashboardTab; onChange: (t: Da
     { id: "overview", label: "Overview" },
     { id: "costs", label: "Costs" },
     { id: "gates", label: "Gates" },
+    { id: "activity", label: "Activity" },
+    { id: "events", label: "Events" },
   ];
   return (
     <div className="flex gap-0.5 bg-zinc-800 rounded-md p-0.5">
@@ -411,6 +422,42 @@ function RetryStats({ retries }: { retries: GateData["retries"] | null }) {
           <div className="text-[10px] text-zinc-500">Max Retries</div>
         </div>
       </div>
+    </Panel>
+  );
+}
+
+// ---- Activity Tab ----
+
+const RANGE_MS: Record<TimeRange, number> = { "1h": 3600000, "4h": 14400000, "24h": 86400000, "7d": 604800000 };
+
+function ActivityTab({ timelineData, utilizationData, range }: {
+  timelineData: TimelineData | null;
+  utilizationData: UtilizationBucket[] | null;
+  range: TimeRange;
+}) {
+  const tasks = timelineData?.tasks ?? [];
+  const rangeMs = RANGE_MS[range];
+
+  return (
+    <>
+      <Panel title="Activity Timeline">
+        <ActivityTimeline data={tasks} rangeMs={rangeMs} />
+      </Panel>
+      <div className="mt-3">
+        <Panel title="Worker Utilization">
+          <WorkerUtilization data={utilizationData ?? []} maxWorkers={5} />
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+// ---- Events Tab ----
+
+function EventsTab() {
+  return (
+    <Panel title="Event Log">
+      <EventLogViewer />
     </Panel>
   );
 }

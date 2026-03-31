@@ -5,7 +5,7 @@ import { api } from "../api/client";
 // ---- Types ----
 
 export type TimeRange = "1h" | "4h" | "24h" | "7d";
-export type DashboardTab = "overview" | "costs" | "gates";
+export type DashboardTab = "overview" | "costs" | "gates" | "activity" | "events";
 
 export interface CostByTree {
   tree_name: string;
@@ -66,6 +66,11 @@ export interface TimelineData {
   tasks: TimelineTask[];
 }
 
+export interface UtilizationBucket {
+  bucket: string;
+  active_workers: number;
+}
+
 // WS event types that trigger a refresh in live mode
 const LIVE_EVENTS = new Set(["task:status", "cost:updated", "gate:result", "task:created", "worker:ended"]);
 
@@ -83,6 +88,7 @@ export function useAnalytics(
   const [costData, setCostData] = useState<CostData | null>(null);
   const [gateData, setGateData] = useState<GateData | null>(null);
   const [timelineData, setTimelineData] = useState<TimelineData | null>(null);
+  const [utilizationData, setUtilizationData] = useState<UtilizationBucket[] | null>(null);
   const [loading, setLoading] = useState(false);
   const lastWsMsgTs = useRef(0);
 
@@ -97,9 +103,13 @@ export function useAnalytics(
         const data = await api<GateData>(`/api/analytics/gates?range=${r}`);
         setGateData(data);
       }
-      if (tab === "overview") {
+      if (tab === "overview" || tab === "activity") {
         const data = await api<TimelineData>(`/api/analytics/timeline?range=${r}`);
         setTimelineData(data);
+      }
+      if (tab === "activity") {
+        const data = await api<UtilizationBucket[]>(`/api/analytics/utilization?range=${r}`);
+        setUtilizationData(data);
       }
     } catch {
       // API not available
@@ -127,5 +137,5 @@ export function useAnalytics(
     fetchTab(activeTab, range);
   }, [activeTab, range, fetchTab]);
 
-  return { costData, gateData, timelineData, loading, refresh };
+  return { costData, gateData, timelineData, utilizationData, loading, refresh };
 }
