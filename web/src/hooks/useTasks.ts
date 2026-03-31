@@ -168,10 +168,26 @@ export function useTasks() {
   const getActivity = (taskId: string): string | undefined => taskActivity.get(taskId);
   const getActivityLog = (taskId: string): Array<{ ts: number; msg: string; kind?: string }> => taskActivityLog.get(taskId) ?? [];
 
-  /** Fetch historical activity from the worker log file (seeds the feed on expand) */
+  /** Fetch activity from live ring buffer first, then fall back to historical log */
   const loadActivityLog = useCallback(async (taskId: string) => {
     if (taskActivityLog.has(taskId) && taskActivityLog.get(taskId)!.length > 0) return;
     try {
+      // Try live ring buffer first (for active tasks)
+      const liveEntries = await api<Array<{ type: string; taskId: string; tool?: string; input?: string; snippet?: string; content?: string; ts?: number }>>(`/api/tasks/${taskId}/activity/live`);
+      if (liveEntries.length > 0) {
+        const log = liveEntries.map(e => {
+          const ts = e.ts ?? Date.now();
+          if (e.type === "agent:tool_use") return { ts, msg: `${e.tool}: ${e.input}`, kind: "tool" as const };
+          if (e.type === "agent:thinking") return { ts, msg: `thinking: ${e.snippet}`, kind: "thinking" as const };
+          if (e.type === "agent:text") return { ts, msg: e.content ?? "", kind: "text" as const };
+          return { ts, msg: `${e.type}` };
+        });
+        taskActivityLog.set(taskId, log);
+        setTasks(prev => [...prev]);
+        return;
+      }
+
+      // Fall back to historical log file parsing
       const entries = await api<Array<{ ts: string; msg: string }>>(`/api/tasks/${taskId}/activity`);
       if (entries.length > 0) {
         const log = entries.map(e => ({
@@ -179,7 +195,7 @@ export function useTasks() {
           msg: e.msg,
         }));
         taskActivityLog.set(taskId, log);
-        setTasks(prev => [...prev]); // force re-render
+        setTasks(prev => [...prev]);
       }
     } catch {}
   }, []);
