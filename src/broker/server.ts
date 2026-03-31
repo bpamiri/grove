@@ -1112,6 +1112,18 @@ async function handleApi(
       return ok ? json({ ok: true }) : json({ error: "Plugin not found" }, 404);
     }
 
+    // GET /api/adapters — list available adapters
+    if (path === "/api/adapters" && req.method === "GET") {
+      const { getAdapterRegistry } = await import("./index");
+      const registry = getAdapterRegistry();
+      const adapters = registry?.listAll().map(a => ({
+        name: a.name,
+        available: a.isAvailable(),
+        supportsResume: a.supportsResume,
+      })) ?? [];
+      return json(adapters);
+    }
+
     return json({ error: "Not found" }, 404);
   } catch (err) {
     return json({ error: String(err) }, 500);

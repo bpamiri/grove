@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   current_step TEXT,
   step_index INTEGER DEFAULT 0,
   paused INTEGER DEFAULT 0,
-  source_pr INTEGER
+  source_pr INTEGER,
+  adapter TEXT DEFAULT 'claude-code'
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
