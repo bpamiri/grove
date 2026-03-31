@@ -3,7 +3,9 @@ import type { PathConfig, PipelineStep, NormalizedPathConfig } from "../shared/t
 const TYPE_INFERENCE: Record<string, PipelineStep["type"]> = {
   merge: "merge",
   evaluate: "gate",
+  "ci-check": "gate",
   review: "review",
+  verdict: "verdict",
 };
 
 export function normalizePath(config: PathConfig): NormalizedPathConfig {

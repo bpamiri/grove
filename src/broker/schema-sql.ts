@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   completed_at TEXT,
   current_step TEXT,
   step_index INTEGER DEFAULT 0,
-  paused INTEGER DEFAULT 0
+  paused INTEGER DEFAULT 0,
+  source_pr INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
