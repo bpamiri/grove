@@ -4,6 +4,18 @@ Grove is configured via `~/.grove/grove.yaml`. The file is created automatically
 
 ---
 
+## Version
+
+```yaml
+version: 2
+```
+
+| Field | Description |
+|-------|-------------|
+| `version` | Config schema version (integer). If missing, auto-detected as v1. Use `grove config migrate` to upgrade to the latest version. |
+
+---
+
 ## Workspace
 
 ```yaml
@@ -204,14 +216,16 @@ settings:
   branch_prefix: grove/
   stall_timeout_minutes: 5
   max_retries: 2
+  default_adapter: claude-code
 ```
 
 | Field | Description |
 |-------|-------------|
-| `max_workers` | Maximum number of concurrent Claude Code worker sessions. |
+| `max_workers` | Maximum number of concurrent worker sessions. |
 | `branch_prefix` | Default git branch prefix for worker worktrees. Overridable per tree. |
 | `stall_timeout_minutes` | Health monitor flags a worker as stuck after this many minutes without output. |
 | `max_retries` | Number of times Grove will automatically retry a failed gate before surfacing the failure. |
+| `default_adapter` | Agent backend for workers. Options: `claude-code` (default), `codex-cli`, `aider`, `gemini-cli`. Overridable per tree or per task. |
 
 ---
 
@@ -298,4 +312,40 @@ Notifications are rate-limited to **1 per event type per task per 60 seconds**. 
 | `~/.grove/auth.token` | Authentication token for the Grove API. |
 | `~/.grove/broker.json` | Runtime broker info: PID, port, tunnel URLs. Recreated on each start. |
 | `~/.grove/update-check.json` | Cached result of the last version check. |
+| `~/.grove/plugins/` | Plugin directory (each plugin in its own subdirectory). |
 | `~/.grove/logs/` | Per-session worker logs. |
+
+---
+
+## Config Versioning
+
+The `version` field at the root of `grove.yaml` tracks the config schema version. If missing, the file is treated as v1.
+
+- **`grove config version`** — prints the current version
+- **`grove config validate`** — checks the file against the expected schema
+- **`grove config migrate`** — upgrades to the latest version, creating a `grove.yaml.bak` backup first
+
+Migrations are additive — new fields get defaults, existing fields are preserved. Run `grove config migrate` after upgrading Grove to pick up new config options.
+
+---
+
+## Plugins
+
+Plugins extend Grove with custom hooks. Install a plugin by placing it in `~/.grove/plugins/<name>/` with a `plugin.json` manifest:
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "hooks": ["gate:custom", "step:pre", "step:post", "notify:custom"]
+}
+```
+
+| Hook | When it runs |
+|------|-------------|
+| `gate:custom` | After built-in evaluator gates — can add custom pass/fail results |
+| `step:pre` | Before a worker step executes — can modify prompt or skip the step |
+| `step:post` | After a worker step completes — can inspect output |
+| `notify:custom` | Custom notification channel alongside Slack/webhook/system |
+
+Manage plugins with `grove plugins list`, `grove plugins enable <name>`, `grove plugins disable <name>`.

@@ -7,23 +7,22 @@ Grove separates **infrastructure** from **intelligence**. The broker handles all
 ```
 You --- Browser (GUI) --- Tunnel ---+
   |                                  |
-  +-- tmux attach ---------+        |
-  |                         |        |
-  +-- grove CLI -------+    |        |
-                        |    |        |
-                        v    v        v
+  +-- grove CLI -------+             |
+                        |             |
+                        v             v
               +---------------------------+
               |    Broker (Bun process)    |
               |                           |
-              |  HTTP+WS . SQLite . tmux  |
+              |  HTTP+WS . SQLite . SAP   |
+              |  Plugins . Adapters       |
               |  Monitor . Merge Manager  |
               +----------+----------------+
                          |
           +--------------+--------------+
           v              v              v
     Orchestrator     Worker(s)      Evaluator
-    (Claude Code)  (Claude Code)  (in-process)
-    persistent     ephemeral      on-demand
+    (Claude Code)  (configurable)  (in-process)
+    persistent     ephemeral       on-demand
 ```
 
 ## Components
@@ -34,7 +33,9 @@ The central Bun process. Lightweight, stable, never makes decisions. Manages:
 
 - **HTTP + WebSocket server** — serves the web GUI, REST API (`/api/*`), and real-time updates
 - **SQLite database** — task state, tree config, events, messages, seeds (via `bun:sqlite`, WAL journal)
-- **tmux sessions** — orchestrator and worker panes
+- **SAP event protocol** — typed JSON events for all broker-agent communication
+- **Plugin host** — loads and runs `~/.grove/plugins/` lifecycle hooks
+- **Adapter registry** — selects the agent backend (Claude Code, Codex, Aider, Gemini) per task
 - **Step engine** — drives tasks through configurable pipelines (plan → implement → evaluate → merge)
 - **Dispatch queue** — manages concurrent worker slots (default: 5)
 - **Health monitor** — detects stalled workers via PID liveness checks and stall timeouts
@@ -42,14 +43,14 @@ The central Bun process. Lightweight, stable, never makes decisions. Manages:
 - **Merge manager** — pushes branches, creates PRs, watches CI, merges on green (sequential per-repo)
 - **Event bus** — typed in-process pub/sub that bridges internal events to WebSocket clients
 - **GitHub sync** — auto-creates issues on task creation, closes on PR merge
-- **Seed sessions** — interactive tmux-based brainstorming with Claude
+- **Seed sessions** — interactive brainstorming with Claude
 - **Tunnel** — optional Cloudflare quick tunnel for remote access
 
-State persisted to `~/.grove/broker.json` (PID, port, URLs) and `~/.grove/grove.db` (tasks, trees, events).
+State persisted to `~/.grove/broker.json` (PID, port, URLs) and `~/.grove/grove.db` (tasks, trees, events). Configuration (`grove.yaml`) uses a `version` field with automatic migration support (`grove config migrate`).
 
 ### Orchestrator
 
-A persistent Claude Code session running in tmux. You chat with it to:
+A persistent Claude Code session. Each user message spawns a short-lived `claude` CLI subprocess that reconnects to a stored session via `--session-id` (first message) or `--resume` (subsequent). You chat with it to:
 - Plan and decompose work across repos
 - Create and prioritize tasks
 - Review worker output and make decisions
@@ -58,12 +59,12 @@ The orchestrator has read-only awareness of all configured trees. It communicate
 
 ### Workers
 
-Ephemeral Claude Code sessions. Each worker:
+Ephemeral agent sessions selected via the adapter abstraction (Claude Code by default; Codex, Aider, and Gemini adapters also available). Each worker:
 - Gets an isolated git worktree (branch from the tree's default branch)
 - Runs in a sandboxed environment with guard hooks
 - Executes one pipeline step (plan, implement, etc.)
-- Streams structured JSON output (tool use, thinking, cost data)
-- Commits changes and reports back
+- Streams SAP events (tool use, thinking, cost data)
+- Commits changes and reports back; performs a WIP checkpoint commit on shutdown
 - Is killed after completing its step
 
 Workers cannot push to remote. The merge manager handles that.
@@ -80,7 +81,7 @@ Before running gates, the evaluator **rebases onto the base branch** to catch co
 
 Separate from the worker because models are poor critics of their own output.
 
-Gate results: pass (advance to next step), fail with retry prompt (retry worker up to `max_retries`), or soft warning (pass through).
+Gate results: pass (advance to next step), fail with retry prompt (retry worker up to `max_retries`), or soft warning (pass through). Plugin `gate:custom` hooks run after the built-in gates, enabling user-defined quality checks.
 
 ## Data Flow
 
@@ -110,15 +111,75 @@ Real-time updates via WebSocket. Accessible remotely through the tunnel with tok
 ```
 grove up (foreground)
   +-- Bun HTTP server (same process)
-  +-- tmux session "grove"
-       +-- orchestrator pane (claude --dangerously-skip-permissions)
-       +-- worker pane 1 (ephemeral)
-       +-- worker pane 2 (ephemeral)
-       +-- ...
+  +-- orchestrator subprocess (claude --session-id/--resume, on-demand)
+  +-- worker subprocess 1 (ephemeral, via adapter)
+  +-- worker subprocess 2 (ephemeral, via adapter)
+  +-- ...
   +-- cloudflared tunnel (child process, optional)
 ```
 
 All processes are children of the broker. `grove down` sends SIGTERM to the broker, which cleans up everything.
+
+---
+
+## Plugin System
+
+Plugins live in `~/.grove/plugins/<name>/` with a `plugin.json` manifest. The `PluginHost` loads enabled plugins at broker startup and invokes them at defined hook points:
+
+- **`gate:custom`** — runs after built-in evaluator gates, can add pass/fail results
+- **`step:pre`** — runs before a worker step executes (can modify prompt or skip)
+- **`step:post`** — runs after a worker step completes (can inspect output)
+- **`notify:custom`** — custom notification channel (alongside Slack/webhook/system)
+
+Manage plugins with `grove plugins list`, `grove plugins enable <name>`, `grove plugins disable <name>`.
+
+---
+
+## Agent Adapters
+
+The `AdapterRegistry` abstracts the agent backend so workers are not tied to Claude Code. Available adapters: `claude-code` (default), `codex-cli`, `aider`, `gemini-cli`. Adapter selection priority:
+
+1. **Per-task** — `adapter` field on the task
+2. **Per-tree** — `adapter` field on the tree config
+3. **Global default** — `settings.default_adapter` in `grove.yaml`
+
+Each adapter implements spawn, stream parsing, and cost extraction for its CLI.
+
+---
+
+## SAP Event Protocol
+
+All broker-agent communication uses typed JSON events (one per line on stdout). This replaces ad-hoc log parsing with a structured contract. Key event types:
+
+- **`agent:spawned`**, **`agent:tool_use`**, **`agent:thinking`**, **`agent:text`**, **`agent:cost`** — worker lifecycle
+- **`seed:response`**, **`seed:chunk`** — seed session streaming
+- **`orchestrator:event`** — `<grove-event>` tags parsed from orchestrator output
+
+The broker's stream parser validates each event against the SAP schema before dispatching to the event bus.
+
+---
+
+## Task DAG
+
+Tasks can declare directed dependencies via the `task_edges` table, forming a DAG. The system enforces:
+
+- **Cycle detection** — rejects edges that would create cycles
+- **Topological dispatch** — blocked tasks auto-unblock when all predecessors complete
+- **Visual editor** — the web GUI renders the DAG with ReactFlow, allowing drag-and-drop edge creation
+
+Batch dispatch (`grove batch`) auto-generates DAG edges from wave analysis (wave N depends on wave N-1).
+
+---
+
+## Worker Checkpointing
+
+When a worker is interrupted (shutdown, stall timeout, budget exceeded), it performs a WIP checkpoint:
+
+- Creates a `checkpoint.json` in the worktree with session state and last activity
+- Makes a WIP commit with uncommitted changes
+- On resume (`--resume` or `grove task resume`), the worker reads `checkpoint.json` and continues with full context
+
+This prevents work loss during graceful shutdowns and enables cross-session continuity.
 
 ---
 
@@ -139,8 +200,8 @@ The step engine (`src/engine/step-engine.ts`) replaces hardcoded pipeline wiring
 
 When a step executes, the engine looks at its type:
 
-- **worker** → spawns a Claude Code session via `spawnWorker()`
-- **gate** → runs `evaluate()` against the worktree
+- **worker** → runs `step:pre` plugin hooks, then spawns an agent session via `spawnWorker()` (adapter-aware), then runs `step:post` hooks
+- **gate** → runs `evaluate()` against the worktree, then runs `gate:custom` plugin hooks
 - **merge** → queues the task in the merge manager
 
 Dynamic imports are used to avoid circular dependencies between modules.
@@ -183,7 +244,9 @@ The event bus (`src/broker/event-bus.ts`) is a typed in-process pub/sub system. 
 
 ### WebSocket Bridge
 
-The broker's WebSocket handler subscribes to all event types and forwards them to connected clients. This powers the real-time GUI — task status changes, worker activity indicators, cost updates, and seed messages all flow through this bridge.
+The broker's WebSocket handler subscribes to all event types and forwards them to connected clients. This powers the real-time GUI — task status changes, worker activity indicators, cost updates, and seed messages all flow through this bridge. SAP events from agent subprocesses are parsed and re-emitted through the same bus.
+
+A ring buffer retains recent events so that newly connected WebSocket clients can catch up on missed state. Events are batched before broadcast to reduce WebSocket frame overhead.
 
 Events are typed via the `EventBusMap` type in `src/shared/types.ts`. Handler errors are caught silently to prevent one bad subscriber from breaking the event loop.
 
@@ -606,7 +669,7 @@ All endpoints are served by the broker at `http://localhost:{port}`. Remote acce
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/tasks/:id/seed` | Get seed state and conversation for a task |
-| POST | `/api/tasks/:id/seed/start` | Start a brainstorming seed session (spawns Claude in tmux) |
+| POST | `/api/tasks/:id/seed/start` | Start a brainstorming seed session (spawns Claude subprocess) |
 | POST | `/api/tasks/:id/seed/stop` | Stop an active seed session |
 | DELETE | `/api/tasks/:id/seed` | Discard a seed to allow re-seeding |
 

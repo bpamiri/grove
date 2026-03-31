@@ -30,7 +30,7 @@ Start the broker, orchestrator, and tunnel.
 grove up
 ```
 
-Starts the Bun HTTP server, spawns the orchestrator in a tmux session named `grove`, and optionally starts a Cloudflare tunnel. Runs in the foreground. Press Ctrl+C to stop.
+Starts the Bun HTTP server, initializes the orchestrator, and optionally starts a Cloudflare tunnel. Runs in the foreground. Press Ctrl+C to stop.
 
 Also performs a background update check (see [Upgrading](../getting-started/upgrading.md)).
 
@@ -132,7 +132,7 @@ grove chat "Implement the login feature"
 grove chat "What's the status of the API refactor?"
 ```
 
-Messages are relayed to the orchestrator's tmux session. View the response via `tmux attach -t grove` or the web GUI.
+Messages are relayed to the orchestrator subprocess. View the response in the web GUI.
 
 ---
 
@@ -156,6 +156,34 @@ Requires 2+ draft tasks in the specified tree. The analyzer predicts which files
 | `--json` | Output the full batch plan as JSON (useful for scripting) |
 
 See [Task Management — Batch Dispatch](task-management.md#batch-dispatch) for details on how wave analysis works.
+
+---
+
+### grove config
+
+Manage Grove configuration.
+
+```bash
+grove config version              # Show current config version
+grove config validate             # Validate grove.yaml against schema
+grove config migrate              # Migrate grove.yaml to latest version (backs up first)
+```
+
+The `migrate` subcommand creates a backup at `grove.yaml.bak` before applying changes. See [Configuration — Config Versioning](configuration.md#config-versioning) for details.
+
+---
+
+### grove plugins
+
+Manage Grove plugins.
+
+```bash
+grove plugins list                # List installed plugins and their status
+grove plugins enable <name>       # Enable a plugin
+grove plugins disable <name>      # Disable a plugin
+```
+
+Plugins are installed to `~/.grove/plugins/<name>/` with a `plugin.json` manifest. See [Configuration — Plugins](configuration.md#plugins) for details.
 
 ---
 
