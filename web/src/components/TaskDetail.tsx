@@ -6,6 +6,7 @@ import TaskForm from "./TaskForm";
 import SeedChat from "./SeedChat";
 import type { Seed, SeedMessage } from "../hooks/useSeed";
 import ActivityIndicator from "./ActivityIndicator";
+import VerdictPanel from "./VerdictPanel";
 
 interface PathInfo {
   description: string;
@@ -191,6 +192,14 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
           >
             PR #{task.pr_number} &rarr;
           </a>
+        </div>
+      )}
+
+      {/* Verdict panel for PR review tasks awaiting decision */}
+      {task.status === "waiting" && task.source_pr && (
+        <div>
+          <Label>Verdict</Label>
+          <VerdictPanel task={task} onAction={() => window.location.reload()} />
         </div>
       )}
 

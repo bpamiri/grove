@@ -116,6 +116,7 @@ export interface Task {
   branch: string | null;
   worktree_path: string | null;
   github_issue: number | null;
+  source_pr: number | null;
   labels: string | null;
   pr_url: string | null;
   pr_number: number | null;
@@ -269,7 +270,7 @@ export interface QualityGatesConfig {
 
 export interface PipelineStep {
   id: string;
-  type: "worker" | "gate" | "merge" | "review";
+  type: "worker" | "gate" | "merge" | "review" | "verdict";
   prompt?: string;
   on_success: string;
   on_failure: string;

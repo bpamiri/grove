@@ -53,6 +53,12 @@ export class Database {
       }
     }
 
+    // Add source_pr column (links task to contributed PR being reviewed)
+    const hasSourcePr = cols.some(c => c.name === "source_pr");
+    if (!hasSourcePr) {
+      this.run("ALTER TABLE tasks ADD COLUMN source_pr INTEGER");
+    }
+
     // Add labels column (comma-separated GitHub issue labels)
     const hasLabels = cols.some(c => c.name === "labels");
     if (!hasLabels) {

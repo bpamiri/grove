@@ -278,6 +278,17 @@ async function executeStep(
       break;
     }
 
+    case "verdict": {
+      db.run(
+        "UPDATE tasks SET status = 'waiting', paused = 1 WHERE id = ?",
+        [task.id],
+      );
+      db.addEvent(task.id, null, "verdict_waiting", "Awaiting maintainer decision");
+      bus.emit("task:status", { taskId: task.id, status: "waiting" });
+      // Pipeline pauses here — no onStepComplete. Human acts via /api/tasks/:id/verdict
+      break;
+    }
+
     default:
       failTask(db, task.id, `Unknown step type "${(step as any).type}"`);
   }

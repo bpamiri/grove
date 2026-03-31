@@ -203,6 +203,9 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                     {task.tree_id && <span>{task.tree_id}</span>}
                     <span>{task.id}</span>
                     <span>{task.path_name}</span>
+                    {task.source_pr && (
+                      <span className="text-purple-400" title={`PR #${task.source_pr}`}>PR</span>
+                    )}
                   </div>
                   {task.status === "active" && !task.paused && (
                     <div className="text-xs text-blue-400 mt-1.5">

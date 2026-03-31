@@ -17,6 +17,7 @@ import { generateSubdomain, generateSecret } from "./subdomain";
 import { registerGrove, startHeartbeat, stopHeartbeat, deregisterGrove } from "./registry";
 import { wireNotifications } from "../notifications/index";
 import { wireGitHubSync } from "./github-sync";
+import { startPrPoller, stopPrPoller } from "../pr/poller";
 
 export interface BrokerInfo {
   pid: number;
@@ -103,6 +104,9 @@ export async function startBroker(): Promise<BrokerInfo> {
   // Wire GitHub issue auto-creation on task creation
   wireGitHubSync(db);
 
+  // Start PR poller (polls GitHub for new PRs per tree)
+  startPrPoller(db);
+
   // Initialize orchestrator
   orchestrator.init(db);
 
@@ -178,6 +182,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     stopHealthMonitor();
     stopCostMonitor();
     stopHeartbeat();
+    stopPrPoller();
     // Deregister from grove.cloud (best-effort, non-blocking)
     const tc = tunnelConfig();
     if (tc.domain && tc.subdomain && tc.secret) {

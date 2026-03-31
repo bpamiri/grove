@@ -36,6 +36,16 @@
 
 ## Unreleased
 
+### Added
+- **PR Import and Review** — import contributed PRs for agent-assisted review
+  - New `pr-review` pipeline path: CI gate → agent review → maintainer verdict
+  - New `verdict` step type: pauses pipeline for human decision (merge/request changes/close/defer)
+  - PR auto-import via polling (configurable per tree in `grove.yaml`)
+  - Manual import via API, CLI, and GUI ("Import PRs" button)
+  - Verdict panel in task detail with action buttons and review report display
+  - New `source_pr` column on tasks to track contributed PR number
+  - GitHub helpers: `ghPrView`, `ghPrReview`, `ghPrClose`, `ghPrCheckout`
+
 ### 🚀 Enhancements
 
 - (W-033) batch planner — analyze draft tasks, predict file overlap, build dependency graph, dispatch in execution waves (`grove batch`, API, GUI)

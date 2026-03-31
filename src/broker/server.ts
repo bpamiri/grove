@@ -452,6 +452,31 @@ async function handleApi(
       }
     }
 
+    // POST /api/trees/:id/import-prs — create tasks from open contributed PRs
+    const importPrsMatch = path.match(/^\/api\/trees\/([^/]+)\/import-prs$/);
+    if (importPrsMatch && req.method === "POST") {
+      const tree = db.treeGet(importPrsMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+      if (!tree.github) return json({ error: "No GitHub repo configured" }, 400);
+
+      try {
+        const { ghPrList } = await import("../merge/github");
+        const { filterExternalPRs, importPr } = await import("../pr/poller");
+        const prs = ghPrList(tree.github, { state: "open", limit: 50 });
+        const external = filterExternalPRs(prs, tree.branch_prefix);
+
+        let imported = 0;
+        for (const pr of external) {
+          const taskId = importPr(db, tree, pr);
+          if (taskId) imported++;
+        }
+
+        return json({ ok: true, imported, skipped: external.length - imported, total: prs.length, external: external.length });
+      } catch (err: any) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     // GET /api/tasks
     if (path === "/api/tasks" && req.method === "GET") {
       const url = new URL(req.url);
@@ -717,6 +742,65 @@ async function handleApi(
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
       return json({ ok: true, taskId, step: step ?? task.current_step, status: "queued" });
+    }
+
+    // POST /api/tasks/:id/verdict — maintainer decision on PR review
+    const verdictMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/verdict$/);
+    if (verdictMatch && req.method === "POST") {
+      const taskId = verdictMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      if (task.status !== "waiting") return json({ error: "Task is not awaiting verdict" }, 400);
+      if (!task.source_pr || !task.tree_id) return json({ error: "Task has no source PR" }, 400);
+
+      const tree = db.treeGet(task.tree_id);
+      if (!tree?.github) return json({ error: "Tree has no GitHub repo" }, 400);
+
+      let body: { action: string; comment?: string };
+      try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+
+      const { action, comment } = body;
+
+      switch (action) {
+        case "merge": {
+          const { ghPrMerge } = await import("../merge/github");
+          const merged = ghPrMerge(tree.github, task.source_pr);
+          if (!merged) return json({ error: "Merge failed — PR may have conflicts" }, 500);
+          db.run("UPDATE tasks SET status = 'completed', current_step = '$done', completed_at = datetime('now'), paused = 0 WHERE id = ?", [taskId]);
+          db.addEvent(taskId, null, "verdict_merge", `Maintainer merged PR #${task.source_pr}`);
+          bus.emit("task:status", { taskId, status: "completed" });
+          return json({ ok: true, action: "merge" });
+        }
+
+        case "request_changes": {
+          const { ghPrReview } = await import("../merge/github");
+          const posted = ghPrReview(tree.github, task.source_pr, {
+            event: "REQUEST_CHANGES",
+            body: comment ?? "Changes requested.",
+          });
+          db.run("UPDATE tasks SET status = 'deferred', paused = 0 WHERE id = ?", [taskId]);
+          db.addEvent(taskId, null, "verdict_request_changes", `Maintainer requested changes on PR #${task.source_pr}`);
+          bus.emit("task:status", { taskId, status: "deferred" });
+          return json({ ok: true, action: "request_changes", posted });
+        }
+
+        case "close": {
+          const { ghPrClose } = await import("../merge/github");
+          ghPrClose(tree.github, task.source_pr, comment);
+          db.run("UPDATE tasks SET status = 'completed', current_step = '$done', completed_at = datetime('now'), paused = 0 WHERE id = ?", [taskId]);
+          db.addEvent(taskId, null, "verdict_close", `Maintainer closed PR #${task.source_pr}`);
+          bus.emit("task:status", { taskId, status: "completed" });
+          return json({ ok: true, action: "close" });
+        }
+
+        case "defer": {
+          db.addEvent(taskId, null, "verdict_defer", "Maintainer deferred decision");
+          return json({ ok: true, action: "defer" });
+        }
+
+        default:
+          return json({ error: `Unknown action: ${action}` }, 400);
+      }
     }
 
     // POST /api/rotate-credentials — regenerate auth token + subdomain + secret
