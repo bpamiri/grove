@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, lazy, Suspense } from "react";
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 
 import { useTasks, type Task } from "./hooks/useTasks";
@@ -10,9 +10,11 @@ import Chat from "./components/Chat";
 import Settings from "./components/Settings";
 import Dashboard from "./components/Dashboard";
 
+const DagEditor = lazy(() => import("./components/DagEditor"));
+
 export type StatusFilter = "all" | "active" | "failed" | "done";
 
-type View = "tasks" | "settings" | "dashboard";
+type View = "tasks" | "settings" | "dashboard" | "dag";
 type MobileTab = "trees" | "tasks" | "chat";
 
 function useIsMobile(breakpoint = 768) {
@@ -135,6 +137,7 @@ export default function App() {
               connected={connected}
               onSettingsClick={() => { setView("settings"); setMobileTab("tasks"); }}
               onDashboardClick={() => { setView("dashboard"); setMobileTab("tasks"); }}
+              onDagClick={() => { setView("dag"); setMobileTab("tasks"); }}
             />
           )}
           {mobileTab === "tasks" && (
@@ -155,6 +158,12 @@ export default function App() {
                 selectedTree={taskState.selectedTree}
                 allTasks={taskState.tasks}
               />
+            ) : view === "dag" ? (
+              <Suspense fallback={<div className="text-zinc-500 p-4">Loading DAG editor...</div>}>
+                <div className="h-[500px]">
+                  <DagEditor onSelectTask={(id) => { taskState.setSelectedTree(null); setView("tasks"); }} />
+                </div>
+              </Suspense>
             ) : view === "dashboard" ? (
               <Dashboard wsMessages={wsMessages} status={taskState.status} />
             ) : (
@@ -217,6 +226,7 @@ export default function App() {
           connected={connected}
           onSettingsClick={() => setView("settings")}
           onDashboardClick={() => { setView("dashboard"); }}
+          onDagClick={() => { setView("dag"); }}
         />
       </div>
 
@@ -245,6 +255,12 @@ export default function App() {
             selectedTree={taskState.selectedTree}
             allTasks={taskState.tasks}
           />
+        ) : view === "dag" ? (
+          <Suspense fallback={<div className="text-zinc-500 p-4">Loading DAG editor...</div>}>
+            <div className="h-[500px]">
+              <DagEditor onSelectTask={(id) => { taskState.setSelectedTree(null); setView("tasks"); }} />
+            </div>
+          </Suspense>
         ) : view === "dashboard" ? (
           <Dashboard wsMessages={wsMessages} status={taskState.status} />
         ) : (
