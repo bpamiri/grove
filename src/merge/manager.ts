@@ -87,7 +87,7 @@ async function processMerge(task: Task, tree: Tree, db: Database): Promise<void>
         "",
         ...(issueNumber ? [`Closes #${issueNumber}`, ""] : []),
         "---",
-        "*Created by [Grove](https://grove.cloud)*",
+        "*Delivered by [Grove](https://grove.cloud)*",
       ].join("\n");
 
       const treeConfig = tree.config ? JSON.parse(tree.config) : {};

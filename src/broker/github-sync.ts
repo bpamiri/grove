@@ -11,7 +11,7 @@ export function formatIssueBody(task: { id: string; description: string | null; 
     `**Task:** ${task.id}`,
     `**Path:** ${task.path_name}`,
     "",
-    "*Created by [Grove](https://grove.cloud)*",
+    "*Delivered by [Grove](https://grove.cloud)*",
   ].join("\n");
 }
 
