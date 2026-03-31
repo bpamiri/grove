@@ -60,7 +60,7 @@ function broadcast(type: string, data: any) {
 }
 
 // Subscribe to event bus and broadcast to WS clients
-function wireEventBus() {
+function wireEventBus(db: Database) {
   const forward = <K extends keyof EventBusMap>(event: K) =>
     bus.on(event, (data) => broadcast(event, data));
 
@@ -93,6 +93,14 @@ function wireEventBus() {
   forward("agent:text");
   forward("agent:cost");
 
+  // Persist SAP activity events for observability dashboard
+  bus.on("agent:tool_use", (data) => {
+    db.addEvent(data.taskId, data.agentId, "agent:tool_use", `${data.tool}: ${data.input}`);
+  });
+  bus.on("agent:thinking", (data) => {
+    db.addEvent(data.taskId, data.agentId, "agent:thinking", data.snippet);
+  });
+
   // SAP seed events
   forward("seed:response");
   forward("seed:complete");
@@ -121,7 +129,7 @@ const MIME_TYPES: Record<string, string> = {
 export function startServer(opts: ServerOptions) {
   const { db, port, onChat, staticDir } = opts;
 
-  wireEventBus();
+  wireEventBus(db);
   broadcaster = new BatchedBroadcaster(100, broadcastRaw);
   setSeedBroadcast(broadcast);
 
@@ -941,6 +949,23 @@ async function handleApi(
       return json({
         tasks: db.taskTimeline(since),
       });
+    }
+
+    // GET /api/analytics/utilization?range=1h|4h|24h|7d — worker utilization
+    if (path === "/api/analytics/utilization" && req.method === "GET") {
+      const range = new URL(req.url).searchParams.get("range") ?? "24h";
+      return json(db.workerUtilization(range));
+    }
+
+    // GET /api/analytics/events — filtered event log
+    if (path === "/api/analytics/events" && req.method === "GET") {
+      const params = new URL(req.url).searchParams;
+      return json(db.filteredEvents({
+        taskId: params.get("task") ?? undefined,
+        eventType: params.get("type") ?? undefined,
+        since: params.get("since") ?? "24h",
+        limit: Number(params.get("limit") ?? 200),
+      }));
     }
 
     // POST /api/orchestrator/reset — start a fresh orchestrator session
