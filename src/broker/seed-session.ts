@@ -18,6 +18,15 @@ interface ConversationMessage {
   ts: string;
 }
 
+export interface SeedBranch {
+  id: string;
+  sessionId: string;       // separate claude session for this branch
+  parentMessageIndex: number;
+  label?: string;
+  messages: ConversationMessage[];
+  isFirstMessage: boolean;
+}
+
 interface SeedSession {
   taskId: string;
   sessionId: string;           // claude --session-id / --resume target
@@ -29,6 +38,8 @@ interface SeedSession {
   isFirstMessage: boolean;
   systemPrompt: string;
   treePath: string;
+  branches: Map<string, SeedBranch>;
+  activeBranchId: string;  // "main" or branch ID
 }
 
 type BroadcastFn = (type: string, data: any) => void;
@@ -78,6 +89,8 @@ export function startSeedSession(
     isFirstMessage: true,
     systemPrompt,
     treePath: tree.path,
+    branches: new Map(),
+    activeBranchId: "main",
   };
 
   sessions.set(taskId, session);
@@ -102,8 +115,12 @@ export function sendSeedMessage(taskId: string, text: string, db: Database): boo
     return true;
   }
 
+  // Determine active conversation target (main or branch)
+  const branch = session.activeBranchId !== "main" ? session.branches.get(session.activeBranchId) : null;
+  const conversation = branch ? branch.messages : session.conversation;
+
   // Record user message
-  session.conversation.push({
+  conversation.push({
     role: "user",
     content: text,
     ts: new Date().toISOString(),
@@ -113,8 +130,12 @@ export function sendSeedMessage(taskId: string, text: string, db: Database): boo
   // Broadcast user message
   broadcast("seed:message", { taskId, source: "user", content: text });
 
-  // Dispatch the claude process
-  dispatchSeedMessage(session, text, db);
+  // Dispatch the claude process — use branch sessionId if on a branch
+  const effectiveSessionId = branch ? branch.sessionId : session.sessionId;
+  const isFirst = branch ? branch.isFirstMessage : session.isFirstMessage;
+  dispatchSeedMessage(session, text, db, effectiveSessionId, isFirst);
+  if (branch) branch.isFirstMessage = false;
+  else session.isFirstMessage = false;
   return true;
 }
 
@@ -145,6 +166,58 @@ export function isSeedSessionActive(taskId: string): boolean {
 export function getSeedConversation(taskId: string): ConversationMessage[] {
   const session = sessions.get(taskId);
   return session?.conversation ?? [];
+}
+
+/** Create a branch from a specific message index */
+export function createSeedBranch(taskId: string, parentMessageIndex: number, label?: string): string | null {
+  const session = sessions.get(taskId);
+  if (!session) return null;
+
+  const branchId = `branch-${Date.now()}`;
+  const branch: SeedBranch = {
+    id: branchId,
+    sessionId: `seed-${taskId}-${branchId}`,
+    parentMessageIndex,
+    label,
+    messages: session.conversation.slice(0, parentMessageIndex + 1),
+    isFirstMessage: true,
+  };
+
+  session.branches.set(branchId, branch);
+  broadcast("seed:branch_created", { taskId, branchId, label, parentMessageIndex });
+  return branchId;
+}
+
+/** Switch to a branch */
+export function switchSeedBranch(taskId: string, branchId: string): boolean {
+  const session = sessions.get(taskId);
+  if (!session) return false;
+  if (branchId !== "main" && !session.branches.has(branchId)) return false;
+  session.activeBranchId = branchId;
+  broadcast("seed:branch_switched", { taskId, branchId });
+  return true;
+}
+
+/** Get branches for a seed session */
+export function getSeedBranches(taskId: string): SeedBranch[] {
+  const session = sessions.get(taskId);
+  if (!session) return [];
+  return Array.from(session.branches.values());
+}
+
+// ---------------------------------------------------------------------------
+// Stage detection (exported for testing)
+// ---------------------------------------------------------------------------
+
+/** Detect the brainstorming stage from Claude's response text */
+export function detectSeedStage(text: string): "exploring" | "clarifying" | "proposing" | "designing" | null {
+  const lower = text.toLowerCase();
+  if (lower.includes("explore") || lower.includes("read the") || lower.includes("survey") || lower.includes("look at the")) return "exploring";
+  if (lower.includes("question") || lower.includes("which option") || lower.includes("would you prefer") || lower.includes("a)") || lower.includes("b)")) return "clarifying";
+  // Check designing before proposing since "recommended design" should match designing
+  if (lower.includes("design") || lower.includes("architecture") || lower.includes("## ")) return "designing";
+  if (lower.includes("approaches") || lower.includes("options") || lower.includes("recommend") || lower.includes("trade-off") || lower.includes("tradeoff")) return "proposing";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,17 +292,19 @@ export function buildSeedClaudeArgs(
 // Internal: dispatch and monitor
 // ---------------------------------------------------------------------------
 
-function dispatchSeedMessage(session: SeedSession, text: string, db: Database): void {
+function dispatchSeedMessage(session: SeedSession, text: string, db: Database, overrideSessionId?: string, overrideIsFirst?: boolean): void {
   session.status = "running";
+
+  const effectiveSessionId = overrideSessionId ?? session.sessionId;
+  const effectiveIsFirst = overrideIsFirst ?? session.isFirstMessage;
 
   const args = buildSeedClaudeArgs(
     text,
-    session.sessionId,
+    effectiveSessionId,
     session.treePath,
-    session.isFirstMessage,
+    effectiveIsFirst,
     session.systemPrompt,
   );
-  session.isFirstMessage = false;
 
   const proc = Bun.spawn(args, {
     cwd: session.treePath,
@@ -258,6 +333,7 @@ async function monitorSeedSession(
     }
     const reader = (stdout as ReadableStream<Uint8Array>).getReader();
     let accumulatedText = "";
+    let currentStage: string | null = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -277,6 +353,16 @@ async function monitorSeedSession(
           for (const block of obj.message?.content ?? []) {
             if (block.type === "text" && block.text) {
               accumulatedText += block.text;
+
+              // Emit streaming chunk
+              bus.emit("seed:chunk", { taskId, content: block.text, ts: Date.now() });
+
+              // Detect and broadcast stage changes
+              const stage = detectSeedStage(accumulatedText);
+              if (stage && stage !== currentStage) {
+                currentStage = stage;
+                broadcast("seed:stage", { taskId, stage });
+              }
 
               // Scan for structured seed events in the text
               const events = parseSeedEvents(trimmed);
@@ -304,7 +390,10 @@ async function monitorSeedSession(
     // Extract the clean response text (strip JSON events)
     const responseText = extractResponseText(accumulatedText);
     if (responseText) {
-      session.conversation.push({
+      // Push to branch conversation if on a branch, otherwise main
+      const branch = session.activeBranchId !== "main" ? session.branches.get(session.activeBranchId) : null;
+      const conversation = branch ? branch.messages : session.conversation;
+      conversation.push({
         role: "assistant",
         content: responseText,
         ts: new Date().toISOString(),

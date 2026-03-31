@@ -348,6 +348,7 @@ export interface EventBusMap {
 
   // SAP seed events
   "seed:response": { taskId: string; content: string; html?: string; ts: number };
+  "seed:chunk": { taskId: string; content: string; ts: number };
   "seed:complete": { taskId: string; summary: string; spec: string; ts: number };
   "seed:idle": { taskId: string; ts: number };
 }

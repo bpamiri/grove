@@ -8,6 +8,12 @@ export interface SeedMessage {
   html?: string;
 }
 
+export interface SeedBranchInfo {
+  id: string;
+  label?: string;
+  parentMessageIndex: number;
+}
+
 export interface Seed {
   task_id: string;
   summary: string | null;
@@ -21,6 +27,10 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
   const [seed, setSeed] = useState<Seed | null>(null);
   const [messages, setMessages] = useState<SeedMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [stage, setStage] = useState<string | null>(null);
+  const [branches, setBranches] = useState<SeedBranchInfo[]>([]);
+  const [activeBranch, setActiveBranch] = useState("main");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const loadSeed = useCallback(async (tid: string) => {
@@ -85,6 +95,29 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
         html: msg.data.html,
       };
       setMessages(prev => [...prev, newMsg]);
+      if (msg.data.source === "ai") {
+        setStreamingText(""); // Clear streaming buffer since full message arrived
+      }
+    }
+
+    if (msg.type === "seed:chunk" && msg.data?.taskId === taskId) {
+      setStreamingText(prev => prev + msg.data.content);
+    }
+
+    if (msg.type === "seed:stage" && msg.data?.taskId === taskId) {
+      setStage(msg.data.stage);
+    }
+
+    if (msg.type === "seed:branch_created" && msg.data?.taskId === taskId) {
+      setBranches(prev => [...prev, {
+        id: msg.data.branchId,
+        label: msg.data.label,
+        parentMessageIndex: msg.data.parentMessageIndex,
+      }]);
+    }
+
+    if (msg.type === "seed:branch_switched" && msg.data?.taskId === taskId) {
+      setActiveBranch(msg.data.branchId);
     }
 
     if (msg.type === "seed:started" && msg.data?.taskId === taskId) {
@@ -107,10 +140,11 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  }, [messages.length, streamingText]);
 
   return {
-    seed, messages, loading, bottomRef,
+    seed, messages, loading, bottomRef, streamingText, stage,
+    branches, activeBranch,
     startSeed, stopSeed, sendMessage, discardSeed, handleWsMessage,
     isActive: seed?.active ?? false,
     isSeeded: seed?.status === "completed",
