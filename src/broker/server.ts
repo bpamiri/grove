@@ -7,6 +7,7 @@ import { GROVE_VERSION, type EventBusMap } from "../shared/types";
 import { EMBEDDED_ASSETS } from "./web-assets.generated";
 import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
 import { ActivityRingBuffer, type ActivityEvent } from "./ring-buffer";
+import { BatchedBroadcaster } from "./batched-broadcaster";
 
 export interface ServerOptions {
   db: Database;
@@ -28,39 +29,6 @@ const activityBuffer = new ActivityRingBuffer(100);
 const BATCHED_EVENTS = new Set([
   "agent:tool_use", "agent:thinking", "agent:text", "agent:cost",
 ]);
-
-export class BatchedBroadcaster {
-  private pending: Array<{ type: string; data: any }> = [];
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private sendFn: (msg: string) => void;
-
-  constructor(intervalMs: number, sendFn: (msg: string) => void) {
-    this.sendFn = sendFn;
-    this.timer = setInterval(() => this.flush(), intervalMs);
-  }
-
-  queue(type: string, data: any): void {
-    this.pending.push({ type, data });
-  }
-
-  sendImmediate(type: string, data: any): void {
-    this.sendFn(JSON.stringify({ type, data, ts: Date.now() }));
-  }
-
-  flush(): void {
-    if (this.pending.length === 0) return;
-    const batch = this.pending.splice(0);
-    for (const { type, data } of batch) {
-      this.sendFn(JSON.stringify({ type, data, ts: Date.now() }));
-    }
-  }
-
-  stop(): void {
-    this.flush();
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-  }
-}
 
 let broadcaster: BatchedBroadcaster | null = null;
 

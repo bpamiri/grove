@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { BatchedBroadcaster } from "../../src/broker/server";
+import { BatchedBroadcaster } from "../../src/broker/batched-broadcaster";
 
 describe("BatchedBroadcaster", () => {
   test("flushes events after interval", async () => {
