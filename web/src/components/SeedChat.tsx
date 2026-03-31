@@ -12,6 +12,8 @@ interface Props {
   bottomRef: RefObject<HTMLDivElement | null>;
   taskId?: string;
   taskTitle?: string;
+  streamingText?: string;
+  stage?: string | null;
   onSend: (text: string) => void;
   onStart: () => void;
   onStop: () => void;
@@ -44,7 +46,7 @@ function HtmlFragment({ html, onChoice }: { html: string; onChoice: (value: stri
   );
 }
 
-export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, taskId, taskTitle, onSend, onStart, onStop, onDiscard }: Props) {
+export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, taskId, taskTitle, streamingText, stage, onSend, onStart, onStop, onDiscard }: Props) {
   const [input, setInput] = useState("");
   const [expanded, setExpanded] = useState(false);
 
@@ -120,6 +122,19 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
         </button>
       </div>
 
+      {/* Stage indicator */}
+      {isActive && stage && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 text-[10px] text-zinc-400">
+          <span className={`w-1.5 h-1.5 rounded-full ${
+            stage === "exploring" ? "bg-blue-400" :
+            stage === "clarifying" ? "bg-amber-400" :
+            stage === "proposing" ? "bg-purple-400" :
+            "bg-emerald-400"
+          }`} />
+          <span className="capitalize">{stage}</span>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="max-h-80 overflow-y-auto p-3 space-y-2">
         {/* Welcome guidance when no messages yet */}
@@ -148,14 +163,21 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
             </div>
           </div>
         ))}
-        {/* Typing indicator while AI is thinking */}
-        {aiThinking && (
+        {/* Streaming text while AI is generating */}
+        {streamingText ? (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-lg px-3 py-2 bg-emerald-500/10 text-xs text-zinc-300 whitespace-pre-wrap">
+              {streamingText}
+              <span className="inline-block w-1.5 h-4 bg-zinc-400 ml-0.5 animate-pulse" />
+            </div>
+          </div>
+        ) : aiThinking ? (
           <div className="flex justify-start">
             <div className="rounded-lg px-3 py-2 bg-emerald-500/10">
               <TypingIndicator />
             </div>
           </div>
-        )}
+        ) : null}
         <div ref={bottomRef} />
       </div>
 
