@@ -168,6 +168,16 @@ export function onStepComplete(
     );
     bus.emit("task:status", { taskId, status: "completed" });
     bus.emit("merge:completed", { taskId, prNumber: task.pr_number ?? 0 });
+
+    // Best-effort worktree cleanup
+    if (task.tree_id) {
+      const tree = db.treeGet(task.tree_id);
+      if (tree) {
+        import("../shared/worktree").then(({ cleanupWorktree }) => {
+          cleanupWorktree(taskId, tree.path);
+        }).catch(() => {});
+      }
+    }
     return;
   }
 
@@ -205,6 +215,16 @@ export function onStepComplete(
       `Retries exhausted (${task.max_retries})${context ? `: ${context}` : ""}`,
     );
     bus.emit("task:status", { taskId, status: "failed" });
+
+    // Best-effort worktree cleanup
+    if (task.tree_id) {
+      const tree = db.treeGet(task.tree_id);
+      if (tree) {
+        import("../shared/worktree").then(({ cleanupWorktree }) => {
+          cleanupWorktree(taskId, tree.path);
+        }).catch(() => {});
+      }
+    }
     return;
   }
 
@@ -340,4 +360,15 @@ function failTask(db: Database, taskId: string, reason: string): void {
   );
   db.addEvent(taskId, null, "task_failed", reason);
   bus.emit("task:status", { taskId, status: "failed" });
+
+  // Best-effort worktree cleanup
+  const task = db.taskGet(taskId);
+  if (task?.tree_id) {
+    const tree = db.treeGet(task.tree_id);
+    if (tree) {
+      import("../shared/worktree").then(({ cleanupWorktree }) => {
+        cleanupWorktree(taskId, tree.path);
+      }).catch(() => {});
+    }
+  }
 }
