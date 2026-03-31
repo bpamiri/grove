@@ -1,6 +1,43 @@
 # Changelog
 
 
+## v0.1.17
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.16...v0.1.17)
+
+### 🚀 Enhancements
+
+- (W-038) add adversarial review step type for plan-review loops ([7f00a4a](https://github.com/bpamiri/grove/commit/7f00a4a))
+- (W-039) full task creation form with edit, dependencies, and batch import ([fbd89e3](https://github.com/bpamiri/grove/commit/fbd89e3))
+- (W-039) two-way GitHub sync, issue labels, and dependency chain preview ([edc78b4](https://github.com/bpamiri/grove/commit/edc78b4))
+- (W-040) per-tree default path with override in task creation ([cc7a817](https://github.com/bpamiri/grove/commit/cc7a817))
+- (W-040) validate default_path in grove.yaml config ([1fea52d](https://github.com/bpamiri/grove/commit/1fea52d))
+- (W-041) add verdict step type and source_pr column ([6aeb6f9](https://github.com/bpamiri/grove/commit/6aeb6f9))
+- (W-041) implement verdict step execution in step engine ([77b7797](https://github.com/bpamiri/grove/commit/77b7797))
+- (W-041) add gh PR view, review, close, and checkout helpers ([3b02340](https://github.com/bpamiri/grove/commit/3b02340))
+- (W-041) add PR poller with filtering and auto-import ([2c8e06a](https://github.com/bpamiri/grove/commit/2c8e06a))
+- (W-041) add verdict API and import-prs endpoint ([a377b7a](https://github.com/bpamiri/grove/commit/a377b7a))
+- (W-041) add verdict panel UI, Import PRs button, and PR badge ([c10a9f0](https://github.com/bpamiri/grove/commit/c10a9f0))
+- (W-041) wire PR poller to broker, add pr-review path, update changelog ([2881b64](https://github.com/bpamiri/grove/commit/2881b64))
+
+### 🩹 Fixes
+
+- (W-042) correct 7 doc inaccuracies found via code review ([6897c61](https://github.com/bpamiri/grove/commit/6897c61))
+- (W-041) add source_pr to web Task type, fix paths description type ([34d52f9](https://github.com/bpamiri/grove/commit/34d52f9))
+
+### 📖 Documentation
+
+- (W-042) add comprehensive documentation for recent features ([f91c633](https://github.com/bpamiri/grove/commit/f91c633))
+- (W-042) add orchestrator and batch analysis deep dives, expand CLI/config/GitHub docs ([d443935](https://github.com/bpamiri/grove/commit/d443935))
+- (W-042) add API reference, fix config gaps, correct inaccuracies ([feb0784](https://github.com/bpamiri/grove/commit/feb0784))
+- (W-042) update session summary for session 4 ([2c5388d](https://github.com/bpamiri/grove/commit/2c5388d))
+- Add PR import and review design spec ([cbb57c5](https://github.com/bpamiri/grove/commit/cbb57c5))
+- Add PR import and review implementation plan ([7e8aa70](https://github.com/bpamiri/grove/commit/7e8aa70))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.16
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.15...v0.1.16)
