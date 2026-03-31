@@ -3,12 +3,11 @@
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import type { Database } from "../broker/db";
+import { expandTilde, realPath } from "./platform";
 
-/** Expand ~ to $HOME */
+/** Expand ~ to home directory */
 export function expandHome(p: string): string {
-  if (p.startsWith("~/")) return join(process.env.HOME || "~", p.slice(2));
-  if (p === "~") return process.env.HOME || "~";
-  return p;
+  return expandTilde(p);
 }
 
 /** Convert a title to a URL-safe slug */
@@ -137,8 +136,7 @@ export function listWorktrees(treePath: string): WorktreeEntry[] {
   if (!existsSync(join(repoPath, ".git"))) return [];
 
   // Resolve real path for consistent comparison
-  const resolveResult = Bun.spawnSync(["pwd", "-P"], { cwd: repoPath });
-  const resolvedPath = resolveResult.stdout.toString().trim();
+  const resolvedPath = realPath(repoPath);
   const groveDir = join(resolvedPath, ".grove", "worktrees");
 
   const result = git(repoPath, ["worktree", "list", "--porcelain"]);

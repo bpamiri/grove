@@ -1,6 +1,7 @@
 // Grove v3 — Merge Manager: PR lifecycle management
 // Handles: push branch → create PR → watch CI → merge on green
 // On CI failure, sends the task back to a worker with failure context to fix and re-push.
+import { expandTilde } from "../shared/platform";
 import { bus } from "../broker/event-bus";
 import { ghPrCreate, ghPrMerge, ghPrChecks, ghPrCheckDetails, ghPrEditTitle, ghIssueClose, gitPush, gitDeleteBranch, type PrCheckStatus } from "./github";
 import { cleanupWorktree } from "../shared/worktree";
@@ -195,9 +196,7 @@ function postMergeCleanup(task: Task, tree: Tree, db: Database): void {
 
   // Delete local and remote branch
   if (task.branch) {
-    const repoPath = tree.path.startsWith("~/")
-      ? tree.path.replace("~", process.env.HOME || "~")
-      : tree.path;
+    const repoPath = expandTilde(tree.path);
     const { localOk, remoteOk } = gitDeleteBranch(repoPath, task.branch);
     if (localOk) cleaned.push("local branch");
     if (remoteOk) cleaned.push("remote branch");
