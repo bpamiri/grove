@@ -15,7 +15,7 @@ interface PathInfo {
 
 interface Props {
   task: Task;
-  activityLog?: Array<{ ts: number; msg: string }>;
+  activityLog?: Array<{ ts: number; msg: string; kind?: string }>;
   steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
   send: (data: any) => void;
   trees: Tree[];
@@ -234,33 +234,57 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
   );
 }
 
-function ActivityFeed({ log, live, since }: { log: Array<{ ts: number; msg: string }>; live?: boolean; since?: string | null }) {
+function ActivityFeed({ log, live, since }: { log: Array<{ ts: number; msg: string; kind?: string }>; live?: boolean; since?: string | null }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [paused, setPaused] = useState(false);
+  const [pinnedLength, setPinnedLength] = useState(0);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [log.length]);
+    if (!paused) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [log.length, paused]);
+
+  const displayLog = paused ? log.slice(0, pinnedLength) : log;
 
   return (
     <div>
-      <Label>{live ? "Live Activity" : "Activity Log"}</Label>
+      <div className="flex justify-between items-center mb-1.5">
+        <Label>{live ? "Live Activity" : "Activity Log"}</Label>
+        {live && log.length > 0 && (
+          <button
+            onClick={() => {
+              if (!paused) setPinnedLength(log.length);
+              setPaused(!paused);
+            }}
+            className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+          >
+            {paused ? `Resume (${log.length - pinnedLength} new)` : "Pause"}
+          </button>
+        )}
+      </div>
       <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
-        {log.length === 0 && live && (
+        {displayLog.length === 0 && live && (
           <div className="text-blue-400/70 text-center py-3">
             <ActivityIndicator since={since} label="Waiting for activity" size="md" />
           </div>
         )}
-        {log.map((entry, i) => {
+        {displayLog.map((entry, i) => {
           const time = new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
           return (
-            <div key={i} className="flex gap-2 hover:bg-zinc-900/50 px-1 rounded">
+            <div key={i} className="flex gap-2 hover:bg-zinc-900/50 px-1 rounded group">
               <span className="text-zinc-600 flex-shrink-0">{time}</span>
-              <span className={`${activityColor(entry.msg)} break-all`}>{entry.msg}</span>
+              <span className={`${activityColor(entry.msg, entry.kind)} break-all`}>
+                {entry.msg.length > 200 ? (
+                  <TruncatedText text={entry.msg} maxLength={200} />
+                ) : entry.msg}
+              </span>
             </div>
           );
         })}
-        {log.length > 0 && live && (
+        {displayLog.length > 0 && live && !paused && (
           <div className="text-blue-400/60 px-1 pt-1">
-            <ActivityIndicator since={log[log.length - 1]?.ts} />
+            <ActivityIndicator since={displayLog[displayLog.length - 1]?.ts} />
           </div>
         )}
         <div ref={bottomRef} />
@@ -269,12 +293,38 @@ function ActivityFeed({ log, live, since }: { log: Array<{ ts: number; msg: stri
   );
 }
 
-function activityColor(msg: string): string {
+function TruncatedText({ text, maxLength }: { text: string; maxLength: number }) {
+  const [expanded, setExpanded] = useState(false);
+  if (expanded) {
+    return (
+      <span>
+        {text}{" "}
+        <button onClick={() => setExpanded(false)} className="text-blue-400/60 hover:text-blue-400">less</button>
+      </span>
+    );
+  }
+  return (
+    <span>
+      {text.slice(0, maxLength)}
+      <button onClick={() => setExpanded(true)} className="text-blue-400/60 hover:text-blue-400">...more</button>
+    </span>
+  );
+}
+
+function activityColor(msg: string, kind?: string): string {
+  if (kind === "thinking") return "text-purple-400/70 italic";
+  if (kind === "text") return "text-zinc-300/80";
+  if (kind === "tool") {
+    if (msg.startsWith("Read") || msg.startsWith("Grep") || msg.startsWith("Glob")) return "text-zinc-400";
+    if (msg.startsWith("Edit") || msg.startsWith("Write")) return "text-amber-400";
+    if (msg.startsWith("Bash")) return "text-cyan-400";
+    return "text-blue-400";
+  }
+  // Legacy worker:activity messages (no kind)
   if (msg.startsWith("thinking:")) return "text-purple-400/70 italic";
   if (msg.startsWith("Read") || msg.startsWith("Grep") || msg.startsWith("Glob")) return "text-zinc-400";
   if (msg.startsWith("Edit") || msg.startsWith("Write")) return "text-amber-400";
   if (msg.startsWith("Bash")) return "text-cyan-400";
-  // Text output from Claude (not a tool call)
   if (!msg.includes(":") || msg.indexOf(":") > 20) return "text-zinc-300/80";
   return "text-zinc-300";
 }
