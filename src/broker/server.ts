@@ -6,6 +6,8 @@ import { bus } from "./event-bus";
 import { GROVE_VERSION, type EventBusMap } from "../shared/types";
 import { EMBEDDED_ASSETS } from "./web-assets.generated";
 import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
+import { ActivityRingBuffer, type ActivityEvent } from "./ring-buffer";
+import { BatchedBroadcaster } from "./batched-broadcaster";
 
 export interface ServerOptions {
   db: Database;
@@ -22,16 +24,37 @@ let server: ReturnType<typeof Bun.serve<WSData>> | null = null;
 const wsClients = new Set<{ send(data: string): void }>();
 let _remoteUrl: string | null = null;
 
+const activityBuffer = new ActivityRingBuffer(100);
+
+const BATCHED_EVENTS = new Set([
+  "agent:tool_use", "agent:thinking", "agent:text", "agent:cost",
+]);
+
+let broadcaster: BatchedBroadcaster | null = null;
+
 /** Set the tunnel URL (called after tunnel starts) */
 export function setRemoteUrl(url: string | null): void {
   _remoteUrl = url;
 }
 
-// Broadcast a message to all connected WebSocket clients
-function broadcast(type: string, data: any) {
-  const msg = JSON.stringify({ type, data, ts: Date.now() });
+function broadcastRaw(msg: string) {
   for (const ws of wsClients) {
     try { ws.send(msg); } catch { wsClients.delete(ws); }
+  }
+}
+
+// Broadcast a message to all connected WebSocket clients
+function broadcast(type: string, data: any) {
+  // Store activity events in ring buffer
+  if (BATCHED_EVENTS.has(type) && data?.taskId) {
+    activityBuffer.push(data.taskId, { type, ...data } as ActivityEvent);
+  }
+
+  // Batch high-frequency events, send others immediately
+  if (broadcaster && BATCHED_EVENTS.has(type)) {
+    broadcaster.queue(type, data);
+  } else {
+    broadcastRaw(JSON.stringify({ type, data, ts: Date.now() }));
   }
 }
 
@@ -73,6 +96,11 @@ function wireEventBus() {
   forward("seed:response");
   forward("seed:complete");
   forward("seed:idle");
+
+  // Clear ring buffer when worker finishes
+  bus.on("worker:ended", (data) => {
+    activityBuffer.clear(data.taskId);
+  });
 }
 
 // MIME types for static file serving
@@ -93,6 +121,7 @@ export function startServer(opts: ServerOptions) {
   const { db, port, onChat, staticDir } = opts;
 
   wireEventBus();
+  broadcaster = new BatchedBroadcaster(100, broadcastRaw);
   setSeedBroadcast(broadcast);
 
   server = Bun.serve<WSData>({
@@ -222,6 +251,8 @@ export function startServer(opts: ServerOptions) {
 }
 
 export function stopServer(): void {
+  broadcaster?.stop();
+  broadcaster = null;
   server?.stop();
   server = null;
   wsClients.clear();
@@ -640,6 +671,14 @@ async function handleApi(
       const { enqueue } = await import("./dispatch");
       enqueue(taskId);
       return json({ ok: true, taskId, status: "queued" });
+    }
+
+    // GET /api/tasks/:id/activity/live — ring buffer catch-up for active tasks
+    const liveActivityMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)\/activity\/live$/);
+    if (liveActivityMatch && req.method === "GET") {
+      const taskId = liveActivityMatch[1];
+      const events = activityBuffer.get(taskId);
+      return json(events);
     }
 
     // GET /api/tasks/:id/activity — recent tool_use activity from worker log
