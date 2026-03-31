@@ -14,6 +14,7 @@ const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void
   task:   () => import("./commands/tasks"),   // alias: grove task add
   batch:  () => import("./commands/batch"),
   chat:   () => import("./commands/chat"),
+  config: () => import("./commands/config"),
   cost:   () => import("./commands/cost"),
   help:   () => import("./commands/help"),
   upgrade: () => import("./commands/upgrade"),
@@ -59,6 +60,7 @@ ${pc.bold("Commands:")}
   ${pc.green("tasks")}     List tasks
   ${pc.green("batch")}     Analyze tasks, plan execution waves
   ${pc.green("chat")}      Send a message to the orchestrator
+  ${pc.green("config")}    Manage config (version, validate, migrate)
   ${pc.green("cost")}      Spend breakdown
   ${pc.green("help")}      Show this help
   ${pc.green("upgrade")}   Upgrade to latest version
