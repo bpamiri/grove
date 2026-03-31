@@ -59,6 +59,20 @@ function wireEventBus() {
   forward("monitor:stall");
   forward("monitor:crash");
   forward("message:new");
+
+  // SAP events (fine-grained agent activity)
+  forward("agent:spawned");
+  forward("agent:ended");
+  forward("agent:crashed");
+  forward("agent:tool_use");
+  forward("agent:thinking");
+  forward("agent:text");
+  forward("agent:cost");
+
+  // SAP seed events
+  forward("seed:response");
+  forward("seed:complete");
+  forward("seed:idle");
 }
 
 // MIME types for static file serving

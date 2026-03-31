@@ -25,7 +25,8 @@ export async function run(args: string[]) {
 
     if (data.ok) {
       console.log(`${pc.green("✓")} Message sent to orchestrator`);
-      console.log(`${pc.dim("View the response in tmux: tmux attach -t grove")}`);
+      console.log(`${pc.dim("View the response in the Grove web UI")}`);
+
     } else {
       console.log(`${pc.red("Error:")} ${data.error}`);
     }

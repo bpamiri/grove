@@ -117,6 +117,7 @@ export function spawnReviewer(
   );
 
   db.addEvent(task.id, sessionId, "worker_spawned", `Reviewer spawned (PID: ${proc.pid})`);
+  bus.emit("agent:spawned", { agentId: sessionId, role: "reviewer", taskId: task.id, pid: proc.pid, ts: Date.now() });
 
   // Monitor asynchronously
   monitorReviewer(task.id, sessionId, logPath, worktreePath, proc, db);
@@ -221,6 +222,7 @@ async function monitorReviewer(
                 const input = block.input ?? {};
                 const file = input.file_path ?? input.command ?? input.pattern ?? "";
                 bus.emit("worker:activity", { taskId, msg: `[reviewer] ${tool}: ${String(file).slice(0, 200)}` });
+                bus.emit("agent:tool_use", { agentId: sessionId, taskId, tool, input: String(file).slice(0, 500), ts: Date.now() });
               }
             }
           }
@@ -255,6 +257,7 @@ async function monitorReviewer(
       db.sessionEnd(sessionId, "failed");
       db.addEvent(taskId, sessionId, "review_rejected", feedback);
       bus.emit("review:rejected", { taskId, feedback });
+      bus.emit("agent:ended", { agentId: sessionId, role: "reviewer", taskId, exitCode: exitCode ?? 1, ts: Date.now() });
 
       const { onStepComplete } = await import("../engine/step-engine");
       onStepComplete(taskId, "failure", feedback);
@@ -264,6 +267,7 @@ async function monitorReviewer(
       db.sessionEnd(sessionId, "completed");
       db.addEvent(taskId, sessionId, "review_approved", result.feedback || "Plan approved");
       bus.emit("review:approved", { taskId, feedback: result.feedback });
+      bus.emit("agent:ended", { agentId: sessionId, role: "reviewer", taskId, exitCode: exitCode ?? 0, ts: Date.now() });
 
       const { onStepComplete } = await import("../engine/step-engine");
       onStepComplete(taskId, "success");
@@ -272,6 +276,7 @@ async function monitorReviewer(
     db.sessionEnd(sessionId, "crashed");
     db.addEvent(taskId, sessionId, "review_rejected", `Reviewer crashed: ${err}`);
     bus.emit("review:rejected", { taskId, feedback: `Reviewer crashed: ${err}` });
+    bus.emit("agent:crashed", { agentId: sessionId, role: "reviewer", taskId, error: String(err), ts: Date.now() });
 
     const { onStepComplete } = await import("../engine/step-engine");
     onStepComplete(taskId, "failure", `Reviewer crashed: ${err}`);
