@@ -61,7 +61,7 @@ export interface Status {
 
 // Activity messages per task (transient, not from DB)
 const taskActivity = new Map<string, string>();
-const taskActivityLog = new Map<string, Array<{ ts: number; msg: string }>>();
+const taskActivityLog = new Map<string, Array<{ ts: number; msg: string; kind?: string }>>();
 const MAX_LOG_ENTRIES = 200;
 
 export function useTasks() {
@@ -121,6 +121,41 @@ export function useTasks() {
         setTasks(prev => [...prev]);
         break;
       }
+      case "agent:tool_use": {
+        const tid = msg.data.taskId;
+        if (tid === "orchestrator") break;
+        const toolMsg = `${msg.data.tool}: ${msg.data.input}`;
+        taskActivity.set(tid, toolMsg);
+        if (!taskActivityLog.has(tid)) taskActivityLog.set(tid, []);
+        const tlog = taskActivityLog.get(tid)!;
+        tlog.push({ ts: msg.data.ts ?? Date.now(), msg: toolMsg, kind: "tool" });
+        if (tlog.length > MAX_LOG_ENTRIES) tlog.shift();
+        setTasks(prev => [...prev]);
+        break;
+      }
+      case "agent:thinking": {
+        const tid = msg.data.taskId;
+        if (tid === "orchestrator") break;
+        const thinkMsg = `thinking: ${msg.data.snippet}`;
+        taskActivity.set(tid, thinkMsg);
+        if (!taskActivityLog.has(tid)) taskActivityLog.set(tid, []);
+        const thlog = taskActivityLog.get(tid)!;
+        thlog.push({ ts: msg.data.ts ?? Date.now(), msg: thinkMsg, kind: "thinking" });
+        if (thlog.length > MAX_LOG_ENTRIES) thlog.shift();
+        setTasks(prev => [...prev]);
+        break;
+      }
+      case "agent:text": {
+        const tid = msg.data.taskId;
+        if (tid === "orchestrator") break;
+        taskActivity.set(tid, msg.data.content);
+        if (!taskActivityLog.has(tid)) taskActivityLog.set(tid, []);
+        const txlog = taskActivityLog.get(tid)!;
+        txlog.push({ ts: msg.data.ts ?? Date.now(), msg: msg.data.content, kind: "text" });
+        if (txlog.length > MAX_LOG_ENTRIES) txlog.shift();
+        setTasks(prev => [...prev]);
+        break;
+      }
       case "worker:spawned":
       case "worker:ended":
       case "cost:updated":
@@ -131,7 +166,7 @@ export function useTasks() {
   }, [refresh]);
 
   const getActivity = (taskId: string): string | undefined => taskActivity.get(taskId);
-  const getActivityLog = (taskId: string): Array<{ ts: number; msg: string }> => taskActivityLog.get(taskId) ?? [];
+  const getActivityLog = (taskId: string): Array<{ ts: number; msg: string; kind?: string }> => taskActivityLog.get(taskId) ?? [];
 
   /** Fetch historical activity from the worker log file (seeds the feed on expand) */
   const loadActivityLog = useCallback(async (taskId: string) => {
