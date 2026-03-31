@@ -12,7 +12,8 @@
     "build:embed": "bun run scripts/embed-web.ts",
     "build:bin": "mkdir -p bin && bun build src/cli/index.ts --compile --outfile bin/grove",
     "build": "bun run build:web && bun run build:embed && bun run build:bin",
-    "test": "bun test tests/"
+    "test": "bun test tests/",
+    "test:integration": "bun test tests/integration/"
   },
   "dependencies": {
     "picocolors": "^1.1",
