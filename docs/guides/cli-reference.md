@@ -88,6 +88,18 @@ grove task add "Add auth middleware"  # Create a task
 
 Task statuses: `draft`, `queued`, `active`, `completed`, `failed`
 
+#### Task Actions (via API)
+
+These actions are available through the web GUI and REST API:
+
+| Action | API Endpoint | Description |
+|--------|-------------|-------------|
+| **Dispatch** | `POST /api/tasks/:id/dispatch` | Promote a draft task to queued and start the pipeline |
+| **Resume** | `POST /api/tasks/:id/resume` | Resume a failed/paused task at current or specified step |
+| **Retry** | `POST /api/tasks/:id/retry` | Re-dispatch a failed task (increments retry count) |
+
+The resume endpoint accepts an optional `step_id` in the request body to resume at a specific pipeline step. See [Task Management](task-management.md) for details.
+
 ---
 
 ### grove chat
@@ -100,6 +112,29 @@ grove chat "What's the status of the API refactor?"
 ```
 
 Messages are relayed to the orchestrator's tmux session. View the response via `tmux attach -t grove` or the web GUI.
+
+---
+
+### grove batch
+
+Analyze draft tasks for file conflicts and plan parallel execution waves.
+
+```bash
+grove batch <tree>                # Analyze and display batch plan
+grove batch <tree> --run          # Analyze and auto-dispatch wave 1
+grove batch <tree> --json         # Output plan as JSON
+```
+
+Requires 2+ draft tasks in the specified tree. The analyzer predicts which files each task will modify, builds an overlap matrix, and groups non-conflicting tasks into execution waves.
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--run` | Skip the confirmation prompt and dispatch wave 1 immediately |
+| `--json` | Output the full batch plan as JSON (useful for scripting) |
+
+See [Task Management — Batch Dispatch](task-management.md#batch-dispatch) for details on how wave analysis works.
 
 ---
 

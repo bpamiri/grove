@@ -41,15 +41,19 @@ trees:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tests` | bool | Run the test suite during gate evaluation. |
-| `lint` | bool | Run the linter during gate evaluation. |
-| `commits` | bool | Validate commit message format (conventional commits). |
-| `diff_size` | bool | Fail the gate if the diff exceeds `max_diff_lines`. |
-| `max_diff_lines` | int | Line threshold for `diff_size` check. Default: `5000`. |
-| `test_command` | string | Shell command used to run tests. |
-| `lint_command` | string | Shell command used to run the linter. |
-| `test_timeout` | int | Seconds before the test command is killed. Default: `300`. |
-| `lint_timeout` | int | Seconds before the lint command is killed. Default: `60`. |
+| `tests` | bool | Run the test suite during gate evaluation. Default: `true`. |
+| `lint` | bool | Run the linter during gate evaluation. Default: `false`. |
+| `commits` | bool | Validate commit message format (conventional commits). Default: `true`. |
+| `diff_size` | bool | Fail the gate if the diff is outside the min/max range. Default: `true`. |
+| `min_diff_lines` | int | Minimum lines changed (catches empty commits). Default: `1`. |
+| `max_diff_lines` | int | Maximum lines changed. Default: `5000`. |
+| `test_command` | string | Shell command used to run tests. Required if `tests: true`. |
+| `lint_command` | string | Shell command used to run the linter. Required if `lint: true`. |
+| `test_timeout` | int | Seconds before the test command is killed. Default: `60`. |
+| `lint_timeout` | int | Seconds before the lint command is killed. Default: `30`. |
+| `base_ref` | string | Git ref for rebase and diff comparison. Auto-detected if omitted (tries origin/main, main, origin/master, master). |
+
+**Gate tiers:** Tests and commits are **hard** gates — failure blocks the merge. Lint and diff_size are **soft** gates — failures are logged as warnings but don't block.
 
 ---
 
@@ -101,6 +105,8 @@ paths:
 |------|-------|-------------|
 | `development` | plan -> implement -> evaluate -> merge | Standard dev workflow with QA gate |
 | `research` | plan -> research -> report | Research task, no code changes |
+
+See [Custom Paths](custom-paths.md) for the full guide on defining pipelines, step types, transitions, type inference, and retry behavior.
 
 ---
 
