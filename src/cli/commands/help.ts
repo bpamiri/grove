@@ -26,9 +26,6 @@ ${pc.bold("Interaction:")}
 ${pc.bold("Configuration:")}
   Edit ${pc.bold("~/.grove/grove.yaml")} to configure trees, paths, budgets, and settings.
 
-${pc.bold("tmux:")}
-  ${pc.dim("tmux attach -t grove")}  Attach to the orchestrator session directly
-
 ${pc.bold("More info:")} https://grove.cloud
 `);
 }
