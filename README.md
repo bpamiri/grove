@@ -26,13 +26,13 @@ See [Installation](docs/getting-started/installation.md) for all platforms and b
 ```
 You --- Browser (GUI) --- Tunnel ---+
   |                                  |
-  +-- tmux attach ---------+        |
+  +-- tmux attach ---------+         |
   |                         |        |
   +-- grove CLI -------+    |        |
-                        |    |        |
-                        v    v        v
+                        |   |        |
+                        v   v        v
               +---------------------------+
-              |    Broker (Bun process)    |
+              |    Broker (Bun process)   |
               |                           |
               |  HTTP+WS . SQLite . tmux  |
               |  Monitor . Merge Manager  |
