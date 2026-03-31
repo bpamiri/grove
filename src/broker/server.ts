@@ -487,6 +487,22 @@ async function handleApi(
       }
 
       const deletedTasks = tasks.length > 0 ? db.taskDeleteByTree(tree.id) : 0;
+
+      // Clean up any worktrees on disk before removing the tree
+      // Use readdirSync instead of listWorktrees — works even if repo is gone
+      try {
+        const { readdirSync, statSync } = await import("node:fs");
+        const { cleanupWorktree, expandHome } = await import("../shared/worktree");
+        const worktreeDir = join(expandHome(tree.path), ".grove", "worktrees");
+        if (existsSync(worktreeDir)) {
+          for (const entry of readdirSync(worktreeDir)) {
+            if (statSync(join(worktreeDir, entry)).isDirectory()) {
+              cleanupWorktree(entry, tree.path);
+            }
+          }
+        }
+      } catch { /* best-effort */ }
+
       db.treeDelete(tree.id);
 
       // Remove from YAML config
@@ -495,6 +511,13 @@ async function handleApi(
 
       db.addEvent(null, null, "tree_removed", `Removed tree ${tree.id} (${deletedTasks} tasks deleted)`);
       return json({ ok: true, tree: tree.id, tasks_deleted: deletedTasks });
+    }
+
+    // POST /api/cleanup/worktrees — prune stale worktrees
+    if (path === "/api/cleanup/worktrees" && req.method === "POST") {
+      const { pruneStaleWorktrees } = await import("../shared/worktree");
+      const result = pruneStaleWorktrees(db);
+      return json(result);
     }
 
     // GET /api/trees/:id/issues — fetch open GitHub issues for a tree

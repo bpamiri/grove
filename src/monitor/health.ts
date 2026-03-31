@@ -7,6 +7,7 @@ import { isAlive } from "../agents/stream-parser";
 import { lastActivity } from "../agents/stream-parser";
 import { getActiveWorkers } from "../agents/worker";
 import { createCheckpoint } from "../agents/checkpoint";
+import { pruneStaleWorktrees } from "../shared/worktree";
 import type { Database } from "../broker/db";
 
 interface MonitorOptions {
@@ -23,9 +24,21 @@ export function startHealthMonitor(opts: MonitorOptions): void {
 
   if (intervalHandle) return; // Already running
 
+  // Run prune on a slower cadence (every 5 minutes, not every 15s)
+  let pruneCounter = 0;
+  const PRUNE_EVERY_N = 20; // 20 * 15s = 5 minutes
+
   intervalHandle = setInterval(() => {
     checkWorkers(db, stallTimeoutMinutes);
     checkOrchestrator(db, onOrchestratorCrash);
+
+    pruneCounter++;
+    if (pruneCounter >= PRUNE_EVERY_N) {
+      pruneCounter = 0;
+      try {
+        pruneStaleWorktrees(db);
+      } catch { /* best-effort */ }
+    }
   }, intervalMs);
 }
 
