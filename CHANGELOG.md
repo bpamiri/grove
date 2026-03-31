@@ -1,6 +1,36 @@
 # Changelog
 
 
+## v0.1.25
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.24...v0.1.25)
+
+### 🚀 Enhancements
+
+- Add treeDelete and taskDeleteByTree to database ([#107](https://github.com/bpamiri/grove/pull/107))
+- Add configDeleteTree for YAML config removal ([#107](https://github.com/bpamiri/grove/pull/107))
+- Add rescan and delete API endpoints for trees ([#107](https://github.com/bpamiri/grove/pull/107))
+- Add grove tree rescan and grove tree remove CLI commands ([#107](https://github.com/bpamiri/grove/pull/107))
+
+### 🩹 Fixes
+
+- Use changes property to avoid TOCTOU race in taskDeleteByTree ([#107](https://github.com/bpamiri/grove/pull/107))
+- Sync YAML config when rescan detects null github remote ([#107](https://github.com/bpamiri/grove/pull/107))
+
+### 📖 Documentation
+
+- Add design spec for tree rescan and remove commands ([#107](https://github.com/bpamiri/grove/pull/107))
+- Add implementation plan for tree rescan and remove ([#107](https://github.com/bpamiri/grove/pull/107))
+- Add tree rescan/remove to help output ([#107](https://github.com/bpamiri/grove/pull/107))
+
+### ✅ Tests
+
+- Add API-level tests for tree rescan and delete endpoints ([#107](https://github.com/bpamiri/grove/pull/107))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.24
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.23...v0.1.24)
