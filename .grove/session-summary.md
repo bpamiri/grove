@@ -1,37 +1,35 @@
-# Session Summary: W-039 (Session 2)
+# Session Summary: W-040
 
 ## Summary
 
-Continued the full task creation form feature (issue #79) with three major additions: two-way GitHub issue sync (PATCH updates push title/description changes to linked GitHub issues), issue label metadata (labels stored during import and single-issue creation, displayed as pills in TaskDetail and editable in TaskForm), and a visual dependency chain preview in the DependencyPicker showing transitive dependency paths.
+Implemented per-tree default path with override in task creation (issue #80). Trees can now specify a `default_path` in grove.yaml (e.g., `adversarial`, `content`), which is stored in the `config` JSON column and used as the default when creating tasks for that tree. The path selector is now a first-class field in the task creation form (not buried under "More options"), with a hint showing the tree's default path.
+
+Session 2 added grove.yaml validation — trees with an invalid `default_path` now produce warnings at broker startup.
 
 ## Files Modified
 
-### New Files
-- `tests/broker/task-form-features.test.ts` — 12 tests covering labels column, PATCH field restrictions, and buildDepChain logic
-
 ### Modified Files
-- `src/merge/github.ts` — Added `ghIssueEdit()` function for updating GitHub issues via `gh issue edit`
-- `src/broker/server.ts` — Two-way sync in PATCH endpoint; labels support in POST/PATCH/import endpoints
-- `src/broker/schema.sql` — Added `labels TEXT` column to tasks table
-- `src/broker/schema-sql.ts` — Added `github_issue INTEGER` and `labels TEXT` columns to embedded schema
-- `src/broker/db.ts` — Auto-migration for `labels` column
-- `src/shared/types.ts` — Added `labels` field to Task interface
-- `web/src/hooks/useTasks.ts` — Added `labels` field to frontend Task type
-- `web/src/components/TaskForm.tsx` — Labels input/display, issue-to-labels mapping, dependency chain preview with `buildDepChain` helper
-- `web/src/components/TaskDetail.tsx` — Labels pill display, GitHub issue number in status bar
+- `src/shared/types.ts` — Added `default_path?: string` to TreeConfig interface
+- `src/broker/config.ts` — `validateConfig()` checks tree `default_path` against valid path names
+- `src/broker/index.ts` — Included `default_path` in tree config JSON; calls `validateConfig()` at startup
+- `src/broker/server.ts` — Task creation resolves tree's default_path; import-issues uses tree default; GET /api/trees enriches response with parsed config fields
+- `web/src/hooks/useTasks.ts` — Added `default_path` and `default_branch` to frontend Tree interface
+- `web/src/components/TaskForm.tsx` — Path selector promoted to top-level form field, auto-selects tree default on tree change, shows "tree default" hint
+- `tests/broker/task-form-features.test.ts` — 6 new tests for per-tree default_path behavior
+- `tests/broker/config.test.ts` — 3 new tests for default_path validation
 
 ## Architecture
 
-- **Two-way sync**: PATCH handler detects title/description changes on tasks with linked `github_issue` and calls `ghIssueEdit()` to push updates. Best-effort — failures log events but don't block the local update.
-- **Labels**: Stored as comma-separated TEXT (matching `depends_on` pattern). Populated from GitHub issue labels during import. Editable in TaskForm "more options" section.
-- **Dependency chain**: `buildDepChain()` walks transitive deps for each selected dependency, producing linear chain visualizations with cycle protection.
+- **Config**: `default_path` stored in existing `trees.config` JSON column alongside `quality_gates` and `default_branch` — no schema migration needed
+- **Fallback chain**: `explicit path_name → tree.default_path → "development"` preserves backward compatibility
+- **Validation**: Checks against merged paths config (defaults + user-defined); warns but doesn't block startup
+- **API enrichment**: GET /api/trees now returns `default_path` and `default_branch` as top-level fields (parsed from config JSON)
+- **UI**: Path selector always visible for draft tasks; tree change auto-selects default_path; always overridable
 
 ## Test Results
 
-323 pass, 0 fail across 27 test files (12 new tests). Frontend builds cleanly (Vite).
+368 pass, 0 fail across 28 test files (9 new tests total). Frontend builds cleanly (Vite).
 
-## Remaining Next Steps
+## Next Steps
 
-- Keyboard shortcuts for form navigation
-- Two-way label sync (push label changes back to GitHub)
-- Label-based task filtering in the task list
+- Consider path name autocomplete/validation in CLI task creation

@@ -357,9 +357,14 @@ async function handleApi(
       });
     }
 
-    // GET /api/trees
+    // GET /api/trees — enrich with parsed config fields (default_path, default_branch)
     if (path === "/api/trees" && req.method === "GET") {
-      return json(db.allTrees());
+      const rawTrees = db.allTrees();
+      const enriched = rawTrees.map(t => {
+        const cfg = JSON.parse(t.config || "{}");
+        return { ...t, default_path: cfg.default_path ?? null, default_branch: cfg.default_branch ?? null };
+      });
+      return json(enriched);
     }
 
     // POST /api/trees
@@ -421,6 +426,10 @@ async function handleApi(
           ).map(r => r.github_issue)
         );
 
+        // Resolve tree's default path for imported tasks
+        const treeConfig = JSON.parse(tree.config || "{}");
+        const treePath = treeConfig.default_path ?? "development";
+
         let imported = 0;
         for (const issue of issues) {
           if (existingIssueNums.has(issue.number)) continue;
@@ -431,7 +440,7 @@ async function handleApi(
           const labels = issue.labels?.map((l: any) => l.name).join(",") || null;
           db.run(
             "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue, labels) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)",
-            [taskId, tree.id, title, description, "development", issue.number, labels]
+            [taskId, tree.id, title, description, treePath, issue.number, labels]
           );
           db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
           imported++;
@@ -485,13 +494,22 @@ async function handleApi(
         priority?: number; depends_on?: string; parent_task_id?: string; max_retries?: number;
         github_issue?: number; labels?: string;
       };
+      // Resolve path: explicit override → tree's default_path → "development"
+      let resolvedPath = body.path_name;
+      if (!resolvedPath && body.tree_id) {
+        const tree = db.treeGet(body.tree_id);
+        if (tree) {
+          const treeConfig = JSON.parse(tree.config || "{}");
+          resolvedPath = treeConfig.default_path;
+        }
+      }
       const taskId = db.nextTaskId("W");
       db.run(
         `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, labels, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
         [
           taskId, body.tree_id ?? null, body.title, body.description ?? null,
-          body.path_name ?? "development", body.priority ?? 0,
+          resolvedPath ?? "development", body.priority ?? 0,
           body.depends_on ?? null, body.parent_task_id ?? null,
           body.max_retries ?? 2, body.github_issue ?? null,
           body.labels ?? null,

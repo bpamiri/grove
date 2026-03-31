@@ -172,6 +172,7 @@ export interface TreeConfig {
   github?: string;
   branch_prefix?: string;
   default_branch?: string; // e.g. "develop", "main" — branch to fork worktrees from
+  default_path?: string;   // e.g. "adversarial", "content" — default path for new tasks in this tree
   quality_gates?: QualityGatesConfig;
 }
 

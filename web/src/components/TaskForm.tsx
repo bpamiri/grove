@@ -33,7 +33,14 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
   const [title, setTitle] = useState(editTask?.title ?? "");
   const [description, setDescription] = useState(editTask?.description ?? "");
   const [treeId, setTreeId] = useState(editTask?.tree_id ?? defaultTreeId ?? "");
-  const [pathName, setPathName] = useState(editTask?.path_name ?? "development");
+  const [pathName, setPathName] = useState(() => {
+    if (editTask?.path_name) return editTask.path_name;
+    if (defaultTreeId) {
+      const tree = trees.find(t => t.id === defaultTreeId);
+      if (tree?.default_path) return tree.default_path;
+    }
+    return "development";
+  });
   const [priority, setPriority] = useState(editTask?.priority ?? 0);
   const [dependsOn, setDependsOn] = useState<string[]>(
     editTask?.depends_on ? editTask.depends_on.split(",").map(d => d.trim()).filter(Boolean) : []
@@ -64,6 +71,13 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
     setTreeId(id);
     setSelectedIssue(null);
     if (!isEdit) { setTitle(""); setDescription(""); }
+    // Update path to tree's default_path (if set)
+    const tree = trees.find(t => t.id === id);
+    if (tree?.default_path) {
+      setPathName(tree.default_path);
+    } else if (!isEdit) {
+      setPathName("development");
+    }
   };
 
   const handleIssueSelect = (num: number) => {
@@ -111,7 +125,7 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
         const body: Record<string, unknown> = { title };
         if (treeId) body.tree_id = treeId;
         if (description) body.description = description;
-        if (pathName !== "development") body.path_name = pathName;
+        body.path_name = pathName;
         if (priority !== 0) body.priority = priority;
         if (dependsOn.length > 0) body.depends_on = dependsOn.join(",");
         if (parentTaskId) body.parent_task_id = parentTaskId;
@@ -172,6 +186,41 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
         </select>
       )}
 
+      {/* Path selector (always visible for drafts — key UX for W-040) */}
+      {!isLimited && (
+        <div>
+          <div className="flex items-center gap-2">
+            <select
+              value={pathName}
+              onChange={(e) => setPathName(e.target.value)}
+              className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+            >
+              {Object.entries(paths).map(([name, info]) => (
+                <option key={name} value={name}>{name} — {info.description}</option>
+              ))}
+            </select>
+            {treeId && (() => {
+              const tree = trees.find(t => t.id === treeId);
+              return tree?.default_path ? (
+                <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+                  tree default: <span className="text-zinc-400">{tree.default_path}</span>
+                </span>
+              ) : null;
+            })()}
+          </div>
+          {paths[pathName] && (
+            <div className="flex gap-1 mt-1.5 flex-wrap">
+              {paths[pathName].steps.map((step, i) => (
+                <span key={step.id} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                  {i > 0 && <span className="text-zinc-600 mr-1">→</span>}
+                  {step.label || step.id}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Labels preview (from selected issue) */}
       {labels && !showMore && (
         <div className="flex flex-wrap gap-1.5">
@@ -217,30 +266,6 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
       {/* Expanded options */}
       {showMore && !isLimited && (
         <div className="space-y-3 border-t border-zinc-800 pt-3">
-          {/* Path selector */}
-          <div>
-            <label className="text-xs text-zinc-500 uppercase block mb-1">Path</label>
-            <select
-              value={pathName}
-              onChange={(e) => setPathName(e.target.value)}
-              className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
-            >
-              {Object.entries(paths).map(([name, info]) => (
-                <option key={name} value={name}>{name} — {info.description}</option>
-              ))}
-            </select>
-            {paths[pathName] && (
-              <div className="flex gap-1 mt-1.5 flex-wrap">
-                {paths[pathName].steps.map((step, i) => (
-                  <span key={step.id} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
-                    {i > 0 && <span className="text-zinc-600 mr-1">→</span>}
-                    {step.label || step.id}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Priority */}
           <div>
             <label className="text-xs text-zinc-500 uppercase block mb-1">Priority</label>
