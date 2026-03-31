@@ -174,6 +174,17 @@ export function ghIssueCreate(repo: string, opts: {
   return { number, url };
 }
 
+export function ghIssueEdit(repo: string, issueNumber: number, opts: {
+  title?: string;
+  body?: string;
+}): boolean {
+  const args = ["issue", "edit", String(issueNumber), "-R", repo];
+  if (opts.title) args.push("--title", opts.title);
+  if (opts.body) args.push("--body", opts.body);
+  const result = gh(args);
+  return result.ok;
+}
+
 export function ghIssueClose(repo: string, issueNumber: number): boolean {
   const result = gh(["issue", "close", String(issueNumber), "-R", repo]);
   return result.ok;

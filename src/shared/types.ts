@@ -116,6 +116,7 @@ export interface Task {
   branch: string | null;
   worktree_path: string | null;
   github_issue: number | null;
+  labels: string | null;
   pr_url: string | null;
   pr_number: number | null;
   cost_usd: number;
