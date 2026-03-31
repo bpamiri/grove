@@ -1,6 +1,32 @@
 # Changelog
 
 
+## v0.1.22
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.21...v0.1.22)
+
+### 🚀 Enhancements
+
+- Add mock Claude CLI binary for integration tests ([74c6f4c](https://github.com/bpamiri/grove/commit/74c6f4c))
+- Add integration test helpers with test broker factory ([ccc5b74](https://github.com/bpamiri/grove/commit/ccc5b74))
+- Add task lifecycle integration tests ([4e5250d](https://github.com/bpamiri/grove/commit/4e5250d))
+- Add SAP event compliance integration tests ([f619297](https://github.com/bpamiri/grove/commit/f619297))
+- Add seed:chunk streaming, stage detection, and SAP event ([6277ff0](https://github.com/bpamiri/grove/commit/6277ff0))
+- Add observability analytics queries (taskActivityTimeline, workerUtilization, filteredEvents) ([e8800f8](https://github.com/bpamiri/grove/commit/e8800f8))
+- Add test:integration script, complete T3 integration test harness ([c6f9614](https://github.com/bpamiri/grove/commit/c6f9614))
+- Add observability API endpoints and SAP event persistence ([c5766be](https://github.com/bpamiri/grove/commit/c5766be))
+- Add streaming text display and stage indicator to SeedChat ([f0d185f](https://github.com/bpamiri/grove/commit/f0d185f))
+- Add observability dashboard components — timeline, utilization, event log ([9b42eca](https://github.com/bpamiri/grove/commit/9b42eca))
+- Add conversation branching to seed sessions ([47820cb](https://github.com/bpamiri/grove/commit/47820cb))
+
+### 📖 Documentation
+
+- T3 + T9 + T10 implementation plans — final three tasks ([72846bf](https://github.com/bpamiri/grove/commit/72846bf))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.21
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.20...v0.1.21)
