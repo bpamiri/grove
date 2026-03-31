@@ -16,6 +16,8 @@ export default function Settings({ trees, status, onRefresh }: Props) {
   const [restarting, setRestarting] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<Record<string, string>>({});
+  const [importingPrs, setImportingPrs] = useState<string | null>(null);
+  const [importPrResult, setImportPrResult] = useState<Record<string, string>>({});
   const [rotating, setRotating] = useState(false);
   const [rotateResult, setRotateResult] = useState<string | null>(null);
 
@@ -41,6 +43,26 @@ export default function Settings({ trees, status, onRefresh }: Props) {
     }
   };
 
+  const importPrs = async (treeId: string) => {
+    setImportingPrs(treeId);
+    setImportPrResult(prev => ({ ...prev, [treeId]: "" }));
+    try {
+      const res = await api<{ imported: number; skipped: number; total: number }>(
+        `/api/trees/${treeId}/import-prs`,
+        { method: "POST" }
+      );
+      setImportPrResult(prev => ({
+        ...prev,
+        [treeId]: `${res.imported} imported, ${res.skipped} skipped (${res.total} open)`,
+      }));
+      if (res.imported > 0) onRefresh();
+    } catch (err: any) {
+      setImportPrResult(prev => ({ ...prev, [treeId]: `Error: ${err.message}` }));
+    } finally {
+      setImportingPrs(null);
+    }
+  };
+
   return (
     <div className="p-5 max-w-2xl">
       <h2 className="text-lg font-semibold mb-6">Settings</h2>
@@ -59,31 +81,40 @@ export default function Settings({ trees, status, onRefresh }: Props) {
                 </div>
                 <div className="flex items-center gap-2">
                   {tree.github && (
-                    <button
-                      onClick={async () => {
-                        setImporting(tree.id);
-                        setImportResult(prev => ({ ...prev, [tree.id]: "" }));
-                        try {
-                          const res = await api<{ imported: number; skipped: number; total: number }>(
-                            `/api/trees/${tree.id}/import-issues`,
-                            { method: "POST" }
-                          );
-                          setImportResult(prev => ({
-                            ...prev,
-                            [tree.id]: `${res.imported} imported, ${res.skipped} skipped (${res.total} open)`,
-                          }));
-                          if (res.imported > 0) onRefresh();
-                        } catch (err: any) {
-                          setImportResult(prev => ({ ...prev, [tree.id]: `Error: ${err.message}` }));
-                        } finally {
-                          setImporting(null);
-                        }
-                      }}
-                      disabled={importing === tree.id}
-                      className="text-xs bg-blue-500/15 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-md hover:bg-blue-500/25 disabled:opacity-50"
-                    >
-                      {importing === tree.id ? "Importing..." : "Import Issues"}
-                    </button>
+                    <>
+                      <button
+                        onClick={async () => {
+                          setImporting(tree.id);
+                          setImportResult(prev => ({ ...prev, [tree.id]: "" }));
+                          try {
+                            const res = await api<{ imported: number; skipped: number; total: number }>(
+                              `/api/trees/${tree.id}/import-issues`,
+                              { method: "POST" }
+                            );
+                            setImportResult(prev => ({
+                              ...prev,
+                              [tree.id]: `${res.imported} imported, ${res.skipped} skipped (${res.total} open)`,
+                            }));
+                            if (res.imported > 0) onRefresh();
+                          } catch (err: any) {
+                            setImportResult(prev => ({ ...prev, [tree.id]: `Error: ${err.message}` }));
+                          } finally {
+                            setImporting(null);
+                          }
+                        }}
+                        disabled={importing === tree.id}
+                        className="text-xs bg-blue-500/15 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-md hover:bg-blue-500/25 disabled:opacity-50"
+                      >
+                        {importing === tree.id ? "Importing..." : "Import Issues"}
+                      </button>
+                      <button
+                        onClick={() => importPrs(tree.id)}
+                        disabled={importingPrs === tree.id}
+                        className="text-xs px-2 py-1 rounded bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 disabled:opacity-50"
+                      >
+                        {importingPrs === tree.id ? "Importing..." : "Import PRs"}
+                      </button>
+                    </>
                   )}
                   <div className="text-xs text-zinc-600">{tree.branch_prefix}</div>
                 </div>
@@ -91,6 +122,11 @@ export default function Settings({ trees, status, onRefresh }: Props) {
               {importResult[tree.id] && (
                 <div className="text-xs text-zinc-500 mt-2 pt-2 border-t border-zinc-800">
                   {importResult[tree.id]}
+                </div>
+              )}
+              {importPrResult[tree.id] && (
+                <div className="text-xs text-zinc-500 mt-2 pt-2 border-t border-zinc-800">
+                  {importPrResult[tree.id]}
                 </div>
               )}
             </div>
