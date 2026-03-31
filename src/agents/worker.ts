@@ -4,7 +4,7 @@ import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { bus } from "../broker/event-bus";
 import { parseCost, isAlive } from "./stream-parser";
 import { createWorktree, branchName } from "../shared/worktree";
-import { deploySandbox, triggerPrompt, resumeTriggerPrompt } from "../shared/sandbox";
+import { deploySandbox, triggerPrompt, resumeTriggerPrompt, readReviewFeedback } from "../shared/sandbox";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
 
@@ -53,6 +53,9 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   const seed = db.seedGet(task.id);
   const seedSpec = seed?.spec ?? null;
 
+  // Check for review feedback from adversarial review loop
+  const reviewFeedback = readReviewFeedback(worktreePath);
+
   // Deploy sandbox (guard hooks + CLAUDE.md overlay with prior context)
   deploySandbox(worktreePath, {
     taskId: task.id,
@@ -65,6 +68,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     filesModified: task.files_modified,
     stepPrompt,
     seedSpec,
+    reviewFeedback,
   });
 
   // Update task in DB

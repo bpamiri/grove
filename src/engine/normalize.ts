@@ -3,6 +3,7 @@ import type { PathConfig, PipelineStep, NormalizedPathConfig } from "../shared/t
 const TYPE_INFERENCE: Record<string, PipelineStep["type"]> = {
   merge: "merge",
   evaluate: "gate",
+  review: "review",
 };
 
 export function normalizePath(config: PathConfig): NormalizedPathConfig {
@@ -64,11 +65,11 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
     }
   }
 
-  // Gate steps without explicit on_failure loop back to the nearest preceding worker.
+  // Gate and review steps without explicit on_failure loop back to the nearest preceding worker.
   // All other steps default to $fail.
   for (let i = 0; i < steps.length; i++) {
     if (steps[i].on_failure === "") {
-      if (steps[i].type === "gate") {
+      if (steps[i].type === "gate" || steps[i].type === "review") {
         for (let j = i - 1; j >= 0; j--) {
           if (steps[j].type === "worker") {
             steps[i].on_failure = steps[j].id;
