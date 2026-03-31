@@ -1,6 +1,19 @@
 # Changelog
 
 
+## v0.1.24
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.23...v0.1.24)
+
+### 🩹 Fixes
+
+- Orchestrator permissions on resume, markdown table rendering ([#108](https://github.com/bpamiri/grove/pull/108))
+- Pass --dangerously-skip-permissions on seed session --resume calls ([2f66137](https://github.com/bpamiri/grove/commit/2f66137))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.23
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.22...v0.1.23)
