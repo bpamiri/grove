@@ -71,7 +71,15 @@ grove tree add <path> --github org/repo  # Override GitHub remote
 grove tree add <path> --name my-tree     # Override tree ID
 ```
 
-`tree add` auto-detects the GitHub remote from `git remote -v`. The tree ID is derived from the directory name (lowercase, special chars replaced with `-`).
+**Options for `grove tree add`:**
+
+| Flag | Description |
+|------|-------------|
+| `<path>` | Local filesystem path to the git repo (required, first positional argument) |
+| `--github <org/repo>` | GitHub repository slug. Auto-detected from `git remote get-url origin` if omitted. |
+| `--name <id>` | Tree ID. Defaults to the directory basename (lowercased, non-alphanumeric chars replaced with `-`). |
+
+Auto-detection parses the GitHub remote URL with the pattern `github.com[:/]org/repo`.
 
 ---
 
@@ -81,10 +89,21 @@ List or create tasks.
 
 ```bash
 grove tasks                          # List all tasks
-grove tasks --status running         # Filter by status
+grove tasks --status active          # Filter by status
 grove tasks --tree api-server        # Filter by tree
 grove task add "Add auth middleware"  # Create a task
 ```
+
+**Options for `grove tasks`:**
+
+| Flag | Description |
+|------|-------------|
+| `--status <status>` | Filter by status: `draft`, `queued`, `active`, `completed`, `failed` |
+| `--tree <tree-id>` | Filter by tree ID |
+
+**`grove task add <title>`** creates a draft task with just a title. The title is everything after `add` (leading/trailing quotes are stripped).
+
+> **Note:** `grove task add` only accepts a title. There are no CLI flags for `--tree`, `--description`, `--path`, or `--depends-on`. Use the web GUI or REST API to set those fields. Dependencies are typically set automatically by batch dispatch.
 
 Task statuses: `draft`, `queued`, `active`, `completed`, `failed`
 

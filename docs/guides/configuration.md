@@ -51,7 +51,14 @@ trees:
 | `lint_command` | string | Shell command used to run the linter. Required if `lint: true`. |
 | `test_timeout` | int | Seconds before the test command is killed. Default: `60`. |
 | `lint_timeout` | int | Seconds before the lint command is killed. Default: `30`. |
-| `base_ref` | string | Git ref for rebase and diff comparison. Auto-detected if omitted (tries origin/main, main, origin/master, master). |
+| `base_ref` | string | Git ref for rebase and diff comparison. Auto-detected if omitted (see below). |
+
+**`base_ref` auto-detection:** When `base_ref` is not set in `quality_gates`, the evaluator resolves it with this priority:
+1. `origin/{default_branch}` — if `default_branch` is configured on the tree
+2. Probes in order: `origin/main`, `main`, `origin/master`, `master`
+3. Final fallback: `origin/main`
+
+Override `base_ref` when your tree's target branch differs from the default (e.g., rebasing against a release branch).
 
 **Gate tiers:** Tests and commits are **hard** gates — failure blocks the merge. Lint and diff_size are **soft** gates — failures are logged as warnings but don't block.
 

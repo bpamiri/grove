@@ -23,6 +23,8 @@ The issue number is stored on the task as `github_issue`. This link is used late
 
 If issue creation fails (e.g., network error, permissions), the failure is logged as an event but doesn't block the task.
 
+> **Note:** Issue creation only fires on `task:created`. Tasks created without a tree assignment (e.g., via `grove task add` without a tree) will not get a GitHub issue, even if a tree is assigned later. To ensure issue tracking, assign a tree when creating the task.
+
 ### Import Issues as Tasks
 
 You can import open GitHub issues as draft tasks:
@@ -36,13 +38,38 @@ GET  /api/trees/:id/issues          # Fetch open issues
 POST /api/trees/:id/import-issues   # Create tasks from all open issues
 ```
 
-The import endpoint skips issues that already have a matching task (by issue number), preventing duplicates.
+The import endpoint fetches up to 50 open issues (sorted ascending by number), skips any that already have a matching task in the database, and creates the rest as draft tasks with `path_name: "development"`. Task titles include the issue number (e.g., "Add auth middleware Issue #42") for traceability.
+
+Imported tasks have `github_issue` set immediately, so the auto-create listener skips them — preventing duplicate issue creation.
 
 ### Auto-Close Issues
 
 When a task's PR is merged, the merge manager automatically closes the linked GitHub issue via `gh issue close`. This only happens if the task has a `github_issue` number set.
 
 The PR body also includes `Closes #N` syntax, so GitHub's native issue-linking works as a fallback.
+
+---
+
+## How Sync Works Internally
+
+The GitHub sync module (`src/broker/github-sync.ts`) is wired at broker startup via `wireGitHubSync()`. It registers a single event listener on the `task:created` bus event.
+
+### Issue Creation Flow
+
+```
+task:created event
+  │
+  ├─ Task has no tree_id? → skip
+  ├─ Tree has no github field? → skip
+  ├─ Task already has github_issue? → skip (imported task)
+  │
+  └─ gh issue create -R org/repo --title ... --body ...
+       │
+       ├─ Success → parse issue URL for number → update task row
+       └─ Failure → log issue_create_failed event → continue
+```
+
+All GitHub operations use the `gh` CLI (`src/merge/github.ts`). Issue creation is fire-and-forget — errors never propagate to the caller or block task processing.
 
 ---
 

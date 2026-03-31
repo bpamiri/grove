@@ -367,3 +367,201 @@ When creating a worktree, Grove resolves the start point (base branch) with this
 2. `origin/HEAD` (GitHub's default)
 3. `origin/develop`, `origin/main`, `origin/master` (in order)
 4. Fallback: `origin/main`
+
+---
+
+## Deep Dive: Orchestrator
+
+The orchestrator (`src/agents/orchestrator.ts`) manages a conversational Claude Code session that plans and decomposes work across repositories. Unlike workers (which run once and exit), the orchestrator maintains session continuity across multiple interactions.
+
+### Architecture
+
+The orchestrator is **not** a persistent process. Each user message spawns a short-lived `claude` CLI subprocess that reconnects to a stored session:
+
+```
+User message → broker → orchestrator.sendMessage()
+                              │
+                              ▼
+                     First message:
+                       Bun.spawn(["claude", "-p", message,
+                         "--session-id", uuid, "--system-prompt", prompt,
+                         "--add-dir", tree1, "--add-dir", tree2, ...,
+                         "--dangerously-skip-permissions",
+                         "--output-format", "stream-json", "--verbose"])
+
+                     Subsequent messages:
+                       Bun.spawn(["claude", "-p", message,
+                         "--resume", uuid,
+                         "--output-format", "stream-json", "--verbose"])
+                              │
+                              ▼
+                     Parse stdout → extract events → emit to bus
+                              │
+                              ▼
+                     Process exits → check message queue → repeat if needed
+```
+
+The Claude CLI's `--resume` flag reconnects to a conversation stored on disk by the CLI, giving the orchestrator full memory of prior exchanges without keeping a process alive between messages.
+
+### Session State
+
+The broker holds one in-memory session object:
+
+| Field | Purpose |
+|-------|---------|
+| `sessionId` | UUID passed to `--session-id` (first message) or `--resume` (subsequent) |
+| `status` | `"idle"` or `"running"` — guards against concurrent subprocess execution |
+| `pid` | PID of the currently running `claude` subprocess (null when idle) |
+| `proc` | Bun subprocess handle for the current invocation |
+| `messageQueue` | Messages that arrived while `status === "running"`, processed FIFO on completion |
+| `isFirstMessage` | Controls whether to pass `--session-id` (creates session) or `--resume` (reconnects) |
+
+The first message includes the full system prompt, `--add-dir` flags for all configured trees, and `--dangerously-skip-permissions`. Subsequent messages only pass `--resume` — the Claude CLI reconstructs context from the persisted session.
+
+### Message Queueing
+
+If a message arrives while the orchestrator is already running, it's pushed to `messageQueue` and returns immediately. When the current subprocess finishes, the orchestrator's `finally` block drains the queue one message at a time. This serializes all orchestrator interactions without blocking the caller.
+
+### System Prompt
+
+The orchestrator's system prompt (injected on first message only) contains:
+
+1. **Role** — "plan and decompose tasks across repos, delegate to workers via events, do NOT write code"
+2. **Available trees** — IDs, paths, and GitHub repos from the database
+3. **Active tasks** — last 20 non-terminal tasks (provides situational awareness)
+4. **Event format** — schema and examples for `spawn_worker` and `task_update` events
+5. **Guidelines** — when to use single vs. multiple workers, dependency chains
+6. **Recent messages** — last 20 conversation messages (chronological order)
+
+The `--add-dir` flag gives the orchestrator read access to all tree paths for codebase analysis.
+
+### The `<grove-event>` Protocol
+
+The orchestrator communicates with the broker by writing XML tags inline in its response text:
+
+```
+<grove-event>{"type":"spawn_worker","tree":"api-server","task":"W-001","prompt":"Add auth middleware"}</grove-event>
+```
+
+The broker's stream parser (`src/agents/orchestrator-events.ts`) extracts these tags via regex, parses the JSON, and dispatches the event. Tags are stripped from the text before forwarding to WebSocket clients.
+
+**Event types:**
+
+| Type | Fields | Effect |
+|------|--------|--------|
+| `spawn_worker` | `tree`, `prompt`, optional `path_name` | Creates a task in the DB (title and description both set from `prompt`), emits `task:created`, enqueues for dispatch |
+| `task_update` | `task`, `field`, `value` | Updates a task field (currently only `status`) |
+
+When `spawn_worker` fires, the broker allocates the next task ID (`W-001`, `W-002`, etc.), inserts the task as `queued` with `path_name` defaulting to `"development"`, and pushes it into the dispatch queue — the same queue used by GUI-created tasks.
+
+### Output Parsing
+
+The orchestrator subprocess writes `--output-format stream-json` to stdout. Each line is one JSON object:
+
+| Line type | Content |
+|-----------|---------|
+| `assistant` | Claude's response — iterated for `text` blocks (chat content) and `tool_use` blocks (activity) |
+| `result` | Final cost and token usage — written to the DB session record |
+
+Text blocks are accumulated and scanned for `<grove-event>` tags. Tool use blocks emit `worker:activity` events with `taskId: "orchestrator"`, powering the activity indicator in the GUI.
+
+### Cost Tracking
+
+Each `dispatchMessage` call creates a DB session row (`orch-<timestamp>`) that tracks cost separately from the in-memory UUID session. The Claude CLI session (UUID) persists across many DB sessions, enabling cost-per-interaction granularity while maintaining conversation continuity.
+
+### Lifecycle
+
+| Event | What happens |
+|-------|-------------|
+| `grove up` | `orchestrator.init(db)` stores the DB ref — no process spawned |
+| First chat message | Session object created, first subprocess spawned with full system prompt |
+| Subsequent messages | Subprocess spawned with `--resume`, no system prompt repeated |
+| `grove down` | `orchestrator.stop()` kills any running subprocess, nulls session |
+| "New Session" (GUI) | Session reset — next message starts fresh with a new UUID |
+
+---
+
+## Deep Dive: Batch Analysis
+
+The batch analyzer (`src/batch/analyze.ts`) predicts file conflicts between draft tasks and groups non-conflicting tasks into parallel execution waves.
+
+### Algorithm Overview
+
+```
+Draft tasks → Extract file hints → Match against repo → Build overlap matrix → Derive waves
+```
+
+### Step 1: Repository File Scan
+
+`listRepoFiles` walks the repository up to 6 directory levels deep, skipping noise directories (`node_modules`, `.git`, `.grove`, `dist`, `build`, `coverage`, `.next`, `.cache`, `__pycache__`, `.venv`, `vendor`). Returns relative paths.
+
+### Step 2: Hint Extraction
+
+`extractFileHints` concatenates the task title and description, then runs four independent regex passes:
+
+| Pattern | Matches | Example |
+|---------|---------|---------|
+| File extensions | Literal paths with known extensions (`.ts`, `.py`, `.go`, etc.) | `src/auth/login.ts` |
+| PascalCase | Two-or-more-word identifiers | `TaskList`, `BatchPlan` |
+| camelCase | Multi-word identifiers | `useTasks`, `handleClick` |
+| kebab/snake | Hyphenated or underscored identifiers | `step-engine`, `task_list` |
+
+All patterns require multi-word tokens. Single words like "Fix" produce no hints — this is intentional, as vague titles get `confidence: "low"`.
+
+### Step 3: File Matching
+
+For each hint, three strategies are tried in order (short-circuit on first match):
+
+1. **Direct path** — exact match in the file list
+2. **Basename match** — case-insensitive comparison of hint against filenames (without extension)
+3. **Normalized match** — strips `-` and `_` before comparing (e.g., `task-list` matches `TaskList.tsx`)
+
+### Step 4: Confidence Assignment
+
+| Confidence | Criteria |
+|------------|----------|
+| `high` | At least one hint was a literal file path found in the repo |
+| `medium` | Files predicted via name matching only |
+| `low` | No files predicted |
+
+### Step 5: Overlap Matrix
+
+O(n²) comparison of all task pairs. For each pair, computes the intersection of predicted file sets. Only pairs with shared files are recorded.
+
+### Step 6: Wave Derivation (Greedy Graph Coloring)
+
+Tasks are nodes in a conflict graph. Edges connect tasks that share predicted files. The algorithm assigns each task to the earliest wave that has no conflicts:
+
+```
+For each task (in priority order):
+  wave = 1
+  while any task already in this wave conflicts:
+    wave++
+  assign task to wave
+```
+
+This greedy approach doesn't guarantee the minimum number of waves (that's NP-hard), but produces good results for typical task counts.
+
+### Step 7: Dependency Computation
+
+Wave ordering becomes `depends_on` relationships:
+
+- **Wave 1** tasks — no dependencies, dispatched immediately
+- **Wave N** tasks — depend on all tasks in wave N-1
+
+Dependencies are written to the DB at dispatch time (not at analysis time), so editing task descriptions between analyze and dispatch causes re-analysis with updated predictions.
+
+### API and Dispatch
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/batch/analyze` | Runs the full algorithm, returns the `BatchPlan` |
+| `POST /api/batch/dispatch` | Re-analyzes, writes `depends_on` to the DB, dispatches the target wave |
+
+The dispatch endpoint re-analyzes from scratch rather than caching, making it robust to concurrent task edits.
+
+**Wave cascade:** After wave 1 tasks complete, the dependency enforcement in the dispatch queue (`db.isTaskBlocked` / `db.getNewlyUnblocked`) automatically unblocks and dispatches wave 2 tasks — no polling or scheduler needed.
+
+### Web GUI
+
+The "Plan Batch" button appears when 2+ draft tasks exist in the selected tree. The `BatchPlan` component renders file predictions (color-coded by confidence), overlap pairs, and execution waves with sequential dispatch buttons.
