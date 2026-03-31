@@ -9,6 +9,7 @@ import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive
 import { ActivityRingBuffer, type ActivityEvent } from "./ring-buffer";
 import { BatchedBroadcaster } from "./batched-broadcaster";
 import { detectCycle, type DagEdge } from "../batch/dag";
+import { detectGithubRemote } from "../shared/github";
 
 export interface ServerOptions {
   db: Database;
@@ -438,11 +439,12 @@ async function handleApi(
       if (!body.path) return json({ error: "path required" }, 400);
       const { basename } = await import("node:path");
       const id = body.id ?? basename(body.path).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const github = body.github ?? detectGithubRemote(body.path) ?? undefined;
       db.treeUpsert({
         id,
         name: id,
         path: body.path,
-        github: body.github,
+        github,
         branch_prefix: body.branch_prefix ?? "grove/",
       });
       return json(db.treeGet(id), 201);
