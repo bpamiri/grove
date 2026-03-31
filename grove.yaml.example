@@ -28,6 +28,16 @@ paths:
   #   description: Infrastructure/ops tasks
   #   steps: [plan, implement, evaluate]
 
+  pr-review:
+    description: Review contributed PR
+    steps:
+      - ci-check:
+          type: gate
+          on_failure: verdict
+      - review:
+          prompt: "Review this contributed PR. Check out the PR branch, read the diff, and write a structured review report to .grove/pr-review.md. Analyze for: backwards compatibility, test coverage, code quality, and adherence to project conventions. Include a clear verdict (Recommend Merge / Request Changes / Needs Discussion) and specific suggested comments per file."
+      - verdict
+
 # Budget controls
 budgets:
   per_task: 5.00        # Max spend per individual task
