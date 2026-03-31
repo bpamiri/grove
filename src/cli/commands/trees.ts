@@ -14,6 +14,20 @@ export async function run(args: string[]) {
     return;
   }
 
+  // grove tree rescan <name>
+  if (args[0] === "rescan" || (args[0] === "tree" && args[1] === "rescan")) {
+    const rescanArgs = args[0] === "rescan" ? args.slice(1) : args.slice(2);
+    await rescanTree(rescanArgs);
+    return;
+  }
+
+  // grove tree remove <name> [--force]
+  if (args[0] === "remove" || (args[0] === "tree" && args[1] === "remove")) {
+    const removeArgs = args[0] === "remove" ? args.slice(1) : args.slice(2);
+    await removeTree(removeArgs);
+    return;
+  }
+
   // grove trees — list
   const trees = configTrees();
   const entries = Object.entries(trees);
@@ -97,4 +111,76 @@ async function addTree(args: string[]) {
   if (detectedGithub) console.log(`  github: ${detectedGithub}`);
   console.log();
   console.log(`${pc.dim("View all trees:")} grove trees`);
+}
+
+async function rescanTree(args: string[]) {
+  const { readBrokerInfo } = await import("../../broker/index");
+  const info = readBrokerInfo();
+  if (!info) {
+    console.log(`${pc.yellow("Grove is not running.")} Run ${pc.bold("grove up")} first.`);
+    return;
+  }
+
+  const treeId = args.find(a => !a.startsWith("--"));
+  if (!treeId) {
+    console.log(`${pc.red("Usage:")} grove tree rescan <name>`);
+    return;
+  }
+
+  try {
+    const resp = await fetch(`${info.url}/api/trees/${encodeURIComponent(treeId)}/rescan`, {
+      method: "POST",
+    });
+
+    if (resp.status === 404) {
+      console.log(`${pc.red("Tree not found:")} ${treeId}`);
+      return;
+    }
+
+    const data = await resp.json() as any;
+    const oldGithub = data.old_github ?? "null";
+    const newGithub = data.github ?? "null";
+    console.log(`${pc.green("✓")} Rescanned ${pc.bold(treeId)}`);
+    console.log(`  github: ${newGithub}${oldGithub !== newGithub ? pc.dim(` (was: ${oldGithub})`) : ""}`);
+  } catch (err: any) {
+    console.log(`${pc.red("Error:")} ${err.message}`);
+  }
+}
+
+async function removeTree(args: string[]) {
+  const { readBrokerInfo } = await import("../../broker/index");
+  const info = readBrokerInfo();
+  if (!info) {
+    console.log(`${pc.yellow("Grove is not running.")} Run ${pc.bold("grove up")} first.`);
+    return;
+  }
+
+  const force = args.includes("--force");
+  const treeId = args.find(a => !a.startsWith("--"));
+  if (!treeId) {
+    console.log(`${pc.red("Usage:")} grove tree remove <name> [--force]`);
+    return;
+  }
+
+  try {
+    const url = `${info.url}/api/trees/${encodeURIComponent(treeId)}${force ? "?force=true" : ""}`;
+    const resp = await fetch(url, { method: "DELETE" });
+
+    if (resp.status === 404) {
+      console.log(`${pc.red("Tree not found:")} ${treeId}`);
+      return;
+    }
+
+    if (resp.status === 409) {
+      const data = await resp.json() as any;
+      console.log(`${pc.red("✘")} Tree ${pc.bold(`"${treeId}"`)} has ${data.task_count} tasks. Use ${pc.bold("--force")} to remove the tree and all its tasks.`);
+      return;
+    }
+
+    const data = await resp.json() as any;
+    const suffix = data.tasks_deleted > 0 ? ` (${data.tasks_deleted} tasks deleted)` : "";
+    console.log(`${pc.green("✓")} Removed tree ${pc.bold(`"${treeId}"`)}${suffix}`);
+  } catch (err: any) {
+    console.log(`${pc.red("Error:")} ${err.message}`);
+  }
 }
