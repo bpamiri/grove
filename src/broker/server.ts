@@ -1124,7 +1124,7 @@ async function handleApi(
 
     // POST /api/batch/analyze — analyze draft tasks for a tree and produce a batch plan
     if (path === "/api/batch/analyze" && req.method === "POST") {
-      const body = await req.json() as { treeId: string; mode?: "heuristic" | "agent" };
+      const body = await req.json() as { treeId: string; mode?: "heuristic" | "agent" | "hybrid" };
       if (!body.treeId) return json({ error: "treeId required" }, 400);
 
       const tree = db.treeGet(body.treeId);
@@ -1140,7 +1140,7 @@ async function handleApi(
       }
 
       const { analyzeBatch } = await import("../batch/analyze");
-      const plan = analyzeBatch(drafts, tree.path);
+      const plan = await analyzeBatch(drafts, tree.path, body.mode);
       return json(plan);
     }
 
@@ -1164,7 +1164,7 @@ async function handleApi(
       }
 
       const { analyzeBatch, computeDependsOn } = await import("../batch/analyze");
-      const plan = analyzeBatch(drafts, tree.path);
+      const plan = await analyzeBatch(drafts, tree.path);
 
       const targetWave = plan.waves.find(w => w.wave === body.wave);
       if (!targetWave) {
