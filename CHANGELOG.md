@@ -1,6 +1,24 @@
 # Changelog
 
 
+## v0.1.23
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.22...v0.1.23)
+
+### 🩹 Fixes
+
+- (W-050) detect GitHub remote for repos with dots in name and via web UI ([d45c519](https://github.com/bpamiri/grove/commit/d45c519))
+
+### 📖 Documentation
+
+- Update README and getting-started guides for T1-T10 features ([d4ffa24](https://github.com/bpamiri/grove/commit/d4ffa24))
+- Update web GUI, task management, and custom paths guides ([071fd9c](https://github.com/bpamiri/grove/commit/071fd9c))
+- Update architecture, CLI reference, and configuration guides ([f2d48a8](https://github.com/bpamiri/grove/commit/f2d48a8))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.22
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.21...v0.1.22)
