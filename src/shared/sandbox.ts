@@ -7,49 +7,16 @@ import { expandHome } from "./worktree";
 // Guard hook generation
 // ---------------------------------------------------------------------------
 
-const BLOCKED_BASH_PATTERNS = [
-  "git push", "git reset --hard", "rm -rf /", "sudo ",
-];
-
-const SAFE_BASH_PREFIXES = [
-  "git status", "git log", "git diff", "git show", "git blame", "git branch",
-  "git add", "git commit", "git merge", "git cherry-pick", "git checkout", "git rebase",
-  "git stash", "git tag", "git fetch",
-  "ls", "cat", "head", "tail", "find", "grep", "rg", "wc", "which", "pwd", "echo",
-  "tree", "file", "stat", "du", "df", "env", "printenv",
-  "bun ", "bun test", "npm ", "npx ", "node ", "python ", "make ", "cargo ",
-];
-
 interface GuardHookEntry {
   matcher: string;
   hooks: Array<{ type: "command"; command: string }>;
 }
 
-function bashDangerGuard(): string {
-  const checks = BLOCKED_BASH_PATTERNS.map(
-    (p) => `echo "$CLAUDE_TOOL_INPUT" | grep -qiF '${p}' && echo "BLOCKED: ${p} is not allowed in Grove workers" && exit 2`
-  ).join("; ");
-  return `${checks}; exit 0`;
-}
-
-function writeEditPathBoundary(worktreePath: string): string {
-  // Hardcode the worktree path. Use if/elif instead of case (case breaks with semicolons).
-  return [
-    `GROVE_WT="${worktreePath}"`,
-    'FILE_PATH=$(echo "$CLAUDE_TOOL_INPUT" | grep -o \'"file_path":"[^"]*"\' | head -1 | sed \'s/"file_path":"//;s/"$//\')',
-    '[ -z "$FILE_PATH" ] && exit 0',
-    'echo "$FILE_PATH" | grep -q "^$GROVE_WT" && exit 0',
-    'echo "$FILE_PATH" | grep -q "^/tmp/" && exit 0',
-    'echo "$FILE_PATH" | grep -q "^/private/tmp/" && exit 0',
-    'echo "BLOCKED: $FILE_PATH is outside worktree" && exit 2',
-  ].join("; ");
-}
-
 function buildGuardHooks(worktreePath: string): GuardHookEntry[] {
   return [
-    { matcher: "Bash", hooks: [{ type: "command", command: bashDangerGuard() }] },
-    { matcher: "Write", hooks: [{ type: "command", command: writeEditPathBoundary(worktreePath) }] },
-    { matcher: "Edit", hooks: [{ type: "command", command: writeEditPathBoundary(worktreePath) }] },
+    { matcher: "Bash", hooks: [{ type: "command", command: `grove _guard bash-danger "${worktreePath}"` }] },
+    { matcher: "Write", hooks: [{ type: "command", command: `grove _guard edit-boundary "${worktreePath}"` }] },
+    { matcher: "Edit", hooks: [{ type: "command", command: `grove _guard edit-boundary "${worktreePath}"` }] },
   ];
 }
 
@@ -322,31 +289,10 @@ export function buildReviewOverlay(ctx: ReviewOverlayContext): string {
   return parts.join("\n");
 }
 
-/** Guard hooks for reviewer: write only to .grove/review-result.json */
-function reviewWriteGuard(worktreePath: string): string {
-  const resultPath = join(worktreePath, ".grove", "review-result.json");
-  return [
-    `RESULT_PATH="${resultPath}"`,
-    'FILE_PATH=$(echo "$CLAUDE_TOOL_INPUT" | grep -o \'"file_path":"[^"]*"\' | head -1 | sed \'s/"file_path":"//;s/"$//\')',
-    '[ -z "$FILE_PATH" ] && exit 0',
-    '[ "$FILE_PATH" = "$RESULT_PATH" ] && exit 0',
-    'echo "BLOCKED: Reviewer can only write to .grove/review-result.json" && exit 2',
-  ].join("; ");
-}
-
-/** Guard hooks for reviewer: block git modifications */
-function reviewBashGuard(): string {
-  const blocked = [...BLOCKED_BASH_PATTERNS, "git add", "git commit", "git checkout", "git rebase", "git merge", "git cherry-pick", "git stash"];
-  const checks = blocked.map(
-    (p) => `echo "$CLAUDE_TOOL_INPUT" | grep -qiF '${p}' && echo "BLOCKED: ${p} is not allowed for reviewers" && exit 2`
-  ).join("; ");
-  return `${checks}; exit 0`;
-}
-
 function buildReviewGuardHooks(worktreePath: string): GuardHookEntry[] {
   return [
-    { matcher: "Bash", hooks: [{ type: "command", command: reviewBashGuard() }] },
-    { matcher: "Write", hooks: [{ type: "command", command: reviewWriteGuard(worktreePath) }] },
+    { matcher: "Bash", hooks: [{ type: "command", command: `grove _guard review-bash "${worktreePath}"` }] },
+    { matcher: "Write", hooks: [{ type: "command", command: `grove _guard review-write "${worktreePath}"` }] },
     { matcher: "Edit", hooks: [{ type: "command", command: 'echo "BLOCKED: Reviewer cannot edit files" && exit 2' }] },
   ];
 }
