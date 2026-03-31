@@ -124,6 +124,16 @@ export class Database {
     return this.all<Tree>("SELECT * FROM trees ORDER BY name");
   }
 
+  treeDelete(id: string): void {
+    this.run("DELETE FROM trees WHERE id = ?", [id]);
+  }
+
+  taskDeleteByTree(treeId: string): number {
+    const before = this.scalar<number>("SELECT COUNT(*) FROM tasks WHERE tree_id = ?", [treeId]) ?? 0;
+    this.run("DELETE FROM tasks WHERE tree_id = ?", [treeId]);
+    return before;
+  }
+
   // ---- Task helpers ----
 
   taskGet(taskId: string): Task | null {
