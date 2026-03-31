@@ -105,7 +105,9 @@ grove task add "Add auth middleware"  # Create a task
 
 > **Note:** `grove task add` only accepts a title. There are no CLI flags for `--tree`, `--description`, `--path`, or `--depends-on`. Use the web GUI or REST API to set those fields. Dependencies are typically set automatically by batch dispatch.
 
-Task statuses: `draft`, `queued`, `active`, `completed`, `failed`
+**Filter statuses** (for `--status`): `draft`, `queued`, `active`, `completed`, `failed`
+
+**Display statuses**: The task list may also show internal pipeline states like `running`, `evaluating`, `paused`, or `merged`. These reflect the current step but are not valid `--status` filter values — they map to `active` or `completed` in the filter.
 
 #### Task Actions (via API)
 
@@ -117,7 +119,7 @@ These actions are available through the web GUI and REST API:
 | **Resume** | `POST /api/tasks/:id/resume` | Resume a failed/paused task at current or specified step |
 | **Retry** | `POST /api/tasks/:id/retry` | Re-dispatch a failed task (increments retry count) |
 
-The resume endpoint accepts an optional `step_id` in the request body to resume at a specific pipeline step. See [Task Management](task-management.md) for details.
+The resume endpoint accepts an optional `step` field in the request body to resume at a specific pipeline step. See [Task Management](task-management.md) for details.
 
 ---
 

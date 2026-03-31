@@ -4,6 +4,19 @@ Grove is configured via `~/.grove/grove.yaml`. The file is created automatically
 
 ---
 
+## Workspace
+
+```yaml
+workspace:
+  name: "My Project"
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Display name for the Grove instance. Shown in the GUI header and system prompts. Required. Defaults to `"Grove"`. |
+
+---
+
 ## Trees
 
 Trees are repositories under Grove management. Each tree has its own path, GitHub identity, and quality gate configuration.
@@ -94,15 +107,19 @@ paths:
 |------|-------------|
 | `worker` | Spawns a Claude Code worker session to execute the step. |
 | `gate` | Runs quality evaluation (tests, lint, diff size) against the current state. |
+| `merge` | Pushes the branch, creates a PR, monitors CI, and auto-merges on green. |
 
 **Step fields:**
 
 | Field | Description |
 |-------|-------------|
 | `id` | Unique identifier for the step within the path. |
-| `type` | `worker` or `gate`. |
+| `type` | `worker`, `gate`, or `merge`. Inferred from `id` if omitted. |
 | `prompt` | Instructions passed to the worker (worker steps only). |
-| `on_failure` | Step ID to retry when this gate fails. |
+| `label` | Display name shown in the GUI pipeline indicator. Auto-generated from `id` (capitalized) if omitted. |
+| `on_success` | Step ID to transition to on success. Defaults to the next step, or `$done` for the last step. |
+| `on_failure` | Step ID to transition to on failure. Gates default to the nearest preceding worker; workers default to `$fail`. |
+| `max_retries` | Override the global `settings.max_retries` for this specific step. |
 
 **String shorthand:** The `steps` list accepts bare step IDs as strings (`steps: [plan, implement, evaluate]`). Grove expands these to full `PipelineStep` objects using built-in defaults for each named step.
 
@@ -167,8 +184,8 @@ tunnel:
 
 | Field | Description |
 |-------|-------------|
-| `provider` | Tunnel provider. Currently `cloudflare` only. |
-| `auth` | Authentication method. `token` uses a Cloudflare API token. |
+| `provider` | Tunnel provider. Currently `cloudflare` only. (`bore` and `ngrok` are defined but not yet implemented.) |
+| `auth` | Authentication method. `token` requires a Bearer token for API/WebSocket access. `none` disables authentication (local-only use). |
 | `domain` | Optional base domain. Register `grove.cloud` for a stable vanity URL. |
 | `subdomain` | Subdomain to use. `auto` generates one on first start and persists it. |
 | `secret` | Shared secret for webhook validation. `auto` generates one on first start. |

@@ -116,10 +116,10 @@ If a task fails or stalls mid-pipeline, you can resume it at any step — not ju
 
 ```json
 POST /api/tasks/:id/resume
-{ "step_id": "implement" }
+{ "step": "implement" }
 ```
 
-If no `step_id` is provided, the task resumes at its current step. The resume operation:
+If no `step` is provided, the task resumes at its current step. The resume operation:
 
 1. Validates the step exists in the task's path definition
 2. Kills any active worker still running for the task
@@ -141,7 +141,7 @@ Canceling stops a running task immediately and marks it `failed`.
 **WebSocket:**
 
 ```json
-{ "action": "cancel_task", "taskId": "W-042" }
+{ "type": "action", "action": "cancel_task", "taskId": "W-042" }
 ```
 
 The cancel action sets the task status to `failed`, kills the worker process, and releases the worker slot.

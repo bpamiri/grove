@@ -565,3 +565,99 @@ The dispatch endpoint re-analyzes from scratch rather than caching, making it ro
 ### Web GUI
 
 The "Plan Batch" button appears when 2+ draft tasks exist in the selected tree. The `BatchPlan` component renders file predictions (color-coded by confidence), overlap pairs, and execution waves with sequential dispatch buttons.
+
+---
+
+## API Reference
+
+All endpoints are served by the broker at `http://localhost:{port}`. Remote access (via tunnel) requires a Bearer token in the `Authorization` header.
+
+### System
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/status` | Broker health: version, orchestrator state, worker count, queue depth, task counts, daily/weekly cost |
+| POST | `/api/restart` | Restart the broker process (spawns `grove down; sleep 2; grove up` in a detached shell) |
+| POST | `/api/rotate-credentials` | Regenerate auth token, tunnel subdomain, and shared secret |
+
+### Trees
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/trees` | List all registered trees |
+| POST | `/api/trees` | Register a tree. Body: `{ path, id?, github?, branch_prefix? }` |
+| GET | `/api/trees/:id/issues` | Fetch open GitHub issues for a tree (proxies `gh issue list`) |
+| POST | `/api/trees/:id/import-issues` | Create draft tasks from open GitHub issues. Skips already-imported issues. |
+
+### Tasks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/tasks` | List tasks. Query params: `status`, `tree`. Annotated with seed status. |
+| GET | `/api/tasks/:id` | Get a single task with its events and subtasks |
+| POST | `/api/tasks` | Create a draft task. Body: `{ title, tree_id?, description?, path_name? }` |
+| POST | `/api/tasks/:id/dispatch` | Promote draft → queued. Creates a GitHub issue if needed, then enqueues for pipeline. |
+| POST | `/api/tasks/:id/retry` | Re-dispatch a failed task (increments retry count, preserves worktree) |
+| POST | `/api/tasks/:id/resume` | Resume at current or specific step. Body: `{ step? }`. Resets retry count. |
+| GET | `/api/tasks/:id/activity` | Recent tool-use activity parsed from the worker's stream-json log (last 100 entries) |
+
+### Seeds
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/tasks/:id/seed` | Get seed state and conversation for a task |
+| POST | `/api/tasks/:id/seed/start` | Start a brainstorming seed session (spawns Claude in tmux) |
+| POST | `/api/tasks/:id/seed/stop` | Stop an active seed session |
+| DELETE | `/api/tasks/:id/seed` | Discard a seed to allow re-seeding |
+
+### Orchestrator
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/chat` | Send a message to the orchestrator. Body: `{ text }` |
+| POST | `/api/orchestrator/reset` | Reset the orchestrator session (next message starts fresh) |
+| GET | `/api/messages` | Chat history. Query params: `channel` (default: `"main"`), `limit` (default: 50) |
+
+### Pipelines
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/paths` | Normalized pipeline step definitions (used by the GUI for step indicators) |
+
+### Batch
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/batch/analyze` | Analyze draft tasks for file conflicts. Body: `{ treeId }`. Returns `BatchPlan`. |
+| POST | `/api/batch/dispatch` | Re-analyze, write `depends_on`, dispatch a wave. Body: `{ treeId, wave }`. |
+
+### Analytics
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/analytics/cost?range=` | Cost breakdown by tree, daily spend, top tasks. Ranges: `1h`, `4h`, `24h`, `7d`. |
+| GET | `/api/analytics/gates?range=` | Gate pass/fail rates and retry statistics |
+| GET | `/api/analytics/timeline?range=` | Task execution timeline for Gantt visualization |
+
+### Events
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/events` | Recent event log. Query params: `task` (filter by task ID), `limit` (default: 20) |
+
+### WebSocket
+
+Connect to `ws://localhost:{port}/ws`. Remote connections require a Bearer token in the first `auth` message.
+
+**Client → Server messages:**
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `auth` | `token` | Authenticate a remote WebSocket connection |
+| `chat` | `text` | Send a message to the orchestrator |
+| `action` | `action`, `taskId`, `step?` | Task actions: `pause_task`, `cancel_task`, `resume_task`. The `step` field only applies to `resume_task`. |
+| `seed` | `taskId`, `text` | Send a message in a seed conversation |
+| `seed_start` | `taskId` | Start a seed session (alternative to REST) |
+| `seed_stop` | `taskId` | Stop a seed session (alternative to REST) |
+
+**Server → Client events:** All internal event bus events are broadcast to authenticated WebSocket clients. See [Event Bus](#deep-dive-event-bus) for the full event list.

@@ -72,6 +72,7 @@ So `steps: [plan, implement, evaluate, merge]` produces: worker → worker → g
 | `id` | Yes | Unique identifier within the path. Used for transition targets. |
 | `type` | No | `worker`, `gate`, or `merge`. Inferred from `id` if omitted. |
 | `prompt` | No | Instructions passed to the Claude Code worker. Only used for `worker` steps. |
+| `label` | No | Display name shown in the GUI pipeline indicator. Auto-generated from `id` (capitalized) if omitted. |
 | `on_success` | No | Step ID to transition to on success. Defaults to the next step, or `$done` for the last step. |
 | `on_failure` | No | Step ID to transition to on failure. See default behavior below. |
 | `max_retries` | No | Override the global `max_retries` for this specific step. |
