@@ -13,9 +13,14 @@ ${pc.bold("Setup:")}
   ${pc.green("up")}                Start broker + orchestrator + tunnel
   ${pc.green("down")}              Stop everything gracefully
 
+${pc.bold("Trees:")}
+  ${pc.green("trees")}             List configured trees (repos)
+  ${pc.green("tree add")} <path>   Add a new tree
+  ${pc.green("tree rescan")} <name>  Re-detect GitHub remote for a tree
+  ${pc.green("tree remove")} <name>  Remove a tree from Grove
+
 ${pc.bold("Monitoring:")}
   ${pc.green("status")}            Show system status (broker, workers, tunnel)
-  ${pc.green("trees")}             List configured trees (repos)
   ${pc.green("tasks")}             List tasks with filtering
   ${pc.green("cost")}              Spend breakdown
 

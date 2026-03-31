@@ -124,6 +124,14 @@ export class Database {
     return this.all<Tree>("SELECT * FROM trees ORDER BY name");
   }
 
+  treeDelete(id: string): void {
+    this.run("DELETE FROM trees WHERE id = ?", [id]);
+  }
+
+  taskDeleteByTree(treeId: string): number {
+    return this.db.prepare("DELETE FROM tasks WHERE tree_id = ?").run(treeId).changes;
+  }
+
   // ---- Task helpers ----
 
   taskGet(taskId: string): Task | null {

@@ -67,6 +67,18 @@ describe("Tree operations", () => {
     expect(trees.length).toBe(2);
     expect(trees[0].name).toBe("A Repo");
   });
+
+  test("treeDelete removes a tree", () => {
+    db.treeUpsert({ id: "doomed", name: "Doomed", path: "/tmp/doomed" });
+    expect(db.treeGet("doomed")).not.toBeNull();
+    db.treeDelete("doomed");
+    expect(db.treeGet("doomed")).toBeNull();
+  });
+
+  test("treeDelete is idempotent for missing tree", () => {
+    // Should not throw
+    db.treeDelete("nonexistent");
+  });
 });
 
 describe("Task operations", () => {
@@ -140,6 +152,25 @@ describe("Task operations", () => {
     db.run("INSERT INTO tasks (id, title, parent_task_id) VALUES (?, ?, ?)", ["W-002", "Sub B", "T-001"]);
     const subs = db.subTasks("T-001");
     expect(subs.length).toBe(2);
+  });
+
+  test("taskDeleteByTree removes all tasks for a tree", () => {
+    db.treeUpsert({ id: "my-tree", name: "My Tree", path: "/tmp/tree" });
+    db.treeUpsert({ id: "other", name: "Other Tree", path: "/tmp/other" });
+    db.run("INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)", ["W-001", "my-tree", "Task A", "draft"]);
+    db.run("INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)", ["W-002", "my-tree", "Task B", "active"]);
+    db.run("INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)", ["W-003", "other", "Task C", "draft"]);
+
+    const count = db.taskDeleteByTree("my-tree");
+    expect(count).toBe(2);
+    expect(db.tasksByTree("my-tree").length).toBe(0);
+    // Other tree's tasks unaffected
+    expect(db.taskGet("W-003")).not.toBeNull();
+  });
+
+  test("taskDeleteByTree returns 0 when no tasks", () => {
+    const count = db.taskDeleteByTree("empty-tree");
+    expect(count).toBe(0);
   });
 });
 
