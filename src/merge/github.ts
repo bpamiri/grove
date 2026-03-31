@@ -142,6 +142,58 @@ export function ghPrList(repo: string, opts?: { head?: string; state?: string; l
   return ghJson<GhPr[]>(args);
 }
 
+export interface GhPrDetail {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  headRefName: string;
+  headRefOid: string;
+  author: { login: string };
+  body: string;
+  mergeable: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+}
+
+export function ghPrView(repo: string, prNumber: number): GhPrDetail | null {
+  const result = gh([
+    "pr", "view", String(prNumber), "-R", repo,
+    "--json", "number,title,state,url,headRefName,headRefOid,author,body,mergeable,additions,deletions,changedFiles",
+  ]);
+  if (!result.ok) return null;
+  try { return JSON.parse(result.stdout); } catch { return null; }
+}
+
+export function ghPrReview(repo: string, prNumber: number, opts: {
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  body: string;
+}): boolean {
+  const args = [
+    "pr", "review", String(prNumber), "-R", repo,
+    "--body", opts.body,
+  ];
+  if (opts.event === "APPROVE") args.push("--approve");
+  else if (opts.event === "REQUEST_CHANGES") args.push("--request-changes");
+  else args.push("--comment");
+  return gh(args).ok;
+}
+
+export function ghPrClose(repo: string, prNumber: number, comment?: string): boolean {
+  const args = ["pr", "close", String(prNumber), "-R", repo];
+  if (comment) args.push("--comment", comment);
+  return gh(args).ok;
+}
+
+export function ghPrCheckout(repo: string, prNumber: number, cwd: string): { ok: boolean; stderr: string } {
+  const result = Bun.spawnSync(
+    ["gh", "pr", "checkout", String(prNumber), "-R", repo, "--detach"],
+    { cwd, stdin: "ignore", stderr: "pipe" },
+  );
+  return { ok: result.exitCode === 0, stderr: result.stderr.toString().trim() };
+}
+
 // ---------------------------------------------------------------------------
 // Issue operations
 // ---------------------------------------------------------------------------
