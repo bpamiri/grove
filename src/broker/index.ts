@@ -19,6 +19,12 @@ import { wireNotifications } from "../notifications/index";
 import { wireGitHubSync } from "./github-sync";
 import { startPrPoller, stopPrPoller } from "../pr/poller";
 import { PluginHost } from "../plugins/host";
+import { setAdapterRegistry } from "../agents/worker";
+import { AdapterRegistry } from "../agents/adapters/registry";
+import { ClaudeCodeAdapter } from "../agents/adapters/claude-code";
+import { CodexCliAdapter } from "../agents/adapters/codex-cli";
+import { AiderAdapter } from "../agents/adapters/aider";
+import { GeminiCliAdapter } from "../agents/adapters/gemini-cli";
 
 export interface BrokerInfo {
   pid: number;
@@ -31,6 +37,7 @@ export interface BrokerInfo {
 
 let tunnel: TunnelProvider | null = null;
 let pluginHost: PluginHost | null = null;
+let adapterRegistry: AdapterRegistry | null = null;
 
 /** Start the broker — the central process that manages everything */
 export async function startBroker(): Promise<BrokerInfo> {
@@ -91,6 +98,18 @@ export async function startBroker(): Promise<BrokerInfo> {
   if (loadedPlugins.length > 0) {
     console.log(`  Plugins: ${loadedPlugins.map(p => p.name).join(", ")}`);
   }
+
+  // Initialize adapter registry
+  adapterRegistry = new AdapterRegistry();
+  adapterRegistry.register(new ClaudeCodeAdapter());
+  adapterRegistry.register(new CodexCliAdapter());
+  adapterRegistry.register(new AiderAdapter());
+  adapterRegistry.register(new GeminiCliAdapter());
+  const defaultAdapter = config.settings.default_adapter ?? "claude-code";
+  try { adapterRegistry.setDefault(defaultAdapter); } catch {}
+  setAdapterRegistry(adapterRegistry);
+  const available = adapterRegistry.detectAvailable();
+  if (available.length > 0) console.log(`  Adapters: ${available.join(", ")}`);
 
   // Initialize dispatch system (concurrent worker queue)
   initDispatch({ db, maxWorkers: config.settings.max_workers });
@@ -235,6 +254,11 @@ async function findAvailablePort(startPort: number = 49152): Promise<number> {
 /** Get the plugin host instance (available after broker starts) */
 export function getPluginHost(): PluginHost | null {
   return pluginHost;
+}
+
+/** Get the adapter registry instance (available after broker starts) */
+export function getAdapterRegistry(): AdapterRegistry | null {
+  return adapterRegistry;
 }
 
 /** Read broker info from disk (for CLI commands to find the running broker) */

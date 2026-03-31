@@ -7,6 +7,7 @@ import { createWorktree, branchName } from "../shared/worktree";
 import { deploySandbox, triggerPrompt, resumeTriggerPrompt, readReviewFeedback } from "../shared/sandbox";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
+import type { AdapterRegistry } from "./adapters/registry";
 
 export interface WorkerHandle {
   taskId: string;
@@ -18,6 +19,10 @@ export interface WorkerHandle {
 }
 
 const activeWorkers = new Map<string, WorkerHandle>();
+let _adapterRegistry: AdapterRegistry | null = null;
+
+/** Set the adapter registry (called by broker during init) */
+export function setAdapterRegistry(registry: AdapterRegistry | null): void { _adapterRegistry = registry; }
 
 /** Spawn a worker for a task. Creates worktree, deploys sandbox, launches claude. */
 export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string, stepPrompt?: string): WorkerHandle {
@@ -78,25 +83,23 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   // Use resume prompt if continuing from a prior session
   const prompt = isResumption ? resumeTriggerPrompt(task.id) : triggerPrompt(task.id);
 
-  // Spawn claude in the worktree
-  const logFile = Bun.file(logPath);
-  const logWriter = logFile.writer();
+  // Resolve adapter: task → tree → global default
+  const treeAdapter = treeConfig.adapter;
+  const taskAdapter = (task as any).adapter;
+  const adapterName = taskAdapter ?? treeAdapter ?? "claude-code";
+  const registry = _adapterRegistry;
+  const adapter = registry?.get(adapterName) ?? registry?.getDefault();
 
-  const proc = Bun.spawn(
-    ["claude", "-p", prompt, "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"],
-    {
-      cwd: worktreePath,
-      env: {
-        ...process.env,
-        GROVE_TASK_ID: task.id,
-        GROVE_WORKTREE_PATH: worktreePath,
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
+  if (!adapter) {
+    throw new Error(`No adapter available (requested: ${adapterName})`);
+  }
 
-  const pid = proc.pid;
+  const { proc, pid } = adapter.spawn({
+    prompt,
+    cwd: worktreePath,
+    env: { GROVE_TASK_ID: task.id, GROVE_WORKTREE_PATH: worktreePath },
+    logPath,
+  });
 
   // Register session in DB
   db.sessionCreate(sessionId, task.id, "worker", pid, undefined, logPath);

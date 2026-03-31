@@ -117,6 +117,7 @@ export interface Task {
   worktree_path: string | null;
   github_issue: number | null;
   source_pr: number | null;
+  adapter: string | null;
   labels: string | null;
   pr_url: string | null;
   pr_number: number | null;
@@ -206,6 +207,7 @@ export interface SettingsConfig {
   branch_prefix: string;
   stall_timeout_minutes: number;
   max_retries: number;
+  default_adapter?: string;
   quality_gates?: QualityGatesConfig;
 }
 
