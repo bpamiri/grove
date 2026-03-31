@@ -436,14 +436,14 @@ describe("analyzeBatch", () => {
     completed_at: null,
   });
 
-  test("produces a complete batch plan", () => {
+  test("produces a complete batch plan", async () => {
     const tasks = [
       makeTask("W-001", "Update the TaskList component"),
       makeTask("W-002", "Fix Sidebar navigation"),
       makeTask("W-003", "Refactor useTasks hook and TaskList rendering"),
     ];
 
-    const plan = analyzeBatch(tasks, tmpRepo);
+    const plan = await analyzeBatch(tasks, tmpRepo);
 
     expect(plan.treeId).toBe("test");
     expect(plan.tasks).toHaveLength(3);
@@ -458,13 +458,13 @@ describe("analyzeBatch", () => {
     expect(overlap!.sharedFiles.some(f => f.includes("TaskList"))).toBe(true);
   });
 
-  test("non-overlapping tasks all go in wave 1", () => {
+  test("non-overlapping tasks all go in wave 1", async () => {
     const tasks = [
       makeTask("W-001", "Update the TaskList component"),
       makeTask("W-002", "Fix Sidebar navigation"),
     ];
 
-    const plan = analyzeBatch(tasks, tmpRepo);
+    const plan = await analyzeBatch(tasks, tmpRepo);
 
     // TaskList and Sidebar are separate files — no overlap
     expect(plan.overlaps).toHaveLength(0);

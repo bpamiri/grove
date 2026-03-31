@@ -9,10 +9,11 @@ export async function run(args: string[]) {
     return;
   }
 
-  // Parse args: grove batch <tree> [--run] [--json]
+  // Parse args: grove batch <tree> [--run] [--json] [--agent] [--hybrid]
   let treeId: string | null = null;
   let autoRun = false;
   let jsonOutput = false;
+  let mode: "heuristic" | "agent" | "hybrid" = "heuristic";
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -20,6 +21,10 @@ export async function run(args: string[]) {
       autoRun = true;
     } else if (arg === "--json") {
       jsonOutput = true;
+    } else if (arg === "--agent") {
+      mode = "agent";
+    } else if (arg === "--hybrid") {
+      mode = "hybrid";
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       return;
@@ -29,20 +34,21 @@ export async function run(args: string[]) {
   }
 
   if (!treeId) {
-    console.log(`${pc.red("Usage:")} grove batch <tree> [--run] [--json]`);
+    console.log(`${pc.red("Usage:")} grove batch <tree> [--run] [--json] [--agent] [--hybrid]`);
     console.log(`\nRun ${pc.bold("grove batch --help")} for details.`);
     return;
   }
 
   // Call broker API to analyze
   try {
-    console.log(`${pc.dim("Analyzing draft tasks for")} ${pc.bold(treeId)}${pc.dim("...")}`);
+    const modeLabel = mode === "agent" ? " (AI analysis)" : mode === "hybrid" ? " (hybrid analysis)" : "";
+    console.log(`${pc.dim("Analyzing draft tasks for")} ${pc.bold(treeId)}${pc.dim(modeLabel + "...")}`);
     console.log();
 
     const resp = await fetch(`${info.url}/api/batch/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ treeId }),
+      body: JSON.stringify({ treeId, mode }),
     });
 
     if (!resp.ok) {
@@ -141,16 +147,21 @@ async function dispatchWave(brokerUrl: string, treeId: string, wave: number) {
 }
 
 function printHelp() {
-  console.log(`Usage: grove batch <tree> [--run] [--json]
+  console.log(`Usage: grove batch <tree> [--run] [--json] [--agent] [--hybrid]
 
 Analyze draft tasks for a tree, predict file overlap, and plan execution waves.
 
 What it does:
   1. Gathers all draft tasks for the specified tree
-  2. Predicts which files each task will modify (heuristic analysis)
+  2. Predicts which files each task will modify
   3. Builds an overlap matrix of shared file predictions
   4. Derives execution waves (conflict-free parallel groups)
   5. Shows the plan and optionally dispatches wave 1
+
+Analysis modes:
+  (default)   Heuristic — regex-based file prediction (free, instant)
+  --agent     AI-assisted — Claude analyzes all tasks (accurate, ~$0.01-0.05)
+  --hybrid    Heuristic first, AI fallback for low-confidence tasks
 
 Options:
   --run     Analyze and auto-dispatch wave 1
@@ -158,7 +169,8 @@ Options:
   --help    Show this help
 
 Examples:
-  grove batch grove           Analyze and show plan
-  grove batch grove --run     Analyze and dispatch wave 1
-  grove batch grove --json    Output plan as JSON (for scripting)`);
+  grove batch grove              Analyze with heuristic (default)
+  grove batch grove --agent      Analyze with AI
+  grove batch grove --hybrid     Heuristic + AI fallback
+  grove batch grove --agent --run  AI analysis + dispatch wave 1`);
 }

@@ -237,10 +237,42 @@ export function computeDependsOn(waves: ExecutionWave[]): Map<string, string> {
 }
 
 /** Full batch analysis: gather tasks, predict files, build overlaps, derive waves */
-export function analyzeBatch(tasks: Task[], repoPath: string): BatchPlan {
+export async function analyzeBatch(
+  tasks: Task[],
+  repoPath: string,
+  mode: "heuristic" | "agent" | "hybrid" = "heuristic",
+): Promise<BatchPlan> {
   const repoFiles = listRepoFiles(repoPath);
 
-  const analyses = tasks.map(t => analyzeTask(t, repoFiles));
+  let analyses: TaskAnalysis[];
+
+  if (mode === "agent") {
+    const { agentAnalyzeBatch } = await import("./agent-analyze");
+    try {
+      analyses = await agentAnalyzeBatch(tasks, repoFiles);
+    } catch (err) {
+      console.error(`[batch] Agent analysis failed, falling back to heuristic:`, err);
+      analyses = tasks.map(t => analyzeTask(t, repoFiles));
+    }
+  } else if (mode === "hybrid") {
+    analyses = tasks.map(t => analyzeTask(t, repoFiles));
+    const lowConfidence = analyses.filter(a => a.confidence === "low");
+
+    if (lowConfidence.length > 0) {
+      const lowTasks = tasks.filter(t => lowConfidence.some(a => a.taskId === t.id));
+      try {
+        const { agentAnalyzeBatch } = await import("./agent-analyze");
+        const agentResults = await agentAnalyzeBatch(lowTasks, repoFiles);
+        const agentMap = new Map(agentResults.map(a => [a.taskId, a]));
+        analyses = analyses.map(a => agentMap.get(a.taskId) ?? a);
+      } catch (err) {
+        console.error(`[batch] Agent fallback failed, using heuristic results:`, err);
+      }
+    }
+  } else {
+    analyses = tasks.map(t => analyzeTask(t, repoFiles));
+  }
+
   const overlaps = buildOverlapMatrix(analyses);
   const waves = deriveWaves(analyses, overlaps);
 
