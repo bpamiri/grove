@@ -29,6 +29,7 @@ export interface Task {
   files_modified: string | null;
   retry_count: number;
   max_retries: number;
+  source_pr: number | null;
   has_seed?: boolean;
   seed_status?: string | null;
   created_at: string;

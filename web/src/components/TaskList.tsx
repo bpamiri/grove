@@ -14,7 +14,7 @@ import type { WsMessage } from "../hooks/useWebSocket";
 interface Props {
   tasks: Task[];
   trees: Tree[];
-  paths: Record<string, { steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>;
+  paths: Record<string, { description: string; steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>;
   getActivity: (taskId: string) => string | undefined;
   getActivityLog: (taskId: string) => Array<{ ts: number; msg: string }>;
   loadActivityLog: (taskId: string) => void;
