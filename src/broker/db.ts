@@ -129,9 +129,7 @@ export class Database {
   }
 
   taskDeleteByTree(treeId: string): number {
-    const before = this.scalar<number>("SELECT COUNT(*) FROM tasks WHERE tree_id = ?", [treeId]) ?? 0;
-    this.run("DELETE FROM tasks WHERE tree_id = ?", [treeId]);
-    return before;
+    return this.db.prepare("DELETE FROM tasks WHERE tree_id = ?").run(treeId).changes;
   }
 
   // ---- Task helpers ----
