@@ -1,6 +1,34 @@
 # Changelog
 
 
+## v0.1.18
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.17...v0.1.18)
+
+### 🚀 Enhancements
+
+- Add SAP event protocol types and validators ([06bbb26](https://github.com/bpamiri/grove/commit/06bbb26))
+- Add SAP event types to EventBusMap, remove tmux_pane from Session type ([c08a908](https://github.com/bpamiri/grove/commit/c08a908))
+- Emit SAP events from worker alongside existing events ([50a79e8](https://github.com/bpamiri/grove/commit/50a79e8))
+- Emit SAP events from reviewer alongside existing events ([10ff84e](https://github.com/bpamiri/grove/commit/10ff84e))
+- Emit SAP events from orchestrator alongside existing events ([7d29ff5](https://github.com/bpamiri/grove/commit/7d29ff5))
+- Forward SAP events over WebSocket ([5ef2f47](https://github.com/bpamiri/grove/commit/5ef2f47))
+- Rewrite seed-session from tmux to --resume subprocess pattern ([ed0d0c1](https://github.com/bpamiri/grove/commit/ed0d0c1))
+- Delete tmux.ts, remove all tmux references from broker and CLI ([255101d](https://github.com/bpamiri/grove/commit/255101d))
+
+### 📖 Documentation
+
+- Grove Next 10 roadmap spec — 10 agent-ready task definitions ([2f9e407](https://github.com/bpamiri/grove/commit/2f9e407))
+- T1 implementation plan — SAP protocol + tmux elimination ([1fcf6c1](https://github.com/bpamiri/grove/commit/1fcf6c1))
+
+### 🏡 Chore
+
+- Remove stale tmux references from CLI help and chat commands ([70649d4](https://github.com/bpamiri/grove/commit/70649d4))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.17
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.16...v0.1.17)
