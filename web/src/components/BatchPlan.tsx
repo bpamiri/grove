@@ -44,6 +44,7 @@ export default function BatchPlan({ treeId, onClose, onRefresh }: Props) {
   const [dispatching, setDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dispatchedWave, setDispatchedWave] = useState<number | null>(null);
+  const [mode, setMode] = useState<"heuristic" | "agent" | "hybrid">("heuristic");
 
   const analyze = useCallback(async () => {
     setLoading(true);
@@ -51,7 +52,7 @@ export default function BatchPlan({ treeId, onClose, onRefresh }: Props) {
     try {
       const data = await api<Plan>("/api/batch/analyze", {
         method: "POST",
-        body: JSON.stringify({ treeId }),
+        body: JSON.stringify({ treeId, mode }),
       });
       setPlan(data);
     } catch (err: any) {
@@ -59,7 +60,7 @@ export default function BatchPlan({ treeId, onClose, onRefresh }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [treeId]);
+  }, [treeId, mode]);
 
   const dispatchWave = useCallback(async (wave: number) => {
     setDispatching(true);
@@ -91,14 +92,36 @@ export default function BatchPlan({ treeId, onClose, onRefresh }: Props) {
         </button>
       </div>
 
-      {/* Analyze button */}
+      {/* Analyze button with mode toggle */}
       {!plan && !loading && (
-        <button
-          onClick={analyze}
-          className="w-full bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg hover:bg-emerald-500/30 text-sm font-medium"
-        >
-          Analyze Draft Tasks
-        </button>
+        <div className="space-y-2">
+          <div className="flex gap-2 text-xs">
+            <button
+              onClick={() => setMode("heuristic")}
+              className={`px-2 py-1 rounded ${mode === "heuristic" ? "bg-zinc-600 text-zinc-200" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"}`}
+            >
+              Fast
+            </button>
+            <button
+              onClick={() => setMode("hybrid")}
+              className={`px-2 py-1 rounded ${mode === "hybrid" ? "bg-zinc-600 text-zinc-200" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"}`}
+            >
+              Hybrid
+            </button>
+            <button
+              onClick={() => setMode("agent")}
+              className={`px-2 py-1 rounded ${mode === "agent" ? "bg-emerald-500/30 text-emerald-400" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"}`}
+            >
+              AI-Assisted
+            </button>
+          </div>
+          <button
+            onClick={analyze}
+            className="w-full bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg hover:bg-emerald-500/30 text-sm font-medium"
+          >
+            Analyze Draft Tasks
+          </button>
+        </div>
       )}
 
       {loading && (
