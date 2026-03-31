@@ -1,5 +1,5 @@
 // Grove v3 — Broker main process
-// Starts HTTP server, tmux session, orchestrator, and manages lifecycle.
+// Starts HTTP server, orchestrator, and manages lifecycle.
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { Database, getEnv } from "./db";
@@ -25,7 +25,6 @@ export interface BrokerInfo {
   url: string;
   tunnelUrl: string | null;  // raw quick-tunnel URL (trycloudflare.com)
   remoteUrl: string | null;  // vanity URL (grove.cloud) or tunnel URL if no domain
-  tmuxSession: string;
   startedAt: string;
 }
 
@@ -169,7 +168,6 @@ export async function startBroker(): Promise<BrokerInfo> {
     url,
     tunnelUrl,
     remoteUrl,
-    tmuxSession: "none",
     startedAt: new Date().toISOString(),
   };
   writeFileSync(join(GROVE_HOME, "broker.json"), JSON.stringify(info, null, 2));
