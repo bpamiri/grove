@@ -19,6 +19,7 @@ import { wireNotifications } from "../notifications/index";
 import { wireGitHubSync } from "./github-sync";
 import { startPrPoller, stopPrPoller } from "../pr/poller";
 import { PluginHost } from "../plugins/host";
+import { setAdapterRegistry } from "../agents/worker";
 import { AdapterRegistry } from "../agents/adapters/registry";
 import { ClaudeCodeAdapter } from "../agents/adapters/claude-code";
 import { CodexCliAdapter } from "../agents/adapters/codex-cli";
@@ -106,6 +107,7 @@ export async function startBroker(): Promise<BrokerInfo> {
   adapterRegistry.register(new GeminiCliAdapter());
   const defaultAdapter = config.settings.default_adapter ?? "claude-code";
   try { adapterRegistry.setDefault(defaultAdapter); } catch {}
+  setAdapterRegistry(adapterRegistry);
   const available = adapterRegistry.detectAvailable();
   if (available.length > 0) console.log(`  Adapters: ${available.join(", ")}`);
 
