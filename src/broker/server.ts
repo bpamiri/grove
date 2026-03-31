@@ -8,6 +8,7 @@ import { EMBEDDED_ASSETS } from "./web-assets.generated";
 import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
 import { ActivityRingBuffer, type ActivityEvent } from "./ring-buffer";
 import { BatchedBroadcaster } from "./batched-broadcaster";
+import { detectCycle, type DagEdge } from "../batch/dag";
 
 export interface ServerOptions {
   db: Database;
@@ -1122,6 +1123,49 @@ async function handleApi(
         supportsResume: a.supportsResume,
       })) ?? [];
       return json(adapters);
+    }
+
+    // ---- DAG endpoints ----
+
+    // GET /api/tasks/dag — full DAG (nodes + edges)
+    if (path === "/api/tasks/dag" && req.method === "GET") {
+      const tasks = db.all<{ id: string; title: string; status: string }>(
+        "SELECT id, title, status FROM tasks ORDER BY created_at DESC",
+      );
+      const edges = db.allTaskEdges();
+      return json({ nodes: tasks, edges });
+    }
+
+    // POST /api/tasks/edges — add dependency edge
+    if (path === "/api/tasks/edges" && req.method === "POST") {
+      const body = await req.json() as any;
+      const { from, to, type } = body;
+      if (!from || !to) return json({ error: "Missing from or to" }, 400);
+
+      // Check for cycle before adding
+      const existingEdges: DagEdge[] = db.allTaskEdges().map(e => ({ from: e.from_task, to: e.to_task }));
+      existingEdges.push({ from, to });
+      const allIds = new Set([...existingEdges.map(e => e.from), ...existingEdges.map(e => e.to)]);
+      const cycle = detectCycle([...allIds], existingEdges);
+      if (cycle) return json({ error: "Would create a cycle", cycle }, 400);
+
+      db.addEdge(from, to, type ?? "dependency");
+      return json({ ok: true });
+    }
+
+    // DELETE /api/tasks/edges/:from/:to — remove dependency edge
+    const edgeDeleteMatch = path.match(/^\/api\/tasks\/edges\/([^/]+)\/([^/]+)$/);
+    if (edgeDeleteMatch && req.method === "DELETE") {
+      db.removeEdge(edgeDeleteMatch[1], edgeDeleteMatch[2]);
+      return json({ ok: true });
+    }
+
+    // POST /api/tasks/dag/validate — check for cycles
+    if (path === "/api/tasks/dag/validate" && req.method === "POST") {
+      const edges: DagEdge[] = db.allTaskEdges().map(e => ({ from: e.from_task, to: e.to_task }));
+      const allIds = new Set([...edges.map(e => e.from), ...edges.map(e => e.to)]);
+      const cycle = detectCycle([...allIds], edges);
+      return json({ valid: !cycle, cycle });
     }
 
     return json({ error: "Not found" }, 404);

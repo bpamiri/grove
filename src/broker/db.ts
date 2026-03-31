@@ -194,6 +194,42 @@ export class Database {
     );
   }
 
+  // ---- Task Edge helpers ----
+
+  addEdge(fromTask: string, toTask: string, edgeType: string = "dependency"): void {
+    this.run(
+      "INSERT OR IGNORE INTO task_edges (from_task, to_task, edge_type) VALUES (?, ?, ?)",
+      [fromTask, toTask, edgeType],
+    );
+  }
+
+  removeEdge(fromTask: string, toTask: string): void {
+    this.run("DELETE FROM task_edges WHERE from_task = ? AND to_task = ?", [fromTask, toTask]);
+  }
+
+  allTaskEdges(): Array<{ from_task: string; to_task: string; edge_type: string }> {
+    return this.all("SELECT from_task, to_task, edge_type FROM task_edges");
+  }
+
+  taskEdgesFor(taskId: string): Array<{ from_task: string; to_task: string; edge_type: string }> {
+    return this.all(
+      "SELECT from_task, to_task, edge_type FROM task_edges WHERE from_task = ? OR to_task = ?",
+      [taskId, taskId],
+    );
+  }
+
+  /** Migrate existing depends_on strings to task_edges (run once on startup) */
+  migrateDepends(): void {
+    const tasks = this.all<{ id: string; depends_on: string }>(
+      "SELECT id, depends_on FROM tasks WHERE depends_on IS NOT NULL AND depends_on != ''",
+    );
+    for (const task of tasks) {
+      for (const dep of task.depends_on.split(",").map(s => s.trim()).filter(Boolean)) {
+        this.addEdge(dep, task.id);
+      }
+    }
+  }
+
   // ---- Session helpers ----
 
   sessionCreate(id: string, taskId: string | null, role: string, pid?: number, tmuxPane?: string, logPath?: string): void {

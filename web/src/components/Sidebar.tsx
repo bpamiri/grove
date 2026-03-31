@@ -28,9 +28,10 @@ interface Props {
   connected: boolean;
   onSettingsClick: () => void;
   onDashboardClick: () => void;
+  onDagClick?: () => void;
 }
 
-export default function Sidebar({ trees, status, taskCount, treeCounts, selectedTree, onSelectTree, connected, onSettingsClick, onDashboardClick }: Props) {
+export default function Sidebar({ trees, status, taskCount, treeCounts, selectedTree, onSelectTree, connected, onSettingsClick, onDashboardClick, onDagClick }: Props) {
   return (
     <aside className="h-full flex flex-col bg-zinc-900/50 p-4 text-sm overflow-y-auto">
       {/* Header: Logo + Gear */}
@@ -65,6 +66,22 @@ export default function Sidebar({ trees, status, taskCount, treeCounts, selected
         </svg>
         <span>Dashboard</span>
       </button>
+
+      {onDagClick && (
+        <button
+          onClick={onDagClick}
+          className="w-full text-left px-2 py-1.5 rounded text-sm text-zinc-400 hover:text-zinc-200 mb-4 flex items-center gap-2"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" className="flex-shrink-0">
+            <circle cx="3" cy="3" r="2" fill="currentColor" opacity="0.8" />
+            <circle cx="11" cy="3" r="2" fill="currentColor" opacity="0.6" />
+            <circle cx="7" cy="11" r="2" fill="currentColor" />
+            <line x1="3" y1="5" x2="7" y2="9" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+            <line x1="11" y1="5" x2="7" y2="9" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+          </svg>
+          <span>DAG</span>
+        </button>
+      )}
 
       {/* Trees grouped by org */}
       <div className="flex-1 overflow-y-auto">
