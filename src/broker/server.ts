@@ -487,6 +487,16 @@ async function handleApi(
       }
 
       const deletedTasks = tasks.length > 0 ? db.taskDeleteByTree(tree.id) : 0;
+
+      // Clean up any worktrees on disk before removing the tree
+      try {
+        const { listWorktrees, cleanupWorktree } = await import("../shared/worktree");
+        const worktrees = listWorktrees(tree.path);
+        for (const wt of worktrees) {
+          cleanupWorktree(wt.taskId, tree.path);
+        }
+      } catch { /* best-effort */ }
+
       db.treeDelete(tree.id);
 
       // Remove from YAML config
