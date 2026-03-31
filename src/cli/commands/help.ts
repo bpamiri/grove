@@ -23,6 +23,7 @@ ${pc.bold("Monitoring:")}
   ${pc.green("status")}            Show system status (broker, workers, tunnel)
   ${pc.green("tasks")}             List tasks with filtering
   ${pc.green("cost")}              Spend breakdown
+  ${pc.green("cleanup")}          Prune stale worktrees
 
 ${pc.bold("Interaction:")}
   ${pc.green("chat")} "message"    Send a message to the orchestrator

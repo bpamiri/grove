@@ -16,6 +16,7 @@ const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void
   chat:   () => import("./commands/chat"),
   config:  () => import("./commands/config"),
   cost:    () => import("./commands/cost"),
+  cleanup: () => import("./commands/cleanup"),
   plugins: () => import("./commands/plugins"),
   help:    () => import("./commands/help"),
   upgrade: () => import("./commands/upgrade"),

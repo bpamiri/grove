@@ -507,6 +507,13 @@ async function handleApi(
       return json({ ok: true, tree: tree.id, tasks_deleted: deletedTasks });
     }
 
+    // POST /api/cleanup/worktrees — prune stale worktrees
+    if (path === "/api/cleanup/worktrees" && req.method === "POST") {
+      const { pruneStaleWorktrees } = await import("../shared/worktree");
+      const result = pruneStaleWorktrees(db);
+      return json(result);
+    }
+
     // GET /api/trees/:id/issues — fetch open GitHub issues for a tree
     const issuesMatch = path.match(/^\/api\/trees\/([^/]+)\/issues$/);
     if (issuesMatch && req.method === "GET") {
