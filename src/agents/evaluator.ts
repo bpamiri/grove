@@ -7,6 +7,7 @@ import { bus } from "../broker/event-bus";
 import { parseCost } from "./stream-parser";
 import type { Database } from "../broker/db";
 import type { Task, Tree } from "../shared/types";
+import type { GateHookResult } from "../plugins/types";
 
 export interface EvalResult {
   passed: boolean;
@@ -257,10 +258,10 @@ export function runGates(worktreePath: string, config: GateConfig): GateResult[]
 // ---------------------------------------------------------------------------
 
 /**
- * Evaluate a completed task. Runs quality gates.
+ * Evaluate a completed task. Runs quality gates (including plugin gate:custom hooks).
  * Returns pass/fail with detailed gate results.
  */
-export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
+export async function evaluate(task: Task, tree: Tree, db: Database): Promise<EvalResult> {
   const sessionId = `eval-${task.id}-${Date.now()}`;
 
   db.sessionCreate(sessionId, task.id, "evaluator");
@@ -313,6 +314,31 @@ export function evaluate(task: Task, tree: Tree, db: Database): EvalResult {
   // Run quality gates
   const gateConfig = resolveGateConfig(tree.config);
   const gateResults = runGates(worktreePath, gateConfig);
+
+  // Run plugin gate:custom hooks
+  try {
+    const { getPluginHost } = await import("../broker/index");
+    const host = getPluginHost();
+    if (host) {
+      const pluginResults = await host.runHook("gate:custom", {
+        taskId: task.id,
+        worktreePath,
+        treeId: tree.id,
+        treePath: tree.path,
+      }) as GateHookResult[];
+      for (const pr of pluginResults) {
+        gateResults.push({
+          gate: "plugin",
+          passed: pr.passed,
+          tier: "hard",
+          message: pr.message,
+        });
+      }
+    }
+  } catch (err) {
+    // Plugin errors must never crash evaluation
+    console.error("[plugins] gate:custom hook error:", err);
+  }
 
   // Store gate results on task
   db.run("UPDATE tasks SET gate_results = ? WHERE id = ?", [JSON.stringify(gateResults), task.id]);

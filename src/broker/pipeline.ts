@@ -16,7 +16,7 @@ import type { Database } from "./db";
  */
 export function wirePipeline(db: Database): void {
   // Worker done → evaluate
-  bus.on("worker:ended", ({ taskId, status }) => {
+  bus.on("worker:ended", async ({ taskId, status }) => {
     if (status !== "done") return; // Only evaluate successful completions
 
     const task = db.taskGet(taskId);
@@ -28,8 +28,8 @@ export function wirePipeline(db: Database): void {
     const tree = db.treeGet(task.tree_id);
     if (!tree) return;
 
-    // Run evaluation synchronously (gates are fast, no API calls)
-    const result = evaluate(task, tree, db);
+    // Run evaluation (may include async plugin hooks)
+    const result = await evaluate(task, tree, db);
 
     if (result.passed) {
       // Queue for merge

@@ -258,7 +258,7 @@ async function executeStep(
 
     case "gate": {
       const { evaluate } = await import("../agents/evaluator");
-      const result = evaluate(task, tree, db);
+      const result = await evaluate(task, tree, db);
       const gateOutcome = result.passed ? "success" : (result.fatal ? "fatal" : "failure");
       onStepComplete(task.id, gateOutcome, result.feedback);
       break;
