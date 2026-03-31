@@ -450,6 +450,51 @@ async function handleApi(
       return json(db.treeGet(id), 201);
     }
 
+    // POST /api/trees/:id/rescan — re-detect GitHub remote
+    const rescanMatch = path.match(/^\/api\/trees\/([^/]+)\/rescan$/);
+    if (rescanMatch && req.method === "POST") {
+      const tree = db.treeGet(rescanMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+
+      const oldGithub = tree.github;
+      const newGithub = detectGithubRemote(tree.path);
+      db.treeUpsert({ ...tree, github: newGithub ?? undefined });
+
+      // Sync YAML config
+      const { configSet } = await import("./config");
+      if (newGithub) {
+        configSet(`trees.${tree.id}.github`, newGithub);
+      }
+
+      db.addEvent(null, null, "tree_rescan", `Rescanned ${tree.id}: github ${oldGithub ?? "null"} → ${newGithub ?? "null"}`);
+      return json({ ...db.treeGet(tree.id), old_github: oldGithub });
+    }
+
+    // DELETE /api/trees/:id — remove a tree (blocks if tasks exist unless ?force=true)
+    const deleteTreeMatch = path.match(/^\/api\/trees\/([^/]+)$/);
+    if (deleteTreeMatch && req.method === "DELETE") {
+      const tree = db.treeGet(deleteTreeMatch[1]);
+      if (!tree) return json({ error: "Tree not found" }, 404);
+
+      const tasks = db.tasksByTree(tree.id);
+      const url = new URL(req.url);
+      const force = url.searchParams.get("force") === "true";
+
+      if (tasks.length > 0 && !force) {
+        return json({ error: "Tree has tasks", task_count: tasks.length }, 409);
+      }
+
+      const deletedTasks = tasks.length > 0 ? db.taskDeleteByTree(tree.id) : 0;
+      db.treeDelete(tree.id);
+
+      // Remove from YAML config
+      const { configDeleteTree } = await import("./config");
+      configDeleteTree(tree.id);
+
+      db.addEvent(null, null, "tree_removed", `Removed tree ${tree.id} (${deletedTasks} tasks deleted)`);
+      return json({ ok: true, tree: tree.id, tasks_deleted: deletedTasks });
+    }
+
     // GET /api/trees/:id/issues — fetch open GitHub issues for a tree
     const issuesMatch = path.match(/^\/api\/trees\/([^/]+)\/issues$/);
     if (issuesMatch && req.method === "GET") {
