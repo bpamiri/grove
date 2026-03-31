@@ -65,6 +65,12 @@ export class Database {
       this.run("ALTER TABLE tasks ADD COLUMN labels TEXT");
     }
 
+    // Add checkpoint column (stores JSON checkpoint for resumed workers)
+    const hasCheckpoint = cols.some(c => c.name === "checkpoint");
+    if (!hasCheckpoint) {
+      this.run("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
+    }
+
     // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
     this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }
@@ -391,6 +397,16 @@ export class Database {
       [since]
     );
     return row ?? { total_retried: 0, avg_retries: 0, max_retries: 0 };
+  }
+
+  // ---- Checkpoint helpers ----
+
+  checkpointSave(taskId: string, checkpoint: string): void {
+    this.run("UPDATE tasks SET checkpoint = ? WHERE id = ?", [checkpoint, taskId]);
+  }
+
+  checkpointLoad(taskId: string): string | null {
+    return this.scalar<string>("SELECT checkpoint FROM tasks WHERE id = ?", [taskId]);
   }
 
   taskTimeline(since: string): { task_id: string; title: string; tree_name: string | null; status: string; started_at: string; completed_at: string | null; cost_usd: number; current_step: string | null }[] {
