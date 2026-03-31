@@ -283,6 +283,7 @@ export function buildSeedClaudeArgs(
     args.push("--dangerously-skip-permissions");
   } else {
     args.push("--resume", sessionId);
+    args.push("--dangerously-skip-permissions");
   }
 
   return args;
