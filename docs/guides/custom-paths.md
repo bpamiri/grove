@@ -189,6 +189,16 @@ POST /api/tasks
 
 ---
 
+## Plugin Hooks in Step Execution
+
+Plugins can intercept step execution via hooks:
+
+- **`step:pre`** — fires before a step executes. The hook can block execution or modify step parameters (e.g., inject extra prompt context).
+- **`step:post`** — fires after each step completes, receiving the step result. Useful for logging, notifications, or triggering side effects.
+- **`gate:custom`** — extends the gate evaluation pipeline. Custom gate plugins receive the worker output and return a pass/fail verdict, composing with built-in gate checks.
+
+---
+
 ## Seed-Aware Behavior
 
 When a task has a seed spec (from a brainstorming session), the step engine skips the `plan` step — the seed replaces it. The worker receives the seed spec as context when executing the first non-plan step.
