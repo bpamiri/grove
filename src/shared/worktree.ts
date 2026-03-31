@@ -1,6 +1,6 @@
 // Grove v3 — Git worktree management for tasks
 // Each task gets an isolated worktree under {tree_path}/.grove/worktrees/{task_id}
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import type { Database } from "../broker/db";
 
@@ -178,4 +178,76 @@ export function listWorktrees(treePath: string): WorktreeEntry[] {
 /** Get the branch name for a task */
 export function branchName(taskId: string, title: string, branchPrefix: string): string {
   return `${branchPrefix}${taskId}-${slugify(title)}`;
+}
+
+/** Result of a single worktree prune */
+export interface PrunedEntry {
+  taskId: string;
+  treeId: string;
+  reason: "completed" | "failed" | "orphaned";
+}
+
+/** Result of pruning all stale worktrees */
+export interface PruneResult {
+  pruned: PrunedEntry[];
+  errors: string[];
+}
+
+const TERMINAL_STATUSES = new Set(["completed", "failed"]);
+const KEEP_STATUSES = new Set(["active", "queued", "draft", "paused"]);
+
+/**
+ * Scan all trees for stale worktrees and remove them.
+ * A worktree is stale if its task is completed, failed, or missing from the DB.
+ */
+export function pruneStaleWorktrees(db: Database): PruneResult {
+  const pruned: PrunedEntry[] = [];
+  const errors: string[] = [];
+
+  const trees = db.allTrees();
+
+  for (const tree of trees) {
+    const treePath = expandHome(tree.path);
+    const worktreeDir = join(treePath, ".grove", "worktrees");
+
+    if (!existsSync(worktreeDir)) continue;
+
+    let entries: string[];
+    try {
+      entries = readdirSync(worktreeDir) as string[];
+    } catch {
+      continue;
+    }
+
+    for (const taskId of entries) {
+      const taskPath = join(worktreeDir, taskId);
+      try {
+        if (!statSync(taskPath).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+
+      const task = db.taskGet(taskId);
+
+      let reason: PrunedEntry["reason"] | null = null;
+      if (!task) {
+        reason = "orphaned";
+      } else if (TERMINAL_STATUSES.has(task.status)) {
+        reason = task.status as "completed" | "failed";
+      } else if (KEEP_STATUSES.has(task.status)) {
+        continue;
+      } else {
+        continue;
+      }
+
+      try {
+        cleanupWorktree(taskId, tree.path);
+        pruned.push({ taskId, treeId: tree.id, reason: reason! });
+      } catch (err: any) {
+        errors.push(`${taskId}: ${err.message}`);
+      }
+    }
+  }
+
+  return { pruned, errors };
 }
