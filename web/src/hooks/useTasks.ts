@@ -17,6 +17,7 @@ export interface Task {
   priority: number;
   depends_on: string | null;
   github_issue: number | null;
+  labels: string | null;
   branch: string | null;
   worktree_path: string | null;
   pr_url: string | null;

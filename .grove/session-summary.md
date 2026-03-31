@@ -1,41 +1,37 @@
-# Session Summary: W-033
+# Session Summary: W-039 (Session 2)
 
 ## Summary
 
-Implemented the batch planner feature (issue #70) end-to-end: a `grove batch <tree>` command that analyzes draft tasks for a tree, predicts which files each task will modify using heuristic analysis, builds an overlap matrix of shared file predictions, derives execution waves using greedy graph coloring, and dispatches conflict-free waves on approval.
-
-The feature addresses the rebase-conflict loop problem (#67) discovered during the W-025 through W-028 dogfooding session, where overlapping parallel tasks burned budget in infinite merge-conflict retry cycles.
+Continued the full task creation form feature (issue #79) with three major additions: two-way GitHub issue sync (PATCH updates push title/description changes to linked GitHub issues), issue label metadata (labels stored during import and single-issue creation, displayed as pills in TaskDetail and editable in TaskForm), and a visual dependency chain preview in the DependencyPicker showing transitive dependency paths.
 
 ## Files Modified
 
 ### New Files
-- `src/batch/types.ts` — BatchPlan, TaskAnalysis, OverlapEntry, ExecutionWave types
-- `src/batch/analyze.ts` — Core analysis engine: file prediction, overlap matrix, wave derivation
-- `src/cli/commands/batch.ts` — CLI command: `grove batch <tree> [--run] [--json]`
-- `web/src/components/BatchPlan.tsx` — GUI component: overlap matrix, wave visualization, per-wave dispatch
-- `tests/batch/analyze.test.ts` — 32 unit tests for the analysis engine
-- `docs/superpowers/specs/2026-03-30-batch-planner-design.md` — Design spec
+- `tests/broker/task-form-features.test.ts` — 12 tests covering labels column, PATCH field restrictions, and buildDepChain logic
 
 ### Modified Files
-- `src/cli/index.ts` — Registered `batch` command in CLI router
-- `src/broker/server.ts` — Added `POST /api/batch/analyze` and `POST /api/batch/dispatch` endpoints
-- `web/src/App.tsx` — Pass selectedTree and allTasks props to TaskList
-- `web/src/components/TaskList.tsx` — Added "Plan Batch" button (visible when tree has 2+ draft tasks)
-- `CHANGELOG.md` — Added W-033 entry
+- `src/merge/github.ts` — Added `ghIssueEdit()` function for updating GitHub issues via `gh issue edit`
+- `src/broker/server.ts` — Two-way sync in PATCH endpoint; labels support in POST/PATCH/import endpoints
+- `src/broker/schema.sql` — Added `labels TEXT` column to tasks table
+- `src/broker/schema-sql.ts` — Added `github_issue INTEGER` and `labels TEXT` columns to embedded schema
+- `src/broker/db.ts` — Auto-migration for `labels` column
+- `src/shared/types.ts` — Added `labels` field to Task interface
+- `web/src/hooks/useTasks.ts` — Added `labels` field to frontend Task type
+- `web/src/components/TaskForm.tsx` — Labels input/display, issue-to-labels mapping, dependency chain preview with `buildDepChain` helper
+- `web/src/components/TaskDetail.tsx` — Labels pill display, GitHub issue number in status bar
 
 ## Architecture
 
-- **Heuristic file prediction**: Extracts file paths, PascalCase/camelCase/kebab-case identifiers from task descriptions, matches against actual repo files
-- **Overlap matrix**: O(n^2) pairwise comparison of predicted file sets
-- **Wave derivation**: Greedy graph coloring — tasks processed in priority order, assigned to earliest wave with no conflicting neighbors
-- **Dependency chain**: Wave N+1 tasks get `depends_on` set to wave N task IDs, enabling the existing dispatch system's dependency blocking
+- **Two-way sync**: PATCH handler detects title/description changes on tasks with linked `github_issue` and calls `ghIssueEdit()` to push updates. Best-effort — failures log events but don't block the local update.
+- **Labels**: Stored as comma-separated TEXT (matching `depends_on` pattern). Populated from GitHub issue labels during import. Editable in TaskForm "more options" section.
+- **Dependency chain**: `buildDepChain()` walks transitive deps for each selected dependency, producing linear chain visualizations with cycle protection.
 
 ## Test Results
 
-311 pass, 0 fail across 26 test files (32 new batch tests).
+323 pass, 0 fail across 27 test files (12 new tests). Frontend builds cleanly (Vite).
 
-## Next Steps
+## Remaining Next Steps
 
-- Agent-powered analysis mode (`--agent` flag) for higher accuracy predictions — currently only heuristic mode is implemented
-- Inter-wave auto-dispatch: automatically dispatch wave N+1 when wave N completes
-- Cross-tree batch analysis (currently single-tree only)
+- Keyboard shortcuts for form navigation
+- Two-way label sync (push label changes back to GitHub)
+- Label-based task filtering in the task list

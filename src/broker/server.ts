@@ -428,9 +428,10 @@ async function handleApi(
           const taskId = db.nextTaskId("W");
           const title = `${issue.title} Issue #${issue.number}`;
           const description = issue.body || "";
+          const labels = issue.labels?.map((l: any) => l.name).join(",") || null;
           db.run(
-            "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue) VALUES (?, ?, ?, ?, ?, 'draft', ?)",
-            [taskId, tree.id, title, description, "development", issue.number]
+            "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue, labels) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)",
+            [taskId, tree.id, title, description, "development", issue.number, labels]
           );
           db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
           imported++;
@@ -482,17 +483,18 @@ async function handleApi(
       const body = await req.json() as {
         title: string; tree_id?: string; description?: string; path_name?: string;
         priority?: number; depends_on?: string; parent_task_id?: string; max_retries?: number;
-        github_issue?: number;
+        github_issue?: number; labels?: string;
       };
       const taskId = db.nextTaskId("W");
       db.run(
-        `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, labels, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
         [
           taskId, body.tree_id ?? null, body.title, body.description ?? null,
           body.path_name ?? "development", body.priority ?? 0,
           body.depends_on ?? null, body.parent_task_id ?? null,
           body.max_retries ?? 2, body.github_issue ?? null,
+          body.labels ?? null,
         ],
       );
       db.addEvent(taskId, null, "task_created", `Task created: ${body.title}`);
@@ -510,7 +512,7 @@ async function handleApi(
 
       const body = await req.json() as Record<string, unknown>;
       // Draft tasks: all editable fields. Active/completed: only title + description.
-      const draftFields = ["title", "description", "tree_id", "path_name", "priority", "depends_on", "parent_task_id", "max_retries", "github_issue"];
+      const draftFields = ["title", "description", "tree_id", "path_name", "priority", "depends_on", "parent_task_id", "max_retries", "github_issue", "labels"];
       const limitedFields = ["title", "description"];
       const allowed = task.status === "draft" ? draftFields : limitedFields;
 
@@ -528,6 +530,24 @@ async function handleApi(
       db.addEvent(taskId, null, "task_updated", `Task updated: ${sets.map(s => s.split(" ")[0]).join(", ")}`);
       const updated = db.taskGet(taskId);
       bus.emit("task:status", { taskId, status: updated!.status });
+
+      // Two-way sync: push title/description changes to linked GitHub issue
+      if (updated?.github_issue && updated.tree_id && ("title" in body || "description" in body)) {
+        const tree = db.treeGet(updated.tree_id);
+        if (tree?.github) {
+          try {
+            const { ghIssueEdit } = await import("../merge/github");
+            const editOpts: { title?: string; body?: string } = {};
+            if ("title" in body) editOpts.title = String(body.title);
+            if ("description" in body) editOpts.body = String(body.description ?? "");
+            ghIssueEdit(tree.github, updated.github_issue, editOpts);
+            db.addEvent(taskId, null, "issue_synced", `GitHub issue #${updated.github_issue} updated`);
+          } catch (err: any) {
+            db.addEvent(taskId, null, "issue_sync_failed", `Failed to sync GitHub issue: ${err.message}`);
+          }
+        }
+      }
+
       return json(updated);
     }
 

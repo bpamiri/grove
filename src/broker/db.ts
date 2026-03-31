@@ -53,6 +53,12 @@ export class Database {
       }
     }
 
+    // Add labels column (comma-separated GitHub issue labels)
+    const hasLabels = cols.some(c => c.name === "labels");
+    if (!hasLabels) {
+      this.run("ALTER TABLE tasks ADD COLUMN labels TEXT");
+    }
+
     // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
     this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }

@@ -67,7 +67,19 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
         {task.branch && <Field label="Branch" value={task.branch} mono />}
         {task.depends_on && <Field label="Depends on" value={task.depends_on} mono />}
         {task.max_retries !== 2 && <Field label="Max retries" value={String(task.max_retries)} />}
+        {task.github_issue && <Field label="Issue" value={`#${task.github_issue}`} mono />}
       </div>
+
+      {/* Labels */}
+      {task.labels && (
+        <div className="flex flex-wrap gap-1.5 -mt-2">
+          {task.labels.split(",").map((label) => (
+            <span key={label} className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+              {label.trim()}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Pipeline */}
       <div>

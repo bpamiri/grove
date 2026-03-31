@@ -40,6 +40,7 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
   );
   const [parentTaskId, setParentTaskId] = useState(editTask?.parent_task_id ?? "");
   const [maxRetries, setMaxRetries] = useState(editTask?.max_retries ?? 2);
+  const [labels, setLabels] = useState(editTask?.labels ?? "");
   const [showMore, setShowMore] = useState(isEdit);
 
   // GitHub issues
@@ -72,6 +73,7 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
       setSelectedIssue(issue.number);
       setTitle(`${issue.title} Issue #${issue.number}`);
       setDescription(issue.body ?? "");
+      setLabels(issue.labels?.map(l => l.name).join(",") ?? "");
     }
   };
 
@@ -102,6 +104,7 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
           body.parent_task_id = parentTaskId || null;
           body.max_retries = maxRetries;
           body.github_issue = selectedIssue;
+          body.labels = labels || null;
         }
         await api(`/api/tasks/${editTask!.id}`, { method: "PATCH", body: JSON.stringify(body) });
       } else {
@@ -114,6 +117,7 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
         if (parentTaskId) body.parent_task_id = parentTaskId;
         if (maxRetries !== 2) body.max_retries = maxRetries;
         if (selectedIssue) body.github_issue = selectedIssue;
+        if (labels) body.labels = labels;
         await api("/api/tasks", { method: "POST", body: JSON.stringify(body) });
       }
       onSave();
@@ -166,6 +170,17 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
             </option>
           ))}
         </select>
+      )}
+
+      {/* Labels preview (from selected issue) */}
+      {labels && !showMore && (
+        <div className="flex flex-wrap gap-1.5">
+          {labels.split(",").map((label) => (
+            <span key={label} className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+              {label.trim()}
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Title */}
@@ -260,6 +275,27 @@ export default function TaskForm({ trees, paths, allTasks, editTask, defaultTree
             />
           </div>
 
+          {/* Labels */}
+          <div>
+            <label className="text-xs text-zinc-500 uppercase block mb-1">Labels</label>
+            <input
+              type="text"
+              value={labels}
+              onChange={(e) => setLabels(e.target.value)}
+              placeholder="bug, enhancement, priority (comma-separated)"
+              className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+            />
+            {labels && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {labels.split(",").filter(Boolean).map((label) => (
+                  <span key={label} className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                    {label.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Parent task */}
           <div>
             <label className="text-xs text-zinc-500 uppercase block mb-1">Parent Task (optional)</label>
@@ -317,6 +353,28 @@ const DEP_STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-900/60",
 };
 
+/** Build the full dependency chain for selected tasks (including transitive deps) */
+function buildDepChain(selected: string[], allTasks: Task[]): string[][] {
+  const taskMap = new Map(allTasks.map(t => [t.id, t]));
+  const chains: string[][] = [];
+
+  for (const id of selected) {
+    const chain: string[] = [];
+    const visited = new Set<string>();
+    let current = id;
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      chain.unshift(current);
+      const task = taskMap.get(current);
+      // Walk the first dependency (for chain visualization)
+      const deps = task?.depends_on?.split(",").map(d => d.trim()).filter(Boolean) ?? [];
+      current = deps[0] ?? "";
+    }
+    if (chain.length > 1) chains.push(chain);
+  }
+  return chains;
+}
+
 function DependencyPicker({ candidates, selected, onToggle }: {
   candidates: Task[];
   selected: string[];
@@ -332,6 +390,12 @@ function DependencyPicker({ candidates, selected, onToggle }: {
       t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q)
     );
   }, [candidates, search]);
+
+  // Compute transitive dependency chains for selected tasks
+  const depChains = useMemo(
+    () => buildDepChain(selected, candidates),
+    [selected, candidates]
+  );
 
   return (
     <div>
@@ -385,6 +449,27 @@ function DependencyPicker({ candidates, selected, onToggle }: {
               );
             })}
           </div>
+
+          {/* Dependency chain preview */}
+          {depChains.length > 0 && (
+            <div className="border-t border-zinc-800 px-3 py-2 bg-zinc-900/30">
+              <div className="text-[10px] text-zinc-600 uppercase mb-1">Dependency chain</div>
+              {depChains.map((chain, i) => (
+                <div key={i} className="flex items-center gap-1 flex-wrap text-[10px]">
+                  {chain.map((id, j) => (
+                    <span key={id} className="flex items-center gap-1">
+                      {j > 0 && <span className="text-zinc-600">&rarr;</span>}
+                      <span className={`px-1.5 py-0.5 rounded ${
+                        selected.includes(id) ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-800 text-zinc-500"
+                      }`}>
+                        {id}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
