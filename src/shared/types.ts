@@ -118,6 +118,7 @@ export interface Task {
   github_issue: number | null;
   source_pr: number | null;
   adapter: string | null;
+  checkpoint: string | null;  // JSON
   labels: string | null;
   pr_url: string | null;
   pr_number: number | null;

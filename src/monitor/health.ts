@@ -5,6 +5,8 @@
 import { bus } from "../broker/event-bus";
 import { isAlive } from "../agents/stream-parser";
 import { lastActivity } from "../agents/stream-parser";
+import { getActiveWorkers } from "../agents/worker";
+import { createCheckpoint } from "../agents/checkpoint";
 import type { Database } from "../broker/db";
 
 interface MonitorOptions {
@@ -71,6 +73,25 @@ function checkWorkers(db: Database, stallTimeoutMinutes: number): void {
 
           if (minutesSinceModified >= stallTimeoutMinutes) {
             if (session.task_id) {
+              // Save checkpoint before marking as stalled
+              try {
+                const task = db.taskGet(session.task_id);
+                const handle = getActiveWorkers().get(session.task_id);
+                if (task && handle?.worktreePath) {
+                  const checkpoint = createCheckpoint(handle.worktreePath, {
+                    taskId: task.id,
+                    stepId: task.current_step ?? "",
+                    stepIndex: task.step_index ?? 0,
+                    sessionSummary: task.session_summary ?? "Stalled — no activity detected",
+                    costSoFar: task.cost_usd,
+                    tokensSoFar: task.tokens_used,
+                  });
+                  db.checkpointSave(task.id, JSON.stringify(checkpoint));
+                }
+              } catch (err) {
+                console.error(`[health] Checkpoint failed for stalled worker:`, err);
+              }
+
               db.addEvent(
                 session.task_id, session.id, "worker_stalled",
                 `No activity for ${Math.round(minutesSinceModified)} minutes`
