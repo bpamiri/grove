@@ -461,9 +461,11 @@ async function handleApi(
       db.treeUpsert({ ...tree, github: newGithub ?? undefined });
 
       // Sync YAML config
-      const { configSet } = await import("./config");
+      const { configSet, configUnset } = await import("./config");
       if (newGithub) {
         configSet(`trees.${tree.id}.github`, newGithub);
+      } else {
+        configUnset(`trees.${tree.id}.github`);
       }
 
       db.addEvent(null, null, "tree_rescan", `Rescanned ${tree.id}: github ${oldGithub ?? "null"} → ${newGithub ?? "null"}`);
