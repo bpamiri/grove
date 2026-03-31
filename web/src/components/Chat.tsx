@@ -115,6 +115,8 @@ export default function Chat({ messages, onSend, bottomRef, connected, thinking 
 
 // Box-drawing characters used in Claude Code TUI tables
 const BOX_CHARS = /[┌┐└┘├┤┬┴┼│─]/;
+// Markdown pipe tables: lines starting with | and containing at least one more |
+const MD_TABLE = /^\s*\|.*\|/;
 
 /**
  * Render message content with basic formatting:
@@ -129,7 +131,7 @@ function FormattedContent({ text }: { text: string }) {
   let current: { type: "text" | "table"; lines: string[] } = { type: "text", lines: [] };
 
   for (const line of lines) {
-    const isTable = BOX_CHARS.test(line);
+    const isTable = BOX_CHARS.test(line) || MD_TABLE.test(line);
     if (isTable && current.type !== "table") {
       if (current.lines.length) blocks.push(current);
       current = { type: "table", lines: [line] };
