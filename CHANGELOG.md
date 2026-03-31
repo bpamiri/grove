@@ -1,6 +1,33 @@
 # Changelog
 
 
+## v0.1.27
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.26...v0.1.27)
+
+### 🚀 Enhancements
+
+- Add agent-powered batch file prediction via Claude subprocess (#70, #86) ([#70](https://github.com/bpamiri/grove/issues/70), [#86](https://github.com/bpamiri/grove/issues/86))
+- Wire agent and hybrid modes into analyzeBatch (#70, #86) ([#70](https://github.com/bpamiri/grove/issues/70), [#86](https://github.com/bpamiri/grove/issues/86))
+- Add --agent and --hybrid flags to grove batch CLI (#70, #86) ([#70](https://github.com/bpamiri/grove/issues/70), [#86](https://github.com/bpamiri/grove/issues/86))
+- Add analysis mode toggle to batch planner UI (#70, #86) ([#70](https://github.com/bpamiri/grove/issues/70), [#86](https://github.com/bpamiri/grove/issues/86))
+- Change PR signature to 'Delivered by Grove' ([38ae1d0](https://github.com/bpamiri/grove/commit/38ae1d0))
+
+### 📖 Documentation
+
+- Add design spec for grove.cloud adoption metrics ([9ff401b](https://github.com/bpamiri/grove/commit/9ff401b))
+- Add design spec for agent-powered batch file prediction (#70, #86) ([#70](https://github.com/bpamiri/grove/issues/70), [#86](https://github.com/bpamiri/grove/issues/86))
+- Add implementation plan for grove.cloud adoption metrics ([8db3f23](https://github.com/bpamiri/grove/commit/8db3f23))
+- Add implementation plan for agent-powered batch analysis (#70, #86) ([#70](https://github.com/bpamiri/grove/issues/70), [#86](https://github.com/bpamiri/grove/issues/86))
+
+### 🏡 Chore
+
+- Remove worker/ directory (moved to bpamiri/grove-cloud) ([f207b41](https://github.com/bpamiri/grove/commit/f207b41))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.26
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.25...v0.1.26)
