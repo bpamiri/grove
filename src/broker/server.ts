@@ -1085,6 +1085,33 @@ async function handleApi(
       return json({ ok: true, dispatched, dependsOnSet, wave: body.wave });
     }
 
+    // GET /api/plugins — list loaded plugins
+    if (path === "/api/plugins" && req.method === "GET") {
+      const { getPluginHost } = await import("./index");
+      const host = getPluginHost();
+      return json(host ? host.list() : []);
+    }
+
+    // POST /api/plugins/:name/enable
+    const enableMatch = path.match(/^\/api\/plugins\/([^/]+)\/enable$/);
+    if (enableMatch && req.method === "POST") {
+      const { getPluginHost } = await import("./index");
+      const host = getPluginHost();
+      if (!host) return json({ error: "Plugin system not initialized" }, 500);
+      const ok = host.enable(decodeURIComponent(enableMatch[1]));
+      return ok ? json({ ok: true }) : json({ error: "Plugin not found" }, 404);
+    }
+
+    // POST /api/plugins/:name/disable
+    const disableMatch = path.match(/^\/api\/plugins\/([^/]+)\/disable$/);
+    if (disableMatch && req.method === "POST") {
+      const { getPluginHost } = await import("./index");
+      const host = getPluginHost();
+      if (!host) return json({ error: "Plugin system not initialized" }, 500);
+      const ok = host.disable(decodeURIComponent(disableMatch[1]));
+      return ok ? json({ ok: true }) : json({ error: "Plugin not found" }, 404);
+    }
+
     return json({ error: "Not found" }, 404);
   } catch (err) {
     return json({ error: String(err) }, 500);

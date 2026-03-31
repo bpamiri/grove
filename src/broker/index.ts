@@ -7,7 +7,7 @@ import { startServer, stopServer, setRemoteUrl } from "./server";
 import * as orchestrator from "../agents/orchestrator";
 import { loadConfig, configTrees, tunnelConfig, configSet, validateConfig } from "./config";
 import { bus } from "./event-bus";
-import { wireStepEngine } from "../engine/step-engine";
+import { wireStepEngine, setPluginHost } from "../engine/step-engine";
 import { initDispatch } from "./dispatch";
 import { startHealthMonitor, stopHealthMonitor, recoverOrphanedTasks } from "../monitor/health";
 import { startCostMonitor, stopCostMonitor } from "../monitor/cost";
@@ -18,6 +18,7 @@ import { registerGrove, startHeartbeat, stopHeartbeat, deregisterGrove } from ".
 import { wireNotifications } from "../notifications/index";
 import { wireGitHubSync } from "./github-sync";
 import { startPrPoller, stopPrPoller } from "../pr/poller";
+import { PluginHost } from "../plugins/host";
 
 export interface BrokerInfo {
   pid: number;
@@ -29,6 +30,7 @@ export interface BrokerInfo {
 }
 
 let tunnel: TunnelProvider | null = null;
+let pluginHost: PluginHost | null = null;
 
 /** Start the broker — the central process that manages everything */
 export async function startBroker(): Promise<BrokerInfo> {
@@ -80,6 +82,15 @@ export async function startBroker(): Promise<BrokerInfo> {
 
   // Wire step engine
   wireStepEngine(db);
+
+  // Load plugins from ~/.grove/plugins/
+  pluginHost = new PluginHost();
+  await pluginHost.loadAll(join(GROVE_HOME, "plugins"));
+  setPluginHost(pluginHost);
+  const loadedPlugins = pluginHost.list();
+  if (loadedPlugins.length > 0) {
+    console.log(`  Plugins: ${loadedPlugins.map(p => p.name).join(", ")}`);
+  }
 
   // Initialize dispatch system (concurrent worker queue)
   initDispatch({ db, maxWorkers: config.settings.max_workers });
@@ -181,6 +192,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     stopCostMonitor();
     stopHeartbeat();
     stopPrPoller();
+    pluginHost?.shutdown().catch(() => {});
     // Deregister from grove.cloud (best-effort, non-blocking)
     const tc = tunnelConfig();
     if (tc.domain && tc.subdomain && tc.secret) {
@@ -218,6 +230,11 @@ async function findAvailablePort(startPort: number = 49152): Promise<number> {
     }
   }
   throw new Error("No available port found");
+}
+
+/** Get the plugin host instance (available after broker starts) */
+export function getPluginHost(): PluginHost | null {
+  return pluginHost;
 }
 
 /** Read broker info from disk (for CLI commands to find the running broker) */

@@ -374,7 +374,7 @@ describe("evaluate", () => {
     dbCleanup();
   });
 
-  test("returns failure when worktree path does not exist", () => {
+  test("returns failure when worktree path does not exist", async () => {
     db.run(
       "INSERT INTO tasks (id, title, tree_id, status, worktree_path) VALUES (?, ?, ?, ?, ?)",
       ["W-001", "Test", "t1", "active", "/tmp/does-not-exist-ever"],
@@ -382,13 +382,13 @@ describe("evaluate", () => {
     const task = db.taskGet("W-001")!;
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(false);
     expect(result.feedback).toBe("Worktree not found");
     expect(result.gateResults).toEqual([]);
   });
 
-  test("returns passed when all gates pass", () => {
+  test("returns passed when all gates pass", async () => {
     const repo = createFixtureRepo({ branch: "work" });
     writeFileSync(join(repo.repoPath, "feature.ts"), "export const a = 1;\n");
     Bun.spawnSync(["git", "add", "."], { cwd: repo.repoPath, stdin: "ignore" });
@@ -402,13 +402,13 @@ describe("evaluate", () => {
     db.treeUpsert({ id: "t1", name: "Test", path: repo.repoPath, config: "{}" });
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(true);
     expect(result.feedback).toBe("All gates passed");
     repo.cleanup();
   });
 
-  test("returns failure when hard gate fails", () => {
+  test("returns failure when hard gate fails", async () => {
     const repo = createFixtureRepo({ branch: "empty" });
 
     db.run(
@@ -419,13 +419,13 @@ describe("evaluate", () => {
     db.treeUpsert({ id: "t1", name: "Test", path: repo.repoPath, config: "{}" });
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(false);
     expect(result.gateResults.some(g => g.gate === "commits" && !g.passed)).toBe(true);
     repo.cleanup();
   });
 
-  test("passes when only soft gates fail", () => {
+  test("passes when only soft gates fail", async () => {
     const repo = createFixtureRepo({ branch: "soft-fail" });
     writeFileSync(join(repo.repoPath, "big.ts"), Array(200).fill("export const x = 1;").join("\n") + "\n");
     Bun.spawnSync(["git", "add", "."], { cwd: repo.repoPath, stdin: "ignore" });
@@ -439,13 +439,13 @@ describe("evaluate", () => {
     db.treeUpsert({ id: "t1", name: "Test", path: repo.repoPath, config: JSON.stringify({ max_diff_lines: 10 }) });
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(true); // soft failures don't block
     expect(result.gateResults.some(g => g.gate === "diff_size" && !g.passed)).toBe(true);
     repo.cleanup();
   });
 
-  test("stores gate results on task row", () => {
+  test("stores gate results on task row", async () => {
     const repo = createFixtureRepo({ branch: "store-test" });
     writeFileSync(join(repo.repoPath, "f.ts"), "export const a = 1;\n");
     Bun.spawnSync(["git", "add", "."], { cwd: repo.repoPath, stdin: "ignore" });
@@ -459,7 +459,7 @@ describe("evaluate", () => {
     db.treeUpsert({ id: "t1", name: "Test", path: repo.repoPath, config: "{}" });
     const tree = db.treeGet("t1")!;
 
-    evaluate(task, tree, db);
+    await evaluate(task, tree, db);
 
     const updated = db.taskGet("W-001")!;
     expect(updated.gate_results).not.toBeNull();
@@ -566,7 +566,7 @@ describe("rebase conflict loop detection", () => {
     expect(MAX_REBASE_FAILURES).toBe(3);
   });
 
-  test("first rebase failure is not fatal", () => {
+  test("first rebase failure is not fatal", async () => {
     const repos = createConflictingRepos();
 
     db.run(
@@ -577,14 +577,14 @@ describe("rebase conflict loop detection", () => {
     db.treeUpsert({ id: "t1", name: "Test", path: repos.worktreePath, config: "{}" });
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(false);
     expect(result.fatal).not.toBe(true);
     expect(result.gateResults[0].gate).toBe("rebase");
     repos.cleanup();
   });
 
-  test("rebase failure becomes fatal after MAX_REBASE_FAILURES consecutive failures", () => {
+  test("rebase failure becomes fatal after MAX_REBASE_FAILURES consecutive failures", async () => {
     const repos = createConflictingRepos();
 
     db.run(
@@ -601,14 +601,14 @@ describe("rebase conflict loop detection", () => {
     const task = db.taskGet("W-001")!;
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(false);
     expect(result.fatal).toBe(true);
     expect(result.feedback).toContain("manual resolution");
     repos.cleanup();
   });
 
-  test("non-rebase eval failures do not count toward rebase failure limit", () => {
+  test("non-rebase eval failures do not count toward rebase failure limit", async () => {
     const repos = createConflictingRepos();
 
     db.run(
@@ -625,7 +625,7 @@ describe("rebase conflict loop detection", () => {
     const task = db.taskGet("W-001")!;
     const tree = db.treeGet("t1")!;
 
-    const result = evaluate(task, tree, db);
+    const result = await evaluate(task, tree, db);
     expect(result.passed).toBe(false);
     expect(result.fatal).not.toBe(true); // only 1st rebase failure, non-rebase failures ignored
     repos.cleanup();

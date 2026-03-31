@@ -4,12 +4,19 @@ import { bus } from "../broker/event-bus";
 import { configNormalizedPaths } from "../broker/config";
 import type { Database } from "../broker/db";
 import type { Task, Tree, PipelineStep, NormalizedPathConfig } from "../shared/types";
+import type { PluginHost } from "../plugins/host";
 
 // Module-level DB reference so onStepComplete can access it without threading db through events.
 let _db: Database | null = null;
 
+// Module-level plugin host reference — set during wireStepEngine, avoids circular dynamic imports.
+let _pluginHost: PluginHost | null = null;
+
 /** Test-only: set _db without side effects (no bus handlers, no async imports). */
 export function _setDb(db: Database): void { _db = db; }
+
+/** Set the plugin host reference (called from broker after PluginHost is initialized). */
+export function setPluginHost(host: PluginHost | null): void { _pluginHost = host; }
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -143,6 +150,16 @@ export function onStepComplete(
 
   const target = outcome === "success" ? currentStep.on_success : currentStep.on_failure;
 
+  // Fire-and-forget step:post plugin hook
+  if (_pluginHost) {
+    _pluginHost.runHook("step:post", {
+      taskId,
+      stepId: currentStep.id,
+      outcome,
+      context,
+    }).catch(() => {});
+  }
+
   // --- $done ---
   if (target === "$done") {
     db.run(
@@ -247,6 +264,27 @@ async function executeStep(
 ): Promise<void> {
   db.addEvent(task.id, null, "step_entered", `Entered step "${step.id}" (${step.type})`);
 
+  // Run step:pre plugin hook — if any handler returns proceed=false, skip the step
+  if (_pluginHost) {
+    try {
+      const preResults = await _pluginHost.runHook("step:pre", {
+        taskId: task.id,
+        stepId: step.id,
+        stepType: step.type,
+        treeId: tree.id,
+      });
+      const blocked = preResults.find((r: any) => r.proceed === false);
+      if (blocked) {
+        db.addEvent(task.id, null, "step_skipped", `Plugin blocked step "${step.id}": ${blocked.reason ?? "no reason"}`);
+        onStepComplete(task.id, "failure", `Plugin blocked: ${blocked.reason ?? "no reason"}`);
+        return;
+      }
+    } catch (err) {
+      // Plugin errors must never crash step execution
+      console.error("[plugins] step:pre hook error:", err);
+    }
+  }
+
   switch (step.type) {
     case "worker": {
       const { spawnWorker } = await import("../agents/worker");
@@ -258,7 +296,7 @@ async function executeStep(
 
     case "gate": {
       const { evaluate } = await import("../agents/evaluator");
-      const result = evaluate(task, tree, db);
+      const result = await evaluate(task, tree, db);
       const gateOutcome = result.passed ? "success" : (result.fatal ? "fatal" : "failure");
       onStepComplete(task.id, gateOutcome, result.feedback);
       break;
