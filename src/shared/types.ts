@@ -137,7 +137,6 @@ export interface Session {
   task_id: string | null;
   role: string;
   pid: number | null;
-  tmux_pane: string | null;
   cost_usd: number;
   tokens_used: number;
   status: string;
@@ -299,7 +298,7 @@ export type BrokerEvent =
   | { type: "eval_fail"; task: string; feedback: string }
   | { type: "ci_failed"; task: string; pr: number; logs_url?: string }
   | { type: "merged"; task: string; pr: number }
-  | { type: "user_msg"; from: "web" | "cli" | "tmux"; text: string };
+  | { type: "user_msg"; from: "web" | "cli"; text: string };
 
 // ---------------------------------------------------------------------------
 // Event bus event map (typed internal events)
@@ -333,6 +332,20 @@ export interface EventBusMap {
   "orchestrator:started": { sessionId: string; pid: number };
   "orchestrator:rotated": { oldSessionId: string; newSessionId: string };
   "message:new": { message: Message };
+
+  // SAP agent events
+  "agent:spawned": { agentId: string; role: string; taskId: string; pid: number; ts: number };
+  "agent:ended": { agentId: string; role: string; taskId: string; exitCode: number; ts: number };
+  "agent:crashed": { agentId: string; role: string; taskId: string; error: string; ts: number };
+  "agent:tool_use": { agentId: string; taskId: string; tool: string; input: string; ts: number };
+  "agent:thinking": { agentId: string; taskId: string; snippet: string; ts: number };
+  "agent:text": { agentId: string; taskId: string; content: string; ts: number };
+  "agent:cost": { agentId: string; taskId: string; costUsd: number; tokens: number; ts: number };
+
+  // SAP seed events
+  "seed:response": { taskId: string; content: string; html?: string; ts: number };
+  "seed:complete": { taskId: string; summary: string; spec: string; ts: number };
+  "seed:idle": { taskId: string; ts: number };
 }
 
 // ---------------------------------------------------------------------------

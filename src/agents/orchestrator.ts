@@ -251,12 +251,16 @@ async function monitorOrchestrator(
               const input = block.input ?? {};
               const detail = (input.file_path ?? input.command ?? input.pattern ?? "").toString().slice(0, 200);
               bus.emit("worker:activity", { taskId: "orchestrator", msg: `${tool}: ${detail}` });
+              bus.emit("agent:tool_use", { agentId: dbSessionId, taskId: "orchestrator", tool, input: detail, ts: Date.now() });
             }
           }
         }
 
         if (obj.type === "result" && obj.cost_usd != null) {
-          db.sessionUpdateCost(dbSessionId, Number(obj.cost_usd), Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0));
+          const costUsd = Number(obj.cost_usd);
+          const tokens = Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0);
+          db.sessionUpdateCost(dbSessionId, costUsd, tokens);
+          bus.emit("agent:cost", { agentId: dbSessionId, taskId: "orchestrator", costUsd, tokens, ts: Date.now() });
         }
       }
     }

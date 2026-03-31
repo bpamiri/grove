@@ -103,6 +103,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   db.addEvent(task.id, sessionId, "worker_spawned", `Worker spawned (PID: ${pid})`);
 
   bus.emit("worker:spawned", { taskId: task.id, sessionId, pid });
+  bus.emit("agent:spawned", { agentId: sessionId, role: "worker", taskId: task.id, pid, ts: Date.now() });
 
   // Pipe stdout to log file and parse events
   const handle: WorkerHandle = { taskId: task.id, sessionId, pid, logPath, worktreePath, proc };
@@ -156,18 +157,24 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
                   lastActivity = activity;
                   bus.emit("worker:activity", { taskId, msg: activity });
                 }
+                bus.emit("agent:tool_use", { agentId: sessionId, taskId, tool, input: String(file).slice(0, 500), ts: Date.now() });
               } else if (block.type === "thinking" && block.thinking) {
                 const snippet = block.thinking.slice(0, 300).replace(/\n/g, " ");
                 bus.emit("worker:activity", { taskId, msg: `thinking: ${snippet}`, kind: "thinking" });
+                bus.emit("agent:thinking", { agentId: sessionId, taskId, snippet, ts: Date.now() });
               } else if (block.type === "text" && block.text && block.text.length > 10) {
                 const snippet = block.text.slice(0, 300).replace(/\n/g, " ");
                 bus.emit("worker:activity", { taskId, msg: `${snippet}`, kind: "text" });
+                bus.emit("agent:text", { agentId: sessionId, taskId, content: snippet, ts: Date.now() });
               }
             }
           }
           // Update cost from result events
           if (obj.type === "result" && obj.cost_usd != null) {
-            db.sessionUpdateCost(sessionId, Number(obj.cost_usd), Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0));
+            const costUsd = Number(obj.cost_usd);
+            const tokens = Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0);
+            db.sessionUpdateCost(sessionId, costUsd, tokens);
+            bus.emit("agent:cost", { agentId: sessionId, taskId, costUsd, tokens, ts: Date.now() });
           }
         } catch {
           // Not JSON
@@ -209,12 +216,14 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
 
     // Report completion to step engine
     bus.emit("worker:ended", { taskId, sessionId, status: exitCode === 0 ? "done" : "failed" });
+    bus.emit("agent:ended", { agentId: sessionId, role: "worker", taskId, exitCode: exitCode ?? 1, ts: Date.now() });
     const { onStepComplete } = await import("../engine/step-engine");
     onStepComplete(taskId, exitCode === 0 ? "success" : "failure");
   } catch (err) {
     db.sessionEnd(sessionId, "crashed");
     db.addEvent(taskId, sessionId, "worker_crashed", `Worker crashed: ${err}`);
     bus.emit("worker:ended", { taskId, sessionId, status: "crashed" });
+    bus.emit("agent:crashed", { agentId: sessionId, role: "worker", taskId, error: String(err), ts: Date.now() });
     const { onStepComplete } = await import("../engine/step-engine");
     onStepComplete(taskId, "failure");
   } finally {

@@ -20,7 +20,7 @@ export async function run(_args: string[]) {
   try {
     process.kill(info.pid, "SIGTERM");
     console.log(`${pc.green("✓")} Sent shutdown signal to broker (PID ${info.pid})`);
-    console.log(`${pc.dim("Broker will clean up tmux session and stop.")}`);
+    console.log(`${pc.dim("Broker will stop.")}`);
   } catch (err: any) {
     console.log(`${pc.yellow("Could not signal broker:")} ${err.message}`);
     cleanup();
@@ -28,8 +28,6 @@ export async function run(_args: string[]) {
 }
 
 function cleanup() {
-  // Force kill tmux session if it exists
-  Bun.spawnSync(["tmux", "kill-session", "-t", "grove"]);
   // Remove broker.json
   const { join } = require("node:path");
   const { getEnv } = require("../../broker/db");

@@ -1,11 +1,9 @@
-// Grove v3 — Seed session manager
-// Manages interactive Claude Code brainstorming sessions in tmux windows.
-// Each seed session is a conversation between the user and Claude that
-// explores a task, asks clarifying questions, and produces a design spec.
+// Grove v3 — Seed session manager (SAP-native, tmux-free)
+// Manages interactive Claude Code brainstorming sessions using the --resume pattern.
+// Each user message spawns a new claude process that resumes the session.
+// Outputs are parsed from stream-json and broadcast as SAP events.
 
-import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
-import * as tmux from "./tmux";
+import { bus } from "./event-bus";
 import { isAlive } from "../agents/stream-parser";
 import type { Database } from "./db";
 
@@ -22,13 +20,15 @@ interface ConversationMessage {
 
 interface SeedSession {
   taskId: string;
-  windowName: string;
-  target: string;
+  sessionId: string;           // claude --session-id / --resume target
+  status: "idle" | "running";
   pid: number | null;
-  stopPoller: () => void;
+  proc: ReturnType<typeof Bun.spawn> | null;
   conversation: ConversationMessage[];
-  /** When set, auto-sent as the first user message once Claude is idle */
   pendingDescription?: string;
+  isFirstMessage: boolean;
+  systemPrompt: string;
+  treePath: string;
 }
 
 type BroadcastFn = (type: string, data: any) => void;
@@ -38,12 +38,7 @@ type BroadcastFn = (type: string, data: any) => void;
 // ---------------------------------------------------------------------------
 
 const sessions = new Map<string, SeedSession>();
-const relayedResponses = new Map<string, Set<string>>(); // per-task dedup
-const processedEvents = new Map<string, Set<string>>(); // per-task JSON event dedup
-
 let broadcastFn: BroadcastFn | null = null;
-
-const POLL_MS = 1500;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -59,72 +54,53 @@ export function startSeedSession(
   task: { id: string; title: string; description?: string | null },
   tree: { id: string; name: string; path: string },
   db: Database,
-  logDir: string,
+  _logDir: string,
 ): void {
   const taskId = task.id;
 
   // If already active, no-op
   if (sessions.has(taskId)) return;
 
-  // Create workspace with CLAUDE.md
-  const workspaceDir = join(logDir, `seed-workspace-${taskId}`);
-  mkdirSync(join(workspaceDir, ".claude"), { recursive: true });
-
-  const prompt = buildSeedPrompt(task, tree);
-  writeFileSync(join(workspaceDir, ".claude", "CLAUDE.md"), prompt);
-
   // Record seed in DB
   db.seedCreate(taskId);
 
-  // Spawn tmux window
-  const windowName = `seed-${taskId}`;
-  const claudeCmd = `cd "${tree.path}" && CLAUDE_MD="${join(workspaceDir, ".claude", "CLAUDE.md")}" claude --dangerously-skip-permissions`;
-  const windowIdx = tmux.runInWindow(windowName, claudeCmd);
-
-  if (!windowIdx) {
-    throw new Error(`Failed to create seed tmux window for ${taskId}`);
-  }
-
-  const target = tmux.windowTarget(windowName);
-
-  // Get PID
-  let pid: number | null = null;
-  for (let i = 0; i < 5; i++) {
-    pid = tmux.panePid(target);
-    if (pid) break;
-    Bun.sleepSync(200);
-  }
-
-  // Accept workspace trust prompt
-  Bun.sleepSync(1000);
-  tmux.sendEnter(target);
-
-  // Initialize per-task dedup sets
-  relayedResponses.set(taskId, new Set());
-  processedEvents.set(taskId, new Set());
-
-  // Start response poller
-  const stopPoller = startPoller(taskId, target, db);
+  const systemPrompt = buildSeedPrompt(task, tree);
+  const sessionId = `seed-${taskId}-${Date.now()}`;
 
   const session: SeedSession = {
     taskId,
-    windowName,
-    target,
-    pid,
-    stopPoller,
+    sessionId,
+    status: "idle",
+    pid: null,
+    proc: null,
     conversation: [],
     pendingDescription: task.description || undefined,
+    isFirstMessage: true,
+    systemPrompt,
+    treePath: tree.path,
   };
 
   sessions.set(taskId, session);
-
   broadcast("seed:started", { taskId });
+
+  // If there's a pending description, auto-send it as the first message
+  if (session.pendingDescription) {
+    const desc = session.pendingDescription;
+    session.pendingDescription = undefined;
+    sendSeedMessage(taskId, desc, db);
+  }
 }
 
-/** Send a user message to the seed session via tmux */
+/** Send a user message to the seed session via --resume subprocess */
 export function sendSeedMessage(taskId: string, text: string, db: Database): boolean {
   const session = sessions.get(taskId);
   if (!session) return false;
+
+  // If already running, queue the message (will be sent when current finishes)
+  if (session.status === "running") {
+    session.pendingDescription = text;
+    return true;
+  }
 
   // Record user message
   session.conversation.push({
@@ -135,55 +111,47 @@ export function sendSeedMessage(taskId: string, text: string, db: Database): boo
   db.seedUpdateConversation(taskId, session.conversation);
 
   // Broadcast user message
-  broadcast("seed:message", {
-    taskId,
-    source: "user",
-    content: text,
-  });
+  broadcast("seed:message", { taskId, source: "user", content: text });
 
-  return tmux.sendKeys(session.target, text);
+  // Dispatch the claude process
+  dispatchSeedMessage(session, text, db);
+  return true;
 }
 
-/** Stop a seed session, kill tmux window, cleanup */
+/** Stop a seed session, kill process, cleanup */
 export function stopSeedSession(taskId: string, db: Database): void {
   const session = sessions.get(taskId);
   if (!session) return;
 
-  session.stopPoller();
-  tmux.killWindow(session.target);
+  // Kill process if running
+  if (session.proc && session.pid && isAlive(session.pid)) {
+    try { session.proc.kill(); } catch {}
+  }
 
   // Persist final conversation
   db.seedUpdateConversation(taskId, session.conversation);
 
   // Cleanup state
   sessions.delete(taskId);
-  relayedResponses.delete(taskId);
-  processedEvents.delete(taskId);
-
   broadcast("seed:stopped", { taskId });
 }
 
 /** Check if a seed session is alive */
 export function isSeedSessionActive(taskId: string): boolean {
-  const session = sessions.get(taskId);
-  if (!session) return false;
-  return isAlive(session.pid);
+  return sessions.has(taskId);
 }
 
 /** Get conversation history for a seed session */
 export function getSeedConversation(taskId: string): ConversationMessage[] {
   const session = sessions.get(taskId);
-  if (session) return session.conversation;
-
-  // Fall back to DB if session is no longer in memory
-  return [];
+  return session?.conversation ?? [];
 }
 
 // ---------------------------------------------------------------------------
-// Prompt builder
+// Prompt builder (exported for testing)
 // ---------------------------------------------------------------------------
 
-function buildSeedPrompt(
+export function buildSeedPrompt(
   task: { id: string; title: string; description?: string | null },
   tree: { id: string; name: string; path: string },
 ): string {
@@ -223,113 +191,201 @@ This signals that the brainstorm is complete. The spec will be stored and used t
 }
 
 // ---------------------------------------------------------------------------
-// Response poller
+// Claude CLI argument builder (exported for testing)
 // ---------------------------------------------------------------------------
 
-function startPoller(taskId: string, target: string, db: Database): () => void {
-  let stopped = false;
+export function buildSeedClaudeArgs(
+  message: string,
+  sessionId: string,
+  treePath: string,
+  isFirstMessage: boolean,
+  systemPrompt: string,
+): string[] {
+  const args = ["claude", "-p", message, "--output-format", "stream-json", "--verbose"];
 
-  const poll = async () => {
-    // Wait for Claude Code to start
-    await new Promise(r => setTimeout(r, 5000));
+  if (isFirstMessage) {
+    args.push("--session-id", sessionId);
+    args.push("--system-prompt", systemPrompt);
+    args.push("--add-dir", treePath);
+    args.push("--dangerously-skip-permissions");
+  } else {
+    args.push("--resume", sessionId);
+  }
 
-    while (!stopped) {
-      try {
-        const content = tmux.capturePane(target, 500);
-
-        // Auto-send pending description once Claude shows its idle prompt
-        const session = sessions.get(taskId);
-        if (session?.pendingDescription) {
-          const lastNonEmpty = content.split("\n").filter(l => l.trim()).pop()?.trim();
-          if (lastNonEmpty === "❯" || lastNonEmpty === "❯ ") {
-            const desc = session.pendingDescription;
-            session.pendingDescription = undefined;
-            sendSeedMessage(taskId, desc, db);
-          }
-        }
-
-        // Scan for structured JSON events first
-        scanForJsonEvents(taskId, content, db);
-
-        // Parse completed response blocks
-        const responses = parseCompletedResponses(content);
-        const seen = relayedResponses.get(taskId)!;
-
-        for (const text of responses) {
-          if (!seen.has(text)) {
-            seen.add(text);
-
-            // Cap the set to prevent memory leak
-            if (seen.size > 200) {
-              const first = seen.values().next().value;
-              if (first) seen.delete(first);
-            }
-
-            // Record assistant message
-            const session = sessions.get(taskId);
-            if (session) {
-              session.conversation.push({
-                role: "assistant",
-                content: text,
-                ts: new Date().toISOString(),
-              });
-              db.seedUpdateConversation(taskId, session.conversation);
-            }
-
-            broadcast("seed:message", {
-              taskId,
-              source: "ai",
-              content: text,
-            });
-          }
-        }
-      } catch {
-        // Capture failed — retry next interval
-      }
-      await new Promise(r => setTimeout(r, POLL_MS));
-    }
-  };
-
-  poll();
-  return () => { stopped = true; };
+  return args;
 }
 
 // ---------------------------------------------------------------------------
-// JSON event scanner
+// Internal: dispatch and monitor
 // ---------------------------------------------------------------------------
 
-function scanForJsonEvents(taskId: string, content: string, db: Database): void {
-  const seen = processedEvents.get(taskId)!;
+function dispatchSeedMessage(session: SeedSession, text: string, db: Database): void {
+  session.status = "running";
 
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue;
+  const args = buildSeedClaudeArgs(
+    text,
+    session.sessionId,
+    session.treePath,
+    session.isFirstMessage,
+    session.systemPrompt,
+  );
+  session.isFirstMessage = false;
 
-    try {
-      const event = JSON.parse(trimmed);
-      if (!event.type) continue;
+  const proc = Bun.spawn(args, {
+    cwd: session.treePath,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env },
+  });
 
-      const key = JSON.stringify(event);
-      if (seen.has(key)) continue;
-      seen.add(key);
+  session.proc = proc;
+  session.pid = proc.pid;
 
-      // Cap the set
-      if (seen.size > 300) {
-        const first = seen.values().next().value;
-        if (first) seen.delete(first);
+  monitorSeedSession(session, proc, db);
+}
+
+async function monitorSeedSession(
+  session: SeedSession,
+  proc: ReturnType<typeof Bun.spawn>,
+  db: Database,
+): Promise<void> {
+  const { taskId } = session;
+
+  try {
+    const stdout = proc.stdout;
+    if (!stdout || typeof stdout === "number") {
+      throw new Error("Seed stdout not available");
+    }
+    const reader = (stdout as ReadableStream<Uint8Array>).getReader();
+    let accumulatedText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = new TextDecoder().decode(value);
+
+      for (const line of chunk.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        let obj: any;
+        try { obj = JSON.parse(trimmed); } catch { continue; }
+
+        // Extract text content from assistant messages
+        if (obj.type === "assistant") {
+          for (const block of obj.message?.content ?? []) {
+            if (block.type === "text" && block.text) {
+              accumulatedText += block.text;
+
+              // Scan for structured seed events in the text
+              const events = parseSeedEvents(trimmed);
+              for (const event of events) {
+                handleSeedEvent(taskId, event, db);
+              }
+            } else if (block.type === "tool_use") {
+              const tool = block.name ?? "tool";
+              const input = block.input ?? {};
+              const file = input.file_path ?? input.command ?? input.pattern ?? "";
+              bus.emit("agent:tool_use", { agentId: session.sessionId, taskId, tool, input: String(file).slice(0, 500), ts: Date.now() });
+            }
+          }
+        }
+
+        // Track cost
+        if (obj.type === "result" && obj.cost_usd != null) {
+          bus.emit("agent:cost", { agentId: session.sessionId, taskId, costUsd: Number(obj.cost_usd), tokens: Number(obj.usage?.input_tokens ?? 0) + Number(obj.usage?.output_tokens ?? 0), ts: Date.now() });
+        }
       }
+    }
 
-      handleSeedEvent(taskId, event, db);
-    } catch {
-      // Not valid JSON — skip
+    await proc.exited;
+
+    // Extract the clean response text (strip JSON events)
+    const responseText = extractResponseText(accumulatedText);
+    if (responseText) {
+      session.conversation.push({
+        role: "assistant",
+        content: responseText,
+        ts: new Date().toISOString(),
+      });
+      db.seedUpdateConversation(taskId, session.conversation);
+      broadcast("seed:message", { taskId, source: "ai", content: responseText });
+      bus.emit("seed:response", { taskId, content: responseText, ts: Date.now() });
+    }
+  } catch (err) {
+    broadcast("seed:message", { taskId, source: "ai", content: `Error: ${err}` });
+  } finally {
+    session.status = "idle";
+    session.pid = null;
+    session.proc = null;
+    bus.emit("seed:idle", { taskId, ts: Date.now() });
+
+    // If there's a queued message, send it now
+    if (session.pendingDescription && sessions.has(taskId)) {
+      const next = session.pendingDescription;
+      session.pendingDescription = undefined;
+      sendSeedMessage(taskId, next, db);
     }
   }
 }
 
+// ---------------------------------------------------------------------------
+// Seed event parser (exported for testing)
+// ---------------------------------------------------------------------------
+
+/** Parse structured seed events from a stream-json line */
+export function parseSeedEvents(line: string): any[] {
+  const events: any[] = [];
+
+  try {
+    const obj = JSON.parse(line);
+    if (obj.type !== "assistant") return events;
+
+    for (const block of obj.message?.content ?? []) {
+      if (block.type !== "text" || !block.text) continue;
+
+      // Look for JSON objects embedded in text
+      const text = block.text;
+      for (const textLine of text.split("\n")) {
+        const trimmed = textLine.trim();
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue;
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed.type === "seed_complete" || parsed.type === "seed_html") {
+            events.push(parsed);
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  return events;
+}
+
+/** Extract clean response text, stripping embedded JSON events */
+function extractResponseText(text: string): string {
+  const lines = text.split("\n");
+  const clean = lines.filter(line => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return true;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed.type !== "seed_complete" && parsed.type !== "seed_html";
+    } catch {
+      return true;
+    }
+  });
+  return clean.join("\n").trim();
+}
+
+// ---------------------------------------------------------------------------
+// Seed event handler
+// ---------------------------------------------------------------------------
+
 function handleSeedEvent(taskId: string, event: any, db: Database): void {
   switch (event.type) {
     case "seed_html": {
-      // Broadcast HTML mockup to the UI
       const session = sessions.get(taskId);
       if (session) {
         session.conversation.push({
@@ -340,155 +396,18 @@ function handleSeedEvent(taskId: string, event: any, db: Database): void {
         });
         db.seedUpdateConversation(taskId, session.conversation);
       }
-      broadcast("seed:message", {
-        taskId,
-        source: "ai",
-        content: "",
-        html: event.html,
-      });
+      broadcast("seed:message", { taskId, source: "ai", content: "", html: event.html });
       break;
     }
 
     case "seed_complete": {
-      // Store seed in DB
       db.seedComplete(taskId, event.summary ?? "", event.spec ?? "");
-
-      // Broadcast completion
-      broadcast("seed:complete", {
-        taskId,
-        summary: event.summary,
-        spec: event.spec,
-      });
-
-      // Auto-stop the session
+      broadcast("seed:complete", { taskId, summary: event.summary, spec: event.spec });
+      bus.emit("seed:complete", { taskId, summary: event.summary ?? "", spec: event.spec ?? "", ts: Date.now() });
       stopSeedSession(taskId, db);
       break;
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Response parser — mirrors orchestrator's parseCompletedResponses / isSystemOutput
-// ---------------------------------------------------------------------------
-
-/**
- * Parse completed response blocks from tmux pane content.
- * A "completed" response is one followed by an idle prompt (❯ alone).
- *
- * Format:
- *   ❯ user message
- *   ⏺ Claude's response text
- *     continuation
- *   ⏺ Read(file.ts)           ← system, skip
- *     ⎿  file contents         ← sub-content, skip
- *   ───────────────────
- *   ❯                          ← idle prompt
- */
-function parseCompletedResponses(content: string): string[] {
-  const lines = content.split("\n");
-  const results: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-
-    // Look for user prompt (❯ followed by text)
-    if (!trimmed.startsWith("❯") || trimmed.length <= 2) continue;
-
-    const textBlocks: string[][] = [];
-    let currentBlock: string[] = [];
-    let foundIdlePrompt = false;
-    let inResponseBlock = false;
-
-    for (let j = i + 1; j < lines.length; j++) {
-      const t = lines[j].trim();
-
-      // Idle prompt = end of turn
-      if (t === "❯" || t === "❯ ") {
-        foundIdlePrompt = true;
-        break;
-      }
-
-      // Another user prompt = end without idle
-      if (t.startsWith("❯") && t.length > 2) break;
-
-      // Response block marker
-      if (t.startsWith("⏺")) {
-        const text = t.slice(1).trim();
-        if (text && !isSystemOutput(text)) {
-          if (!inResponseBlock && currentBlock.length > 0) {
-            textBlocks.push([...currentBlock]);
-            currentBlock = [];
-          }
-          currentBlock.push(text);
-          inResponseBlock = true;
-        } else {
-          if (inResponseBlock && currentBlock.length > 0) {
-            textBlocks.push([...currentBlock]);
-            currentBlock = [];
-          }
-          inResponseBlock = false;
-        }
-        continue;
-      }
-
-      // Sub-content of tool/hook output
-      if (t.startsWith("⎿")) {
-        if (inResponseBlock && currentBlock.length > 0) {
-          textBlocks.push([...currentBlock]);
-          currentBlock = [];
-        }
-        inResponseBlock = false;
-        continue;
-      }
-
-      // tmux separator lines
-      if (t.startsWith("───") && t.length > 20) {
-        if (inResponseBlock && currentBlock.length > 0) {
-          textBlocks.push([...currentBlock]);
-          currentBlock = [];
-        }
-        inResponseBlock = false;
-        continue;
-      }
-
-      // Continuation lines
-      if (inResponseBlock) {
-        currentBlock.push(t);
-      }
-    }
-
-    // Save final block
-    if (currentBlock.length > 0) {
-      textBlocks.push(currentBlock);
-    }
-
-    if (foundIdlePrompt && textBlocks.length > 0) {
-      const lastBlock = textBlocks[textBlocks.length - 1];
-      while (lastBlock.length > 0 && !lastBlock[0]) lastBlock.shift();
-      while (lastBlock.length > 0 && !lastBlock[lastBlock.length - 1]) lastBlock.pop();
-      if (lastBlock.length > 0) {
-        results.push(lastBlock.join("\n"));
-      }
-    }
-  }
-
-  return results;
-}
-
-/** Check if a ⏺ line is system/tool output rather than a response */
-function isSystemOutput(text: string): boolean {
-  return /^Ran \d+ /.test(text) ||
-    /^Read\b/.test(text) || /^Edit\b/.test(text) ||
-    /^Write\b/.test(text) || /^Bash\b/.test(text) ||
-    /^Grep\b/.test(text) || /^Glob\b/.test(text) ||
-    /^Agent\b/.test(text) || /^Search\b/.test(text) ||
-    /^LS\b/.test(text) || /^TodoWrite\b/.test(text) ||
-    /^Task\b/.test(text) || /^Skill\b/.test(text) ||
-    /^WebSearch\b/.test(text) || /^WebFetch\b/.test(text) ||
-    text.startsWith("Tool:") ||
-    text.startsWith("Thinking") ||
-    /^\d+ (file|module|package)s? /.test(text) ||
-    /^[A-Z][a-z]+\([^)]*\)/.test(text);
 }
 
 // ---------------------------------------------------------------------------
