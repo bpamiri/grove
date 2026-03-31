@@ -5,6 +5,7 @@ import { getEnv } from "./db";
 import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig, NormalizedPathConfig, NotificationsConfig } from "../shared/types";
 import { normalizeAllPaths, stripPrompts } from "../engine/normalize";
 import { DEFAULT_PATHS, DEFAULT_BUDGETS, DEFAULT_SETTINGS } from "../shared/types";
+import { detectVersion, latestVersion, migrateConfig as runMigrations } from "./config-migrations";
 
 let _config: GroveConfig | null = null;
 
@@ -26,7 +27,16 @@ export function loadConfig(): GroveConfig {
     return _config;
   }
   const raw = readFileSync(GROVE_CONFIG, "utf-8");
-  const parsed = parseYaml(raw) as Partial<GroveConfig>;
+  let parsed = parseYaml(raw) as Partial<GroveConfig>;
+
+  // Detect and migrate outdated config versions in memory
+  const currentVersion = detectVersion(parsed);
+  if (currentVersion < latestVersion()) {
+    console.warn(`[grove] Config is v${currentVersion}, latest is v${latestVersion()}. Run "grove config migrate" to upgrade on disk.`);
+    const { config: migrated } = runMigrations(parsed);
+    parsed = migrated;
+  }
+
   _config = mergeDefaults(parsed);
   return _config;
 }
