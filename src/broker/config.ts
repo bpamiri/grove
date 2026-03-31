@@ -78,6 +78,16 @@ export function configSet(key: string, value: string): void {
   _config = config;
 }
 
+export function configDeleteTree(treeId: string): void {
+  const { GROVE_CONFIG } = getEnv();
+  const config = loadConfig();
+  if (config.trees && config.trees[treeId]) {
+    delete config.trees[treeId];
+    writeFileSync(GROVE_CONFIG, stringifyYaml(config));
+    _config = config;
+  }
+}
+
 export function validateConfig(): string[] {
   const config = loadConfig();
   const errors: string[] = [];
