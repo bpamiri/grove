@@ -1,6 +1,31 @@
 # Changelog
 
 
+## v0.1.26
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.25...v0.1.26)
+
+### 🚀 Enhancements
+
+- Add pruneStaleWorktrees to identify and remove orphaned worktrees ([#110](https://github.com/bpamiri/grove/pull/110))
+- Auto-cleanup worktrees on task completion and failure ([#110](https://github.com/bpamiri/grove/pull/110))
+- Clean up worktrees when deleting a tree ([#110](https://github.com/bpamiri/grove/pull/110))
+- Periodic stale worktree pruning in health monitor ([#110](https://github.com/bpamiri/grove/pull/110))
+- Add grove cleanup command and API endpoint ([#110](https://github.com/bpamiri/grove/pull/110))
+
+### 🩹 Fixes
+
+- Review fixes — guard $done cleanup for non-merge paths, use readdirSync for tree delete ([#110](https://github.com/bpamiri/grove/pull/110))
+
+### 📖 Documentation
+
+- Add design spec for stale worktree cleanup ([#110](https://github.com/bpamiri/grove/pull/110))
+- Add implementation plan for stale worktree cleanup ([#110](https://github.com/bpamiri/grove/pull/110))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.25
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.24...v0.1.25)
