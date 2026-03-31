@@ -143,6 +143,19 @@ export function onStepComplete(
 
   const target = outcome === "success" ? currentStep.on_success : currentStep.on_failure;
 
+  // Fire-and-forget step:post plugin hook
+  try {
+    import("../broker/index").then(({ getPluginHost }) => {
+      const host = getPluginHost();
+      host?.runHook("step:post", {
+        taskId,
+        stepId: currentStep.id,
+        outcome,
+        context,
+      }).catch(() => {});
+    }).catch(() => {});
+  } catch {}
+
   // --- $done ---
   if (target === "$done") {
     db.run(
@@ -246,6 +259,29 @@ async function executeStep(
   db: Database,
 ): Promise<void> {
   db.addEvent(task.id, null, "step_entered", `Entered step "${step.id}" (${step.type})`);
+
+  // Run step:pre plugin hook — if any handler returns proceed=false, skip the step
+  try {
+    const { getPluginHost } = await import("../broker/index");
+    const host = getPluginHost();
+    if (host) {
+      const preResults = await host.runHook("step:pre", {
+        taskId: task.id,
+        stepId: step.id,
+        stepType: step.type,
+        treeId: tree.id,
+      });
+      const blocked = preResults.find((r: any) => r.proceed === false);
+      if (blocked) {
+        db.addEvent(task.id, null, "step_skipped", `Plugin blocked step "${step.id}": ${blocked.reason ?? "no reason"}`);
+        onStepComplete(task.id, "failure", `Plugin blocked: ${blocked.reason ?? "no reason"}`);
+        return;
+      }
+    }
+  } catch (err) {
+    // Plugin errors must never crash step execution
+    console.error("[plugins] step:pre hook error:", err);
+  }
 
   switch (step.type) {
     case "worker": {
