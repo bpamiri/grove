@@ -1,6 +1,30 @@
 # Changelog
 
 
+## v0.1.19
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.18...v0.1.19)
+
+### 🚀 Enhancements
+
+- Add per-task ring buffer for SAP activity events ([adf15e9](https://github.com/bpamiri/grove/commit/adf15e9))
+- Add batched broadcast and ring buffer for SAP activity events ([fe35ef4](https://github.com/bpamiri/grove/commit/fe35ef4))
+- Handle SAP activity events in frontend task state ([b69ae5d](https://github.com/bpamiri/grove/commit/b69ae5d))
+- Upgrade ActivityFeed with pause toggle, truncation, and SAP color-coding ([21178b4](https://github.com/bpamiri/grove/commit/21178b4))
+- Fetch live ring buffer activity on task expand ([b2a634c](https://github.com/bpamiri/grove/commit/b2a634c))
+
+### 🩹 Fixes
+
+- Extract BatchedBroadcaster to own file to avoid web-assets CI dependency ([77b391e](https://github.com/bpamiri/grove/commit/77b391e))
+
+### 📖 Documentation
+
+- T2 implementation plan — real-time worker streaming ([23e1af9](https://github.com/bpamiri/grove/commit/23e1af9))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.18
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.17...v0.1.18)
