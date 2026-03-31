@@ -283,6 +283,8 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                 onSeedDiscard={seedState.discardSeed}
                 seedStreamingText={seedState.streamingText}
                 seedStage={seedState.stage}
+                seedBranches={seedState.branches}
+                seedActiveBranch={seedState.activeBranch}
               />
             )}
           </div>

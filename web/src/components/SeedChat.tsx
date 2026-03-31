@@ -1,6 +1,6 @@
 import { useState, useCallback, type RefObject } from "react";
 import DOMPurify from "dompurify";
-import type { Seed, SeedMessage } from "../hooks/useSeed";
+import type { Seed, SeedMessage, SeedBranchInfo } from "../hooks/useSeed";
 import { TypingIndicator } from "./ActivityIndicator";
 import "./SeedFrame.css";
 
@@ -14,6 +14,9 @@ interface Props {
   taskTitle?: string;
   streamingText?: string;
   stage?: string | null;
+  branches?: SeedBranchInfo[];
+  activeBranch?: string;
+  wsSend?: (data: any) => void;
   onSend: (text: string) => void;
   onStart: () => void;
   onStop: () => void;
@@ -46,7 +49,7 @@ function HtmlFragment({ html, onChoice }: { html: string; onChoice: (value: stri
   );
 }
 
-export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, taskId, taskTitle, streamingText, stage, onSend, onStart, onStop, onDiscard }: Props) {
+export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, taskId, taskTitle, streamingText, stage, branches, activeBranch, wsSend, onSend, onStart, onStop, onDiscard }: Props) {
   const [input, setInput] = useState("");
   const [expanded, setExpanded] = useState(false);
 
@@ -122,6 +125,22 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
         </button>
       </div>
 
+      {/* Branch selector */}
+      {(branches ?? []).length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-zinc-800 bg-zinc-900/50">
+          <select
+            value={activeBranch ?? "main"}
+            onChange={e => wsSend?.({ type: "seed_switch_branch", taskId, branchId: e.target.value })}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-[10px] text-zinc-300 focus:outline-none"
+          >
+            <option value="main">Main</option>
+            {(branches ?? []).map(b => (
+              <option key={b.id} value={b.id}>{b.label ?? b.id}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Stage indicator */}
       {isActive && stage && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 text-[10px] text-zinc-400">
@@ -149,7 +168,7 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
           </div>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.source === "user" ? "justify-end" : "justify-start"}`}>
+          <div key={i} className={`group flex ${msg.source === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
               msg.source === "user"
                 ? "bg-zinc-800 text-zinc-300"
@@ -161,6 +180,15 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
                 <span className="whitespace-pre-wrap">{msg.content}</span>
               )}
             </div>
+            {msg.source === "ai" && isActive && wsSend && (
+              <button
+                onClick={() => wsSend({ type: "seed_branch", taskId, parentMessageIndex: i, label: `Branch ${(branches ?? []).length + 1}` })}
+                className="opacity-0 group-hover:opacity-100 text-[10px] text-zinc-500 hover:text-blue-400 ml-2 self-center transition-opacity"
+                title="Explore alternative direction"
+              >
+                Fork
+              </button>
+            )}
           </div>
         ))}
         {/* Streaming text while AI is generating */}

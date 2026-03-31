@@ -8,6 +8,12 @@ export interface SeedMessage {
   html?: string;
 }
 
+export interface SeedBranchInfo {
+  id: string;
+  label?: string;
+  parentMessageIndex: number;
+}
+
 export interface Seed {
   task_id: string;
   summary: string | null;
@@ -23,6 +29,8 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [stage, setStage] = useState<string | null>(null);
+  const [branches, setBranches] = useState<SeedBranchInfo[]>([]);
+  const [activeBranch, setActiveBranch] = useState("main");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const loadSeed = useCallback(async (tid: string) => {
@@ -100,6 +108,18 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
       setStage(msg.data.stage);
     }
 
+    if (msg.type === "seed:branch_created" && msg.data?.taskId === taskId) {
+      setBranches(prev => [...prev, {
+        id: msg.data.branchId,
+        label: msg.data.label,
+        parentMessageIndex: msg.data.parentMessageIndex,
+      }]);
+    }
+
+    if (msg.type === "seed:branch_switched" && msg.data?.taskId === taskId) {
+      setActiveBranch(msg.data.branchId);
+    }
+
     if (msg.type === "seed:started" && msg.data?.taskId === taskId) {
       setSeed(prev => prev ? { ...prev, active: true, status: "active" } : {
         task_id: taskId, summary: null, spec: null, status: "active", active: true, conversation: [],
@@ -124,6 +144,7 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
 
   return {
     seed, messages, loading, bottomRef, streamingText, stage,
+    branches, activeBranch,
     startSeed, stopSeed, sendMessage, discardSeed, handleWsMessage,
     isActive: seed?.active ?? false,
     isSeeded: seed?.status === "completed",

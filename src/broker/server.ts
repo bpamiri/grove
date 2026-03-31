@@ -5,7 +5,7 @@ import type { Database } from "./db";
 import { bus } from "./event-bus";
 import { GROVE_VERSION, type EventBusMap } from "../shared/types";
 import { EMBEDDED_ASSETS } from "./web-assets.generated";
-import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast } from "./seed-session";
+import { startSeedSession, sendSeedMessage, stopSeedSession, isSeedSessionActive, setSeedBroadcast, createSeedBranch, switchSeedBranch } from "./seed-session";
 import { ActivityRingBuffer, type ActivityEvent } from "./ring-buffer";
 import { BatchedBroadcaster } from "./batched-broadcaster";
 import { detectCycle, type DagEdge } from "../batch/dag";
@@ -235,6 +235,16 @@ export function startServer(opts: ServerOptions) {
 
           if (data.type === "seed_stop" && data.taskId) {
             stopSeedSession(data.taskId, db);
+            return;
+          }
+
+          if (data.type === "seed_branch" && data.taskId) {
+            createSeedBranch(data.taskId, data.parentMessageIndex, data.label);
+            return;
+          }
+
+          if (data.type === "seed_switch_branch" && data.taskId) {
+            switchSeedBranch(data.taskId, data.branchId);
             return;
           }
         } catch {

@@ -33,9 +33,11 @@ interface Props {
   onSeedDiscard?: () => void;
   seedStreamingText?: string;
   seedStage?: string | null;
+  seedBranches?: Array<{ id: string; label?: string; parentMessageIndex: number }>;
+  seedActiveBranch?: string;
 }
 
-export default function TaskDetail({ task, activityLog, steps, send, trees, paths, allTasks, onRefresh, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard, seedStreamingText, seedStage }: Props) {
+export default function TaskDetail({ task, activityLog, steps, send, trees, paths, allTasks, onRefresh, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard, seedStreamingText, seedStage, seedBranches, seedActiveBranch }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
   const [resumeStep, setResumeStep] = useState(task.current_step ?? steps[0]?.id ?? "");
@@ -117,6 +119,9 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
             taskTitle={task.title}
             streamingText={seedStreamingText}
             stage={seedStage}
+            branches={seedBranches}
+            activeBranch={seedActiveBranch}
+            wsSend={send}
             onSend={onSeedSend ?? (() => {})}
             onStart={onSeedStart}
             onStop={onSeedStop ?? (() => {})}
