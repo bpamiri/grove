@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   checkpoint TEXT
 );
 
+CREATE TABLE IF NOT EXISTS task_edges (
+  from_task TEXT NOT NULL REFERENCES tasks(id),
+  to_task TEXT NOT NULL REFERENCES tasks(id),
+  edge_type TEXT NOT NULL DEFAULT 'dependency',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (from_task, to_task)
+);
+CREATE INDEX IF NOT EXISTS idx_task_edges_to ON task_edges(to_task);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   task_id TEXT REFERENCES tasks(id),
