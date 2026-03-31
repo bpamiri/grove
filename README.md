@@ -25,10 +25,10 @@ See [Installation](docs/getting-started/installation.md) for all platforms and b
 
 ```
 You --- Browser (GUI) --- Tunnel ---+
-  |                                  |
-  +-- grove CLI -------+             |
-                        |            |
-                        v            v
+  |                                 |
+  +-- grove CLI -------+            |
+                       |            |
+                       v            v
               +---------------------------+
               |    Broker (Bun process)   |
               |                           |
