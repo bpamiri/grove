@@ -4,6 +4,19 @@ Grove is configured via `~/.grove/grove.yaml`. The file is created automatically
 
 ---
 
+## Workspace
+
+```yaml
+workspace:
+  name: "My Project"
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Display name for the Grove instance. Shown in the GUI header and system prompts. Required. Defaults to `"Grove"`. |
+
+---
+
 ## Trees
 
 Trees are repositories under Grove management. Each tree has its own path, GitHub identity, and quality gate configuration.
@@ -41,15 +54,26 @@ trees:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tests` | bool | Run the test suite during gate evaluation. |
-| `lint` | bool | Run the linter during gate evaluation. |
-| `commits` | bool | Validate commit message format (conventional commits). |
-| `diff_size` | bool | Fail the gate if the diff exceeds `max_diff_lines`. |
-| `max_diff_lines` | int | Line threshold for `diff_size` check. Default: `5000`. |
-| `test_command` | string | Shell command used to run tests. |
-| `lint_command` | string | Shell command used to run the linter. |
-| `test_timeout` | int | Seconds before the test command is killed. Default: `300`. |
-| `lint_timeout` | int | Seconds before the lint command is killed. Default: `60`. |
+| `tests` | bool | Run the test suite during gate evaluation. Default: `true`. |
+| `lint` | bool | Run the linter during gate evaluation. Default: `false`. |
+| `commits` | bool | Check that at least one commit exists on the branch. Default: `true`. |
+| `diff_size` | bool | Fail the gate if the diff is outside the min/max range. Default: `true`. |
+| `min_diff_lines` | int | Minimum lines changed (catches empty commits). Default: `1`. |
+| `max_diff_lines` | int | Maximum lines changed. Default: `5000`. |
+| `test_command` | string | Shell command used to run tests. Required if `tests: true`. |
+| `lint_command` | string | Shell command used to run the linter. Required if `lint: true`. |
+| `test_timeout` | int | Seconds before the test command is killed. Default: `60`. |
+| `lint_timeout` | int | Seconds before the lint command is killed. Default: `30`. |
+| `base_ref` | string | Git ref for rebase and diff comparison. Auto-detected if omitted (see below). |
+
+**`base_ref` auto-detection:** When `base_ref` is not set in `quality_gates`, the evaluator resolves it with this priority:
+1. `origin/{default_branch}` — if `default_branch` is configured on the tree
+2. Probes in order: `origin/main`, `main`, `origin/master`, `master`
+3. Final fallback: `origin/main`
+
+Override `base_ref` when your tree's target branch differs from the default (e.g., rebasing against a release branch).
+
+**Gate tiers:** Tests and commits are **hard** gates — failure blocks the merge. Lint and diff_size are **soft** gates — failures are logged as warnings but don't block.
 
 ---
 
@@ -83,15 +107,19 @@ paths:
 |------|-------------|
 | `worker` | Spawns a Claude Code worker session to execute the step. |
 | `gate` | Runs quality evaluation (tests, lint, diff size) against the current state. |
+| `merge` | Pushes the branch, creates a PR, monitors CI, and auto-merges on green. |
 
 **Step fields:**
 
 | Field | Description |
 |-------|-------------|
 | `id` | Unique identifier for the step within the path. |
-| `type` | `worker` or `gate`. |
+| `type` | `worker`, `gate`, or `merge`. Inferred from `id` if omitted. |
 | `prompt` | Instructions passed to the worker (worker steps only). |
-| `on_failure` | Step ID to retry when this gate fails. |
+| `label` | Display name shown in the GUI pipeline indicator. Auto-generated from `id` (capitalized) if omitted. |
+| `on_success` | Step ID to transition to on success. Defaults to the next step, or `$done` for the last step. |
+| `on_failure` | Step ID to transition to on failure. Gates default to the nearest preceding worker; workers default to `$fail`. |
+| `max_retries` | Override the global `settings.max_retries` for this specific step. |
 
 **String shorthand:** The `steps` list accepts bare step IDs as strings (`steps: [plan, implement, evaluate]`). Grove expands these to full `PipelineStep` objects using built-in defaults for each named step.
 
@@ -101,6 +129,9 @@ paths:
 |------|-------|-------------|
 | `development` | plan -> implement -> evaluate -> merge | Standard dev workflow with QA gate |
 | `research` | plan -> research -> report | Research task, no code changes |
+| `content` | plan -> implement -> evaluate -> publish | Documentation and content creation |
+
+See [Custom Paths](custom-paths.md) for the full guide on defining pipelines, step types, transitions, type inference, and retry behavior.
 
 ---
 
@@ -153,8 +184,8 @@ tunnel:
 
 | Field | Description |
 |-------|-------------|
-| `provider` | Tunnel provider. Currently `cloudflare` only. |
-| `auth` | Authentication method. `token` uses a Cloudflare API token. |
+| `provider` | Tunnel provider. Currently `cloudflare` only. (`bore` and `ngrok` are defined but not yet implemented.) |
+| `auth` | Authentication method. `token` requires a Bearer token for API/WebSocket access. `none` disables authentication (local-only use). |
 | `domain` | Optional base domain. Register `grove.cloud` for a stable vanity URL. |
 | `subdomain` | Subdomain to use. `auto` generates one on first start and persists it. |
 | `secret` | Shared secret for webhook validation. `auto` generates one on first start. |

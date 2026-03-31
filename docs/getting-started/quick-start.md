@@ -38,7 +38,7 @@ grove up
 ```
 
 ```
-  Grove v0.1.1
+  Grove v0.1.16
 
   Broker started (PID 12345)
   Orchestrator spawned in tmux:grove
@@ -85,4 +85,8 @@ Gracefully stops the broker, orchestrator, workers, and tunnel.
 
 - [Configuration](../guides/configuration.md) — customize trees, paths, budgets, tunnel
 - [CLI Reference](../guides/cli-reference.md) — all commands
-- [Architecture](../guides/architecture.md) — how it all works
+- [Architecture](../guides/architecture.md) — how it all works, API reference
+- [Task Management](../guides/task-management.md) — dependencies, batch dispatch, cancel/pause, resume at step
+- [Custom Paths](../guides/custom-paths.md) — define custom pipelines with step types and transitions
+- [GitHub Integration](../guides/github-integration.md) — issue sync, PR lifecycle, CI monitoring
+- [Web GUI](../guides/web-gui.md) — seeding, filters, dashboard, activity indicators

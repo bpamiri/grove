@@ -1,35 +1,75 @@
-# Session Summary: W-040
+# Session Summary: W-042 (Session 4)
 
 ## Summary
 
-Implemented per-tree default path with override in task creation (issue #80). Trees can now specify a `default_path` in grove.yaml (e.g., `adversarial`, `content`), which is stored in the `config` JSON column and used as the default when creating tasks for that tree. The path selector is now a first-class field in the task creation form (not buried under "More options"), with a hint showing the tree's default path.
+Ran a systematic gap analysis comparing all documentation against the actual source code using three parallel code-explorer agents (CLI commands, API endpoints, config options). Found and fixed 9 doc gaps and 3 inaccuracies. Added a comprehensive API Reference section to architecture.md covering all 27 REST endpoints and 6 WebSocket message types.
 
-Session 2 added grove.yaml validation — trees with an invalid `default_path` now produce warnings at broker startup.
+## Changes Made
+
+### API Reference (architecture.md)
+- Full REST API reference table organized by domain: System, Trees, Tasks, Seeds, Orchestrator, Pipelines, Batch, Analytics, Events
+- WebSocket message reference: auth, chat, action (with step?), seed, seed_start, seed_stop
+- Authentication requirements noted for remote access
+
+### Configuration Gaps Fixed (configuration.md)
+- Added `workspace.name` section (required field, validated by config loader)
+- Added `merge` step type to the step types table
+- Added `label`, `on_success`, `max_retries` to the step fields table
+- Fixed tunnel `auth` field: documented `"none"` as valid value alongside `"token"`
+- Fixed tunnel `provider` field: noted `bore` and `ngrok` are defined but not yet implemented
+
+### Custom Paths Fix (custom-paths.md)
+- Added `label` field to the step fields table (auto-generated from ID if omitted)
+
+### CLI Reference Fix (cli-reference.md)
+- Clarified filter statuses (`draft`, `queued`, `active`, `completed`, `failed`) vs display statuses (`running`, `evaluating`, `paused`, `merged`)
+- Fixed `step_id` → `step` in resume endpoint description
+
+### Task Management Fix (task-management.md)
+- Fixed resume API body field: `step_id` → `step` (matching actual server.ts implementation)
+- Fixed WebSocket cancel example: added missing `"type": "action"` envelope field
+
+### Quick Start (quick-start.md)
+- Updated architecture link description to mention API reference
+
+## Inaccuracies Found and Fixed
+
+1. **Resume API body field wrong** — docs used `step_id`, source code uses `step` (server.ts:612)
+2. **WebSocket cancel missing envelope** — docs omitted `"type": "action"`, but server.ts:170 requires it to route to the action handler
+3. **Tunnel auth "none" undocumented** — types.ts:190 declares `"token" | "none"` but docs only showed `"token"`
 
 ## Files Modified
 
-### Modified Files
-- `src/shared/types.ts` — Added `default_path?: string` to TreeConfig interface
-- `src/broker/config.ts` — `validateConfig()` checks tree `default_path` against valid path names
-- `src/broker/index.ts` — Included `default_path` in tree config JSON; calls `validateConfig()` at startup
-- `src/broker/server.ts` — Task creation resolves tree's default_path; import-issues uses tree default; GET /api/trees enriches response with parsed config fields
-- `web/src/hooks/useTasks.ts` — Added `default_path` and `default_branch` to frontend Tree interface
-- `web/src/components/TaskForm.tsx` — Path selector promoted to top-level form field, auto-selects tree default on tree change, shows "tree default" hint
-- `tests/broker/task-form-features.test.ts` — 6 new tests for per-tree default_path behavior
-- `tests/broker/config.test.ts` — 3 new tests for default_path validation
+- `docs/guides/architecture.md` — API reference section (96 new lines)
+- `docs/guides/configuration.md` — workspace section, step types/fields, tunnel config
+- `docs/guides/custom-paths.md` — label step field
+- `docs/guides/cli-reference.md` — display vs filter statuses, step field name fix
+- `docs/guides/task-management.md` — resume body field, WS cancel envelope
+- `docs/getting-started/quick-start.md` — architecture link description
 
-## Architecture
+## Task Completion Status
 
-- **Config**: `default_path` stored in existing `trees.config` JSON column alongside `quality_gates` and `default_branch` — no schema migration needed
-- **Fallback chain**: `explicit path_name → tree.default_path → "development"` preserves backward compatibility
-- **Validation**: Checks against merged paths config (defaults + user-defined); warns but doesn't block startup
-- **API enrichment**: GET /api/trees now returns `default_path` and `default_branch` as top-level fields (parsed from config JSON)
-- **UI**: Path selector always visible for draft tasks; tree change auto-selects default_path; always overridable
+All items from the original issue (#82) have been documented across sessions 1–4:
 
-## Test Results
+### User-facing — All done
+- Task dependencies, batch dispatch, GitHub issue sync, seeding
+- Filter persistence, status filter tabs, sidebar tree counts, cross-filtering
+- Activity indicators, dashboard, resume at step, cancel/pause
 
-368 pass, 0 fail across 28 test files (9 new tests total). Frontend builds cleanly (Vite).
+### Developer-facing — All done
+- Step engine, evaluator, merge manager, worker lifecycle
+- Event bus, custom paths, worktree management
+- Orchestrator deep dive, batch analysis deep dive
+- **Full API reference** (new in session 4)
 
-## Next Steps
+### Configuration reference — All done
+- Quality gate config, budget settings, notification config
+- Workspace name, step label/on_success/max_retries, tunnel auth "none"
 
-- Consider path name autocomplete/validation in CLI task creation
+### CLI reference — All done
+- All commands documented, batch command with options
+- Display vs filter statuses clarified
+
+### Remaining (blocked on unmerged features)
+- `default_path` per tree — blocked on #80 (not landed)
+- `grove batch --agent` flag — blocked on agent-powered analysis (not implemented)
