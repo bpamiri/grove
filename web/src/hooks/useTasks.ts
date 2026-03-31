@@ -16,6 +16,8 @@ export interface Task {
   path_name: string;
   priority: number;
   depends_on: string | null;
+  github_issue: number | null;
+  labels: string | null;
   branch: string | null;
   worktree_path: string | null;
   pr_url: string | null;
@@ -40,6 +42,8 @@ export interface Tree {
   path: string;
   github: string | null;
   branch_prefix: string;
+  default_path: string | null;
+  default_branch: string | null;
   created_at: string;
 }
 

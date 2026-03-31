@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
 import type { StatusFilter } from "../App";
 import TaskDetail from "./TaskDetail";
+import TaskForm from "./TaskForm";
 import Pipeline from "./Pipeline";
 import SeedBadge from "./SeedBadge";
 import ActivityIndicator from "./ActivityIndicator";
@@ -56,67 +57,29 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
     if (wsMessage) seedState.handleWsMessage(wsMessage);
   }, [wsMessage, seedState.handleWsMessage]);
   const [showNewTask, setShowNewTask] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  const [newTreeId, setNewTreeId] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [issues, setIssues] = useState<Array<{ number: number; title: string; body: string; labels: Array<{ name: string }> }>>([]);
-  const [loadingIssues, setLoadingIssues] = useState(false);
-  const [selectedIssue, setSelectedIssue] = useState<number | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
-  const loadIssues = async (treeId: string) => {
-    if (!treeId) { setIssues([]); return; }
-    setLoadingIssues(true);
+  const selectedTreeObj = useMemo(() => {
+    if (!selectedTree) return null;
+    return trees.find(t => t.id === selectedTree) ?? null;
+  }, [selectedTree, trees]);
+
+  const importIssues = async () => {
+    if (!selectedTree) return;
+    setImporting(true);
+    setImportResult(null);
     try {
-      const data = await api<any[]>(`/api/trees/${treeId}/issues`);
-      setIssues(Array.isArray(data) ? data : []);
-    } catch { setIssues([]); }
-    finally { setLoadingIssues(false); }
-  };
-
-  const handleTreeChange = (treeId: string) => {
-    setNewTreeId(treeId);
-    setSelectedIssue(null);
-    setNewTitle("");
-    setNewDescription("");
-    loadIssues(treeId);
-  };
-
-  const handleIssueSelect = (issueNum: number) => {
-    if (issueNum === 0) {
-      setSelectedIssue(null);
-      setNewTitle("");
-      setNewDescription("");
-      return;
-    }
-    const issue = issues.find(i => i.number === issueNum);
-    if (issue) {
-      setSelectedIssue(issue.number);
-      setNewTitle(`${issue.title} Issue #${issue.number}`);
-      setNewDescription(issue.body ?? "");
-    }
-  };
-
-  const handleCreateTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    setCreating(true);
-    try {
-      const body: Record<string, string> = { title: newTitle };
-      if (newTreeId) body.tree_id = newTreeId;
-      if (newDescription) body.description = newDescription;
-      await api("/api/tasks", { method: "POST", body: JSON.stringify(body) });
-      setNewTitle("");
-      setNewDescription("");
-      setNewTreeId("");
-      setSelectedIssue(null);
-      setIssues([]);
-      setShowNewTask(false);
-      onRefresh();
+      const res = await api<{ imported: number; skipped: number; total: number }>(`/api/trees/${selectedTree}/import-issues`, { method: "POST" });
+      setImportResult(`Imported ${res.imported}, skipped ${res.skipped} (${res.total} total)`);
+      if (res.imported > 0) onRefresh();
+      setTimeout(() => setImportResult(null), 4000);
     } catch (err) {
-      console.error("Failed to create task:", err);
+      console.error("Failed to import issues:", err);
+      setImportResult("Import failed");
+      setTimeout(() => setImportResult(null), 4000);
     } finally {
-      setCreating(false);
+      setImporting(false);
     }
   };
 
@@ -147,6 +110,18 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
       <div className="flex justify-between items-center mb-5">
         <h2 className="text-lg font-semibold">Tasks</h2>
         <div className="flex gap-2 text-xs items-center">
+          {selectedTreeObj?.github && (
+            <button
+              onClick={importIssues}
+              disabled={importing}
+              className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full hover:bg-purple-500/30 disabled:opacity-50 mr-1"
+            >
+              {importing ? "Importing..." : "Import Issues"}
+            </button>
+          )}
+          {importResult && (
+            <span className="text-[10px] text-zinc-400 mr-1">{importResult}</span>
+          )}
           {selectedTree && draftCount >= 2 && (
             <button
               onClick={() => setShowBatchPlan(!showBatchPlan)}
@@ -179,68 +154,14 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
 
       {/* New task form */}
       {showNewTask && (
-        <form onSubmit={handleCreateTask} className="mb-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg space-y-2">
-          <select
-            value={newTreeId}
-            onChange={(e) => handleTreeChange(e.target.value)}
-            className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
-          >
-            <option value="">Select a tree...</option>
-            {trees.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}{t.github ? ` (${t.github})` : ""}</option>
-            ))}
-          </select>
-
-          {newTreeId && (
-            <select
-              value={selectedIssue ?? 0}
-              onChange={(e) => handleIssueSelect(Number(e.target.value))}
-              className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/50"
-            >
-              <option value={0}>
-                {loadingIssues ? "Loading issues..." : issues.length > 0 ? "Select an issue (or type custom)" : "No open issues — type custom title"}
-              </option>
-              {issues.map((issue) => (
-                <option key={issue.number} value={issue.number}>
-                  #{issue.number} — {issue.title}
-                  {issue.labels?.length > 0 ? ` [${issue.labels.map(l => l.name).join(", ")}]` : ""}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Task title"
-            autoFocus
-            className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
-          />
-
-          {newDescription && (
-            <div className="text-xs text-zinc-500 bg-zinc-800/30 rounded-lg px-3 py-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
-              {newDescription.slice(0, 500)}{newDescription.length > 500 ? "..." : ""}
-            </div>
-          )}
-
-          <div className="flex gap-2 justify-end">
-            <button
-              type="button"
-              onClick={() => { setShowNewTask(false); setIssues([]); setSelectedIssue(null); }}
-              className="text-zinc-500 px-3 py-2 rounded-lg text-sm hover:text-zinc-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={creating || !newTitle.trim()}
-              className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30 disabled:opacity-50"
-            >
-              {creating ? "Creating..." : "Create Task"}
-            </button>
-          </div>
-        </form>
+        <TaskForm
+          trees={trees}
+          paths={paths}
+          allTasks={allTasks ?? tasks}
+          defaultTreeId={selectedTree}
+          onSave={() => { setShowNewTask(false); onRefresh(); }}
+          onCancel={() => setShowNewTask(false)}
+        />
       )}
 
       {/* Batch Plan */}
@@ -344,6 +265,10 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                 activityLog={getActivityLog(task.id)}
                 steps={paths[task.path_name]?.steps ?? []}
                 send={send}
+                trees={trees}
+                paths={paths}
+                allTasks={allTasks ?? tasks}
+                onRefresh={onRefresh}
                 seed={seedState.seed}
                 seedMessages={seedState.messages}
                 seedActive={seedState.isActive}

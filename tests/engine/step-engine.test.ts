@@ -82,6 +82,47 @@ describe("normalizePath", () => {
     expect(result.steps[0].on_failure).toBe("$fail");
   });
 
+  test("string step 'review' infers review type", () => {
+    const result = normalizePath({ description: "test", steps: ["review"] });
+    expect(result.steps[0].type).toBe("review");
+  });
+
+  test("review step on_failure defaults to nearest preceding worker", () => {
+    const result = normalizePath({
+      description: "test",
+      steps: ["plan", "review", "implement"],
+    });
+    expect(result.steps[1].type).toBe("review");
+    expect(result.steps[1].on_failure).toBe("plan");
+  });
+
+  test("review step with no preceding worker defaults on_failure to $fail", () => {
+    const result = normalizePath({ description: "test", steps: ["review"] });
+    expect(result.steps[0].type).toBe("review");
+    expect(result.steps[0].on_failure).toBe("$fail");
+  });
+
+  test("adversarial path normalizes correctly", () => {
+    const result = normalizePath({
+      description: "adversarial",
+      steps: [
+        { plan: { type: "worker", prompt: "Create plan" } },
+        { review: { type: "review", prompt: "Critique plan", on_failure: "plan", max_retries: 3 } },
+        "implement",
+        "evaluate",
+        "merge",
+      ],
+    });
+    expect(result.steps.length).toBe(5);
+    expect(result.steps[0].type).toBe("worker");
+    expect(result.steps[1].type).toBe("review");
+    expect(result.steps[1].on_failure).toBe("plan");
+    expect(result.steps[1].max_retries).toBe(3);
+    expect(result.steps[2].type).toBe("worker");
+    expect(result.steps[3].type).toBe("gate");
+    expect(result.steps[4].type).toBe("merge");
+  });
+
   test("multi-step path wires full chain correctly", () => {
     const result = normalizePath({
       description: "dev",
@@ -140,8 +181,21 @@ const TEST_PATHS = {
 // Bun's mock.module is process-global — we must spread real exports so other
 // test files that import these modules still get the real functions.
 // Only mock modules that would cause side effects (spawning processes).
+// Also add adversarial path for review step tests
+(TEST_PATHS as any).adversarial = {
+  description: "Adversarial planning with review loop",
+  steps: [
+    { id: "plan", type: "worker" as const, on_success: "review", on_failure: "$fail", label: "Plan" },
+    { id: "review", type: "review" as const, on_success: "implement", on_failure: "plan", label: "Review", max_retries: 3 },
+    { id: "implement", type: "worker" as const, on_success: "evaluate", on_failure: "$fail", label: "Implement" },
+    { id: "evaluate", type: "gate" as const, on_success: "merge", on_failure: "implement", label: "Evaluate" },
+    { id: "merge", type: "merge" as const, on_success: "$done", on_failure: "$fail", label: "Merge" },
+  ],
+};
+
 const _realConfig = await import("../../src/broker/config");
 const _realWorker = await import("../../src/agents/worker");
+const _realReviewer = await import("../../src/agents/reviewer");
 
 // config: override configNormalizedPaths only, preserve all other config functions
 mock.module("../../src/broker/config", () => ({
@@ -153,6 +207,12 @@ mock.module("../../src/broker/config", () => ({
 mock.module("../../src/agents/worker", () => ({
   ..._realWorker,
   spawnWorker: mock(() => {}),
+}));
+
+// reviewer: override spawnReviewer to prevent spawning Claude Code processes
+mock.module("../../src/agents/reviewer", () => ({
+  ..._realReviewer,
+  spawnReviewer: mock(() => {}),
 }));
 
 // Dynamic import AFTER mocks are set up
@@ -575,5 +635,134 @@ describe("resumePipeline", () => {
     const resumed = events.find(e => e.event_type === "step_resumed");
     expect(resumed).toBeDefined();
     expect(resumed!.summary).toContain("implement");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review step pipeline tests (adversarial path)
+// ---------------------------------------------------------------------------
+
+describe("review step transitions", () => {
+  let db: Database;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    const t = createTestDb();
+    db = t.db;
+    cleanup = t.cleanup;
+    db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
+    _setDb(db);
+  });
+
+  afterEach(async () => {
+    bus.removeAll();
+    await new Promise((r) => setTimeout(r, 10));
+    cleanup();
+  });
+
+  function createTaskAt(id: string, step: string, stepIndex: number, opts: { retry_count?: number; max_retries?: number; path_name?: string } = {}) {
+    db.run(
+      `INSERT INTO tasks (id, title, status, tree_id, path_name, current_step, step_index, retry_count, max_retries)
+       VALUES (?, ?, 'active', 'tree-1', ?, ?, ?, ?, ?)`,
+      [
+        id,
+        `Task ${id}`,
+        opts.path_name ?? "adversarial",
+        step,
+        stepIndex,
+        opts.retry_count ?? 0,
+        opts.max_retries ?? 2,
+      ],
+    );
+  }
+
+  test("plan step success transitions to review", () => {
+    createTaskAt("T-300", "plan", 0);
+
+    onStepComplete("T-300", "success");
+
+    const updated = db.taskGet("T-300")!;
+    expect(updated.current_step).toBe("review");
+    expect(updated.step_index).toBe(1);
+    expect(updated.status).toBe("active");
+  });
+
+  test("review step success transitions to implement", () => {
+    createTaskAt("T-301", "review", 1);
+
+    onStepComplete("T-301", "success");
+
+    const updated = db.taskGet("T-301")!;
+    expect(updated.current_step).toBe("implement");
+    expect(updated.step_index).toBe(2);
+    expect(updated.status).toBe("active");
+  });
+
+  test("review step failure transitions back to plan (on_failure: plan)", () => {
+    createTaskAt("T-302", "review", 1);
+
+    onStepComplete("T-302", "failure");
+
+    const updated = db.taskGet("T-302")!;
+    // review's on_failure = "plan", so it loops back
+    expect(updated.current_step).toBe("plan");
+    expect(updated.step_index).toBe(0);
+    expect(updated.status).toBe("active");
+  });
+
+  test("review step fatal outcome fails the task immediately", () => {
+    createTaskAt("T-303", "review", 1);
+
+    onStepComplete("T-303", "fatal", "Review loop exhausted — plan not approved");
+
+    const updated = db.taskGet("T-303")!;
+    expect(updated.status).toBe("failed");
+    expect(updated.current_step).toBe("$fail");
+
+    const events = db.eventsByTask("T-303");
+    const failEvent = events.find(e => e.event_type === "task_failed");
+    expect(failEvent).toBeDefined();
+    expect(failEvent!.summary).toContain("plan not approved");
+  });
+
+  test("review failure loops plan→review→plan correctly", () => {
+    createTaskAt("T-304", "plan", 0);
+
+    // plan succeeds → transitions to review
+    onStepComplete("T-304", "success");
+    let updated = db.taskGet("T-304")!;
+    expect(updated.current_step).toBe("review");
+
+    // review fails → transitions back to plan
+    onStepComplete("T-304", "failure");
+    updated = db.taskGet("T-304")!;
+    expect(updated.current_step).toBe("plan");
+
+    // plan succeeds again → transitions to review
+    onStepComplete("T-304", "success");
+    updated = db.taskGet("T-304")!;
+    expect(updated.current_step).toBe("review");
+
+    // review succeeds → transitions to implement
+    onStepComplete("T-304", "success");
+    updated = db.taskGet("T-304")!;
+    expect(updated.current_step).toBe("implement");
+    expect(updated.step_index).toBe(2);
+  });
+
+  test("startPipeline begins adversarial path at plan step", () => {
+    db.run(
+      "INSERT INTO tasks (id, title, status, tree_id, path_name) VALUES (?, ?, 'draft', 'tree-1', 'adversarial')",
+      ["T-305", "Task T-305"],
+    );
+    const task = db.taskGet("T-305")!;
+    const tree = db.treeGet("tree-1")!;
+
+    startPipeline(task, tree, db);
+
+    const updated = db.taskGet("T-305")!;
+    expect(updated.status).toBe("active");
+    expect(updated.current_step).toBe("plan");
+    expect(updated.step_index).toBe(0);
   });
 });

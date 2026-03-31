@@ -74,8 +74,13 @@ export function validateConfig(): string[] {
 
   if (!config.workspace?.name) errors.push("Missing workspace.name");
 
+  const validPaths = Object.keys(config.paths || DEFAULT_PATHS);
+
   for (const [name, tree] of Object.entries(config.trees || {})) {
     if (!tree.path) errors.push(`Tree "${name}" missing path`);
+    if (tree.default_path && !validPaths.includes(tree.default_path)) {
+      errors.push(`Tree "${name}" has invalid default_path "${tree.default_path}" (valid: ${validPaths.join(", ")})`);
+    }
   }
 
   return errors;

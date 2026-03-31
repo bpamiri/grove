@@ -1,41 +1,75 @@
-# Session Summary: W-033
+# Session Summary: W-042 (Session 4)
 
 ## Summary
 
-Implemented the batch planner feature (issue #70) end-to-end: a `grove batch <tree>` command that analyzes draft tasks for a tree, predicts which files each task will modify using heuristic analysis, builds an overlap matrix of shared file predictions, derives execution waves using greedy graph coloring, and dispatches conflict-free waves on approval.
+Ran a systematic gap analysis comparing all documentation against the actual source code using three parallel code-explorer agents (CLI commands, API endpoints, config options). Found and fixed 9 doc gaps and 3 inaccuracies. Added a comprehensive API Reference section to architecture.md covering all 27 REST endpoints and 6 WebSocket message types.
 
-The feature addresses the rebase-conflict loop problem (#67) discovered during the W-025 through W-028 dogfooding session, where overlapping parallel tasks burned budget in infinite merge-conflict retry cycles.
+## Changes Made
+
+### API Reference (architecture.md)
+- Full REST API reference table organized by domain: System, Trees, Tasks, Seeds, Orchestrator, Pipelines, Batch, Analytics, Events
+- WebSocket message reference: auth, chat, action (with step?), seed, seed_start, seed_stop
+- Authentication requirements noted for remote access
+
+### Configuration Gaps Fixed (configuration.md)
+- Added `workspace.name` section (required field, validated by config loader)
+- Added `merge` step type to the step types table
+- Added `label`, `on_success`, `max_retries` to the step fields table
+- Fixed tunnel `auth` field: documented `"none"` as valid value alongside `"token"`
+- Fixed tunnel `provider` field: noted `bore` and `ngrok` are defined but not yet implemented
+
+### Custom Paths Fix (custom-paths.md)
+- Added `label` field to the step fields table (auto-generated from ID if omitted)
+
+### CLI Reference Fix (cli-reference.md)
+- Clarified filter statuses (`draft`, `queued`, `active`, `completed`, `failed`) vs display statuses (`running`, `evaluating`, `paused`, `merged`)
+- Fixed `step_id` → `step` in resume endpoint description
+
+### Task Management Fix (task-management.md)
+- Fixed resume API body field: `step_id` → `step` (matching actual server.ts implementation)
+- Fixed WebSocket cancel example: added missing `"type": "action"` envelope field
+
+### Quick Start (quick-start.md)
+- Updated architecture link description to mention API reference
+
+## Inaccuracies Found and Fixed
+
+1. **Resume API body field wrong** — docs used `step_id`, source code uses `step` (server.ts:612)
+2. **WebSocket cancel missing envelope** — docs omitted `"type": "action"`, but server.ts:170 requires it to route to the action handler
+3. **Tunnel auth "none" undocumented** — types.ts:190 declares `"token" | "none"` but docs only showed `"token"`
 
 ## Files Modified
 
-### New Files
-- `src/batch/types.ts` — BatchPlan, TaskAnalysis, OverlapEntry, ExecutionWave types
-- `src/batch/analyze.ts` — Core analysis engine: file prediction, overlap matrix, wave derivation
-- `src/cli/commands/batch.ts` — CLI command: `grove batch <tree> [--run] [--json]`
-- `web/src/components/BatchPlan.tsx` — GUI component: overlap matrix, wave visualization, per-wave dispatch
-- `tests/batch/analyze.test.ts` — 32 unit tests for the analysis engine
-- `docs/superpowers/specs/2026-03-30-batch-planner-design.md` — Design spec
+- `docs/guides/architecture.md` — API reference section (96 new lines)
+- `docs/guides/configuration.md` — workspace section, step types/fields, tunnel config
+- `docs/guides/custom-paths.md` — label step field
+- `docs/guides/cli-reference.md` — display vs filter statuses, step field name fix
+- `docs/guides/task-management.md` — resume body field, WS cancel envelope
+- `docs/getting-started/quick-start.md` — architecture link description
 
-### Modified Files
-- `src/cli/index.ts` — Registered `batch` command in CLI router
-- `src/broker/server.ts` — Added `POST /api/batch/analyze` and `POST /api/batch/dispatch` endpoints
-- `web/src/App.tsx` — Pass selectedTree and allTasks props to TaskList
-- `web/src/components/TaskList.tsx` — Added "Plan Batch" button (visible when tree has 2+ draft tasks)
-- `CHANGELOG.md` — Added W-033 entry
+## Task Completion Status
 
-## Architecture
+All items from the original issue (#82) have been documented across sessions 1–4:
 
-- **Heuristic file prediction**: Extracts file paths, PascalCase/camelCase/kebab-case identifiers from task descriptions, matches against actual repo files
-- **Overlap matrix**: O(n^2) pairwise comparison of predicted file sets
-- **Wave derivation**: Greedy graph coloring — tasks processed in priority order, assigned to earliest wave with no conflicting neighbors
-- **Dependency chain**: Wave N+1 tasks get `depends_on` set to wave N task IDs, enabling the existing dispatch system's dependency blocking
+### User-facing — All done
+- Task dependencies, batch dispatch, GitHub issue sync, seeding
+- Filter persistence, status filter tabs, sidebar tree counts, cross-filtering
+- Activity indicators, dashboard, resume at step, cancel/pause
 
-## Test Results
+### Developer-facing — All done
+- Step engine, evaluator, merge manager, worker lifecycle
+- Event bus, custom paths, worktree management
+- Orchestrator deep dive, batch analysis deep dive
+- **Full API reference** (new in session 4)
 
-311 pass, 0 fail across 26 test files (32 new batch tests).
+### Configuration reference — All done
+- Quality gate config, budget settings, notification config
+- Workspace name, step label/on_success/max_retries, tunnel auth "none"
 
-## Next Steps
+### CLI reference — All done
+- All commands documented, batch command with options
+- Display vs filter statuses clarified
 
-- Agent-powered analysis mode (`--agent` flag) for higher accuracy predictions — currently only heuristic mode is implemented
-- Inter-wave auto-dispatch: automatically dispatch wave N+1 when wave N completes
-- Cross-tree batch analysis (currently single-tree only)
+### Remaining (blocked on unmerged features)
+- `default_path` per tree — blocked on #80 (not landed)
+- `grove batch --agent` flag — blocked on agent-powered analysis (not implemented)

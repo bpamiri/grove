@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { Database, getEnv } from "./db";
 import { startServer, stopServer, setRemoteUrl } from "./server";
 import * as orchestrator from "../agents/orchestrator";
-import { loadConfig, configTrees, tunnelConfig, configSet } from "./config";
+import { loadConfig, configTrees, tunnelConfig, configSet, validateConfig } from "./config";
 import { bus } from "./event-bus";
 import { wireStepEngine } from "../engine/step-engine";
 import { initDispatch } from "./dispatch";
@@ -46,8 +46,10 @@ export async function startBroker(): Promise<BrokerInfo> {
   // Clear stale messages from previous sessions
   db.clearMessages();
 
-  // Load config and sync trees to DB
+  // Load config, validate, and sync trees to DB
   const config = loadConfig();
+  const configErrors = validateConfig();
+  for (const err of configErrors) console.warn(`[config] ${err}`);
   const trees = configTrees();
   for (const [id, treeConfig] of Object.entries(trees)) {
     db.treeUpsert({
@@ -56,7 +58,7 @@ export async function startBroker(): Promise<BrokerInfo> {
       path: treeConfig.path,
       github: treeConfig.github,
       branch_prefix: treeConfig.branch_prefix ?? config.settings.branch_prefix,
-      config: JSON.stringify({ quality_gates: treeConfig.quality_gates, default_branch: treeConfig.default_branch }),
+      config: JSON.stringify({ quality_gates: treeConfig.quality_gates, default_branch: treeConfig.default_branch, default_path: treeConfig.default_path }),
     });
   }
 

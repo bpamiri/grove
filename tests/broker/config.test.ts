@@ -153,6 +153,43 @@ describe("Validation", () => {
     const errors = validateConfig();
     expect(errors.some(e => e.includes("bad-tree"))).toBe(true);
   });
+
+  test("rejects invalid default_path on a tree", () => {
+    const configPath = join(TEST_DIR, "grove.yaml");
+    writeFileSync(configPath, stringifyYaml({
+      workspace: { name: "Test" },
+      trees: { myapp: { path: "/code/app", default_path: "nonexistent" } },
+    }));
+    reloadConfig();
+
+    const errors = validateConfig();
+    expect(errors.some(e => e.includes("myapp") && e.includes("nonexistent"))).toBe(true);
+  });
+
+  test("accepts valid default_path on a tree", () => {
+    const configPath = join(TEST_DIR, "grove.yaml");
+    writeFileSync(configPath, stringifyYaml({
+      workspace: { name: "Test" },
+      trees: { myapp: { path: "/code/app", default_path: "development" } },
+    }));
+    reloadConfig();
+
+    const errors = validateConfig();
+    expect(errors.length).toBe(0);
+  });
+
+  test("accepts valid default_path referencing a custom path", () => {
+    const configPath = join(TEST_DIR, "grove.yaml");
+    writeFileSync(configPath, stringifyYaml({
+      workspace: { name: "Test" },
+      trees: { myapp: { path: "/code/app", default_path: "custom" } },
+      paths: { custom: { description: "Custom flow", steps: ["plan"] } },
+    }));
+    reloadConfig();
+
+    const errors = validateConfig();
+    expect(errors.length).toBe(0);
+  });
 });
 
 describe("Helper functions", () => {

@@ -1,6 +1,39 @@
 # Changelog
 
 
+## v0.1.16
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.15...v0.1.16)
+
+### 🚀 Enhancements
+
+- (W-028) add Failed filter tab to task list ([ee9df75](https://github.com/bpamiri/grove/commit/ee9df75))
+- (W-025) persist filter and tree selection across state changes ([b0c95b9](https://github.com/bpamiri/grove/commit/b0c95b9))
+- (W-027) rename All Tasks to The Grove, add filter-aware task count badges ([ee6d715](https://github.com/bpamiri/grove/commit/ee6d715))
+- (W-026) persist status filter and improve cross-filter empty state ([5e63efe](https://github.com/bpamiri/grove/commit/5e63efe))
+- (W-032) resume task at specific pipeline step ([6933c1d](https://github.com/bpamiri/grove/commit/6933c1d))
+- (W-033) batch planner analysis engine with overlap matrix and wave derivation ([d914b72](https://github.com/bpamiri/grove/commit/d914b72))
+- (W-033) add grove batch CLI command and API endpoints ([5cf73c1](https://github.com/bpamiri/grove/commit/5cf73c1))
+- (W-033) add batch planner GUI component with overlap matrix and wave visualization ([9d75a86](https://github.com/bpamiri/grove/commit/9d75a86))
+
+### 🩹 Fixes
+
+- (W-031) wire cancel/pause buttons to WebSocket action handler ([9c13bca](https://github.com/bpamiri/grove/commit/9c13bca))
+- (W-030) break evaluator rebase-conflict infinite loop ([416f38d](https://github.com/bpamiri/grove/commit/416f38d))
+- (W-032) resolve closed-database error in resumePipeline tests ([ff3fa47](https://github.com/bpamiri/grove/commit/ff3fa47))
+- (W-032) use wireStepEngine instead of startPipeline in test setup ([fb8de59](https://github.com/bpamiri/grove/commit/fb8de59))
+- (W-032) add _setDb test helper to avoid async leaks in test setup ([c5ac40e](https://github.com/bpamiri/grove/commit/c5ac40e))
+- (W-032) flush async microtasks before closing test DBs ([ea89e37](https://github.com/bpamiri/grove/commit/ea89e37))
+- (W-033) increase async flush delay for CI timing sensitivity ([62a7f39](https://github.com/bpamiri/grove/commit/62a7f39))
+
+### 📖 Documentation
+
+- (W-033) add changelog entry and session summary ([2258b16](https://github.com/bpamiri/grove/commit/2258b16))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## Unreleased
 
 ### 🚀 Enhancements

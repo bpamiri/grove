@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   branch TEXT,
   worktree_path TEXT,
   github_issue INTEGER,
+  labels TEXT,
   pr_url TEXT,
   pr_number INTEGER,
   cost_usd REAL DEFAULT 0,

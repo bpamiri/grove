@@ -357,9 +357,14 @@ async function handleApi(
       });
     }
 
-    // GET /api/trees
+    // GET /api/trees — enrich with parsed config fields (default_path, default_branch)
     if (path === "/api/trees" && req.method === "GET") {
-      return json(db.allTrees());
+      const rawTrees = db.allTrees();
+      const enriched = rawTrees.map(t => {
+        const cfg = JSON.parse(t.config || "{}");
+        return { ...t, default_path: cfg.default_path ?? null, default_branch: cfg.default_branch ?? null };
+      });
+      return json(enriched);
     }
 
     // POST /api/trees
@@ -421,6 +426,10 @@ async function handleApi(
           ).map(r => r.github_issue)
         );
 
+        // Resolve tree's default path for imported tasks
+        const treeConfig = JSON.parse(tree.config || "{}");
+        const treePath = treeConfig.default_path ?? "development";
+
         let imported = 0;
         for (const issue of issues) {
           if (existingIssueNums.has(issue.number)) continue;
@@ -428,9 +437,10 @@ async function handleApi(
           const taskId = db.nextTaskId("W");
           const title = `${issue.title} Issue #${issue.number}`;
           const description = issue.body || "";
+          const labels = issue.labels?.map((l: any) => l.name).join(",") || null;
           db.run(
-            "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue) VALUES (?, ?, ?, ?, ?, 'draft', ?)",
-            [taskId, tree.id, title, description, "development", issue.number]
+            "INSERT INTO tasks (id, tree_id, title, description, path_name, status, github_issue, labels) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)",
+            [taskId, tree.id, title, description, treePath, issue.number, labels]
           );
           db.addEvent(taskId, null, "task_created", `Imported from ${tree.github}#${issue.number}`);
           imported++;
@@ -479,16 +489,84 @@ async function handleApi(
 
     // POST /api/tasks
     if (path === "/api/tasks" && req.method === "POST") {
-      const body = await req.json() as { title: string; tree_id?: string; description?: string; path_name?: string };
+      const body = await req.json() as {
+        title: string; tree_id?: string; description?: string; path_name?: string;
+        priority?: number; depends_on?: string; parent_task_id?: string; max_retries?: number;
+        github_issue?: number; labels?: string;
+      };
+      // Resolve path: explicit override → tree's default_path → "development"
+      let resolvedPath = body.path_name;
+      if (!resolvedPath && body.tree_id) {
+        const tree = db.treeGet(body.tree_id);
+        if (tree) {
+          const treeConfig = JSON.parse(tree.config || "{}");
+          resolvedPath = treeConfig.default_path;
+        }
+      }
       const taskId = db.nextTaskId("W");
       db.run(
-        "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'draft')",
-        [taskId, body.tree_id ?? null, body.title, body.description ?? null, body.path_name ?? "development"],
+        `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, labels, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        [
+          taskId, body.tree_id ?? null, body.title, body.description ?? null,
+          resolvedPath ?? "development", body.priority ?? 0,
+          body.depends_on ?? null, body.parent_task_id ?? null,
+          body.max_retries ?? 2, body.github_issue ?? null,
+          body.labels ?? null,
+        ],
       );
       db.addEvent(taskId, null, "task_created", `Task created: ${body.title}`);
       const task = db.taskGet(taskId);
       bus.emit("task:created", { task: task! });
       return json(task, 201);
+    }
+
+    // PATCH /api/tasks/:id — update editable fields
+    const patchMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)$/);
+    if (patchMatch && req.method === "PATCH") {
+      const taskId = patchMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+
+      const body = await req.json() as Record<string, unknown>;
+      // Draft tasks: all editable fields. Active/completed: only title + description.
+      const draftFields = ["title", "description", "tree_id", "path_name", "priority", "depends_on", "parent_task_id", "max_retries", "github_issue", "labels"];
+      const limitedFields = ["title", "description"];
+      const allowed = task.status === "draft" ? draftFields : limitedFields;
+
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      for (const field of allowed) {
+        if (field in body) {
+          sets.push(`${field} = ?`);
+          vals.push(body[field] ?? null);
+        }
+      }
+      if (sets.length === 0) return json({ error: "No valid fields to update" }, 400);
+      vals.push(taskId);
+      db.run(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`, vals);
+      db.addEvent(taskId, null, "task_updated", `Task updated: ${sets.map(s => s.split(" ")[0]).join(", ")}`);
+      const updated = db.taskGet(taskId);
+      bus.emit("task:status", { taskId, status: updated!.status });
+
+      // Two-way sync: push title/description changes to linked GitHub issue
+      if (updated?.github_issue && updated.tree_id && ("title" in body || "description" in body)) {
+        const tree = db.treeGet(updated.tree_id);
+        if (tree?.github) {
+          try {
+            const { ghIssueEdit } = await import("../merge/github");
+            const editOpts: { title?: string; body?: string } = {};
+            if ("title" in body) editOpts.title = String(body.title);
+            if ("description" in body) editOpts.body = String(body.description ?? "");
+            ghIssueEdit(tree.github, updated.github_issue, editOpts);
+            db.addEvent(taskId, null, "issue_synced", `GitHub issue #${updated.github_issue} updated`);
+          } catch (err: any) {
+            db.addEvent(taskId, null, "issue_sync_failed", `Failed to sync GitHub issue: ${err.message}`);
+          }
+        }
+      }
+
+      return json(updated);
     }
 
     // POST /api/chat

@@ -16,6 +16,7 @@ export enum AgentRole {
   Orchestrator = "orchestrator",
   Worker = "worker",
   Evaluator = "evaluator",
+  Reviewer = "reviewer",
 }
 
 export enum EventType {
@@ -41,6 +42,11 @@ export enum EventType {
   EvalStarted = "eval_started",
   EvalPassed = "eval_passed",
   EvalFailed = "eval_failed",
+
+  // Reviewer
+  ReviewStarted = "review_started",
+  ReviewApproved = "review_approved",
+  ReviewRejected = "review_rejected",
 
   // Quality gates
   GatePassed = "gate_passed",
@@ -110,6 +116,7 @@ export interface Task {
   branch: string | null;
   worktree_path: string | null;
   github_issue: number | null;
+  labels: string | null;
   pr_url: string | null;
   pr_number: number | null;
   cost_usd: number;
@@ -165,6 +172,7 @@ export interface TreeConfig {
   github?: string;
   branch_prefix?: string;
   default_branch?: string; // e.g. "develop", "main" — branch to fork worktrees from
+  default_path?: string;   // e.g. "adversarial", "content" — default path for new tasks in this tree
   quality_gates?: QualityGatesConfig;
 }
 
@@ -261,7 +269,7 @@ export interface QualityGatesConfig {
 
 export interface PipelineStep {
   id: string;
-  type: "worker" | "gate" | "merge";
+  type: "worker" | "gate" | "merge" | "review";
   prompt?: string;
   on_success: string;
   on_failure: string;
@@ -308,6 +316,9 @@ export interface EventBusMap {
   "eval:started": { taskId: string; sessionId: string };
   "eval:passed": { taskId: string; feedback?: string };
   "eval:failed": { taskId: string; feedback: string };
+  "review:started": { taskId: string; sessionId: string };
+  "review:approved": { taskId: string; feedback?: string };
+  "review:rejected": { taskId: string; feedback: string };
   "gate:result": { taskId: string; gate: string; passed: boolean; message: string };
   "merge:pr_created": { taskId: string; prNumber: number; prUrl: string };
   "merge:ci_passed": { taskId: string; prNumber: number };
@@ -327,7 +338,7 @@ export interface EventBusMap {
 // Constants
 // ---------------------------------------------------------------------------
 
-export const GROVE_VERSION = "0.1.15";
+export const GROVE_VERSION = "0.1.16";
 
 export const DEFAULT_PATHS: Record<string, PathConfig> = {
   development: {
@@ -354,6 +365,16 @@ export const DEFAULT_PATHS: Record<string, PathConfig> = {
       { id: "implement", type: "worker", prompt: "Write the content following the plan." },
       { id: "evaluate", type: "gate", on_failure: "implement" },
       { id: "publish", type: "merge" },
+    ],
+  },
+  adversarial: {
+    description: "Adversarial planning with review loop",
+    steps: [
+      { id: "plan", type: "worker", prompt: "Create a detailed implementation plan for this task. Write it to `.grove/plan.md` in the worktree. Include: approach, files to modify, test strategy, edge cases, and backwards compatibility considerations." },
+      { id: "review", type: "review", prompt: "You are an adversarial reviewer for an open-source framework. Critique this plan for: correctness, backwards compatibility, missing edge cases, test coverage gaps, API design quality. Be rigorous — reject plans that are vague, incomplete, or risk breaking existing behavior.", on_failure: "plan", max_retries: 3 },
+      { id: "implement", type: "worker", prompt: "Implement the approved plan from `.grove/plan.md`. Follow it closely. Commit your changes with conventional commit messages." },
+      { id: "evaluate", type: "gate", on_failure: "implement" },
+      { id: "merge", type: "merge" },
     ],
   },
 };

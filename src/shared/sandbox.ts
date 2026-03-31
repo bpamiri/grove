@@ -77,6 +77,17 @@ export interface OverlayContext {
   filesModified?: string | null;
   stepPrompt?: string;
   seedSpec?: string | null;
+  reviewFeedback?: string | null;
+}
+
+export interface ReviewOverlayContext {
+  taskId: string;
+  title: string;
+  description?: string | null;
+  treePath: string;
+  stepPrompt?: string;
+  planContent: string;
+  priorFeedback?: string[];
 }
 
 /** Build the CLAUDE.md overlay content for a worker's worktree */
@@ -122,6 +133,14 @@ export function buildOverlay(ctx: OverlayContext): string {
     parts.push("### Git Branch");
     parts.push(`Work on branch: \`${ctx.branch}\``);
     parts.push(`Commit message format: conventional commits — \`feat: (${ctx.taskId}) description\`, \`fix: (${ctx.taskId}) description\`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.`);
+    parts.push("");
+  }
+
+  if (ctx.reviewFeedback) {
+    parts.push("### Reviewer Feedback");
+    parts.push("The adversarial reviewer rejected your previous plan for the following reasons. Revise your plan to address each point:");
+    parts.push("");
+    parts.push(ctx.reviewFeedback);
     parts.push("");
   }
 
@@ -210,4 +229,128 @@ export function triggerPrompt(taskId: string): string {
 /** Short trigger prompt for resumed tasks */
 export function resumeTriggerPrompt(taskId: string): string {
   return `Resume the task described in your CLAUDE.md instructions. Task ID: ${taskId}. Continue from where the last session left off. Write an updated session summary before finishing.`;
+}
+
+// ---------------------------------------------------------------------------
+// Review sandbox — read-only with narrow write exception
+// ---------------------------------------------------------------------------
+
+/** Build CLAUDE.md overlay for an adversarial reviewer session */
+export function buildReviewOverlay(ctx: ReviewOverlayContext): string {
+  const parts: string[] = [];
+
+  parts.push(`# Review: ${ctx.taskId}`);
+  parts.push(`## ${ctx.title}`);
+  parts.push("");
+
+  parts.push("### Role");
+  parts.push("You are an adversarial reviewer. Your job is to rigorously critique the plan below.");
+  parts.push("You CANNOT modify any code or files except `.grove/review-result.json`.");
+  parts.push("You MUST read the plan carefully, review the codebase for context, and write your verdict.");
+  parts.push("");
+
+  if (ctx.description) {
+    parts.push("### Task Description");
+    parts.push(ctx.description);
+    parts.push("");
+  }
+
+  if (ctx.stepPrompt) {
+    parts.push("### Review Criteria");
+    parts.push(ctx.stepPrompt);
+    parts.push("");
+  }
+
+  parts.push("### Plan Under Review");
+  parts.push("```markdown");
+  parts.push(ctx.planContent);
+  parts.push("```");
+  parts.push("");
+
+  if (ctx.priorFeedback && ctx.priorFeedback.length > 0) {
+    parts.push("### Prior Review History");
+    parts.push("The plan has been revised in response to earlier feedback. Here is the history:");
+    parts.push("");
+    for (let i = 0; i < ctx.priorFeedback.length; i++) {
+      parts.push(`**Round ${i + 1} feedback:**`);
+      parts.push(ctx.priorFeedback[i]);
+      parts.push("");
+    }
+  }
+
+  parts.push("### Output Instructions");
+  parts.push("After your review, write your verdict to `.grove/review-result.json` in the worktree:");
+  parts.push("```json");
+  parts.push('{ "approved": true, "feedback": "Brief explanation of why the plan is approved" }');
+  parts.push("```");
+  parts.push("or:");
+  parts.push("```json");
+  parts.push('{ "approved": false, "feedback": "Detailed feedback explaining what needs to change and why" }');
+  parts.push("```");
+  parts.push("");
+  parts.push("**Rules:**");
+  parts.push("- You must explicitly approve (set `approved: true`) — silence or lack of objection is NOT approval");
+  parts.push("- If rejecting, be specific: name the exact issue and what should change");
+  parts.push("- You may read any file in the codebase to verify claims in the plan");
+  parts.push("- Do NOT modify any file except `.grove/review-result.json`");
+
+  return parts.join("\n");
+}
+
+/** Guard hooks for reviewer: write only to .grove/review-result.json */
+function reviewWriteGuard(worktreePath: string): string {
+  const resultPath = join(worktreePath, ".grove", "review-result.json");
+  return [
+    `RESULT_PATH="${resultPath}"`,
+    'FILE_PATH=$(echo "$CLAUDE_TOOL_INPUT" | grep -o \'"file_path":"[^"]*"\' | head -1 | sed \'s/"file_path":"//;s/"$//\')',
+    '[ -z "$FILE_PATH" ] && exit 0',
+    '[ "$FILE_PATH" = "$RESULT_PATH" ] && exit 0',
+    'echo "BLOCKED: Reviewer can only write to .grove/review-result.json" && exit 2',
+  ].join("; ");
+}
+
+/** Guard hooks for reviewer: block git modifications */
+function reviewBashGuard(): string {
+  const blocked = [...BLOCKED_BASH_PATTERNS, "git add", "git commit", "git checkout", "git rebase", "git merge", "git cherry-pick", "git stash"];
+  const checks = blocked.map(
+    (p) => `echo "$CLAUDE_TOOL_INPUT" | grep -qiF '${p}' && echo "BLOCKED: ${p} is not allowed for reviewers" && exit 2`
+  ).join("; ");
+  return `${checks}; exit 0`;
+}
+
+function buildReviewGuardHooks(worktreePath: string): GuardHookEntry[] {
+  return [
+    { matcher: "Bash", hooks: [{ type: "command", command: reviewBashGuard() }] },
+    { matcher: "Write", hooks: [{ type: "command", command: reviewWriteGuard(worktreePath) }] },
+    { matcher: "Edit", hooks: [{ type: "command", command: 'echo "BLOCKED: Reviewer cannot edit files" && exit 2' }] },
+  ];
+}
+
+/** Deploy review sandbox (stricter than worker) */
+export function deployReviewSandbox(worktreePath: string, ctx: ReviewOverlayContext): void {
+  const claudeDir = join(worktreePath, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+
+  const settingsPath = join(claudeDir, "settings.local.json");
+  const hooks = buildReviewGuardHooks(worktreePath);
+  const finalSettings = { hooks: { PreToolUse: hooks } };
+
+  writeFileSync(settingsPath, JSON.stringify(finalSettings, null, 2) + "\n");
+
+  const overlayPath = join(claudeDir, "CLAUDE.md");
+  writeFileSync(overlayPath, buildReviewOverlay(ctx) + "\n");
+}
+
+/** Trigger prompt for reviewer sessions */
+export function reviewTriggerPrompt(taskId: string): string {
+  return `Review the plan described in your CLAUDE.md instructions. Task ID: ${taskId}. Read the plan carefully, examine the codebase for context, and write your verdict to .grove/review-result.json.`;
+}
+
+/** Read review feedback from worktree if present */
+export function readReviewFeedback(worktreePath: string): string | null {
+  const feedbackPath = join(worktreePath, ".grove", "review-feedback.md");
+  if (existsSync(feedbackPath)) {
+    try { return readFileSync(feedbackPath, "utf-8"); } catch { return null; }
+  }
+  return null;
 }
