@@ -243,6 +243,7 @@ export interface NotificationsConfig {
 }
 
 export interface GroveConfig {
+  version?: number;
   workspace: { name: string };
   trees: Record<string, TreeConfig>;
   paths: Record<string, PathConfig>;
