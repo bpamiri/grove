@@ -95,6 +95,7 @@ function wireEventBus() {
 
   // SAP seed events
   forward("seed:response");
+  forward("seed:chunk");
   forward("seed:complete");
   forward("seed:idle");
 

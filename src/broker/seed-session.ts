@@ -148,6 +148,21 @@ export function getSeedConversation(taskId: string): ConversationMessage[] {
 }
 
 // ---------------------------------------------------------------------------
+// Stage detection (exported for testing)
+// ---------------------------------------------------------------------------
+
+/** Detect the brainstorming stage from Claude's response text */
+export function detectSeedStage(text: string): "exploring" | "clarifying" | "proposing" | "designing" | null {
+  const lower = text.toLowerCase();
+  if (lower.includes("explore") || lower.includes("read the") || lower.includes("survey") || lower.includes("look at the")) return "exploring";
+  if (lower.includes("question") || lower.includes("which option") || lower.includes("would you prefer") || lower.includes("a)") || lower.includes("b)")) return "clarifying";
+  // Check designing before proposing since "recommended design" should match designing
+  if (lower.includes("design") || lower.includes("architecture") || lower.includes("## ")) return "designing";
+  if (lower.includes("approaches") || lower.includes("options") || lower.includes("recommend") || lower.includes("trade-off") || lower.includes("tradeoff")) return "proposing";
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt builder (exported for testing)
 // ---------------------------------------------------------------------------
 
@@ -258,6 +273,7 @@ async function monitorSeedSession(
     }
     const reader = (stdout as ReadableStream<Uint8Array>).getReader();
     let accumulatedText = "";
+    let currentStage: string | null = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -277,6 +293,16 @@ async function monitorSeedSession(
           for (const block of obj.message?.content ?? []) {
             if (block.type === "text" && block.text) {
               accumulatedText += block.text;
+
+              // Emit streaming chunk
+              bus.emit("seed:chunk", { taskId, content: block.text, ts: Date.now() });
+
+              // Detect and broadcast stage changes
+              const stage = detectSeedStage(accumulatedText);
+              if (stage && stage !== currentStage) {
+                currentStage = stage;
+                broadcast("seed:stage", { taskId, stage });
+              }
 
               // Scan for structured seed events in the text
               const events = parseSeedEvents(trimmed);

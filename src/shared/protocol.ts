@@ -21,6 +21,7 @@ export type SapEvent =
 
   // Seed-specific
   | SapSeedResponse
+  | SapSeedChunk
   | SapSeedComplete
   | SapSeedIdle
 
@@ -55,6 +56,7 @@ export interface SapAgentText extends SapBase { type: "agent:text"; agentId: str
 export interface SapAgentCost extends SapBase { type: "agent:cost"; agentId: string; taskId: string; costUsd: number; tokens: number }
 
 export interface SapSeedResponse extends SapBase { type: "seed:response"; taskId: string; content: string; html?: string }
+export interface SapSeedChunk extends SapBase { type: "seed:chunk"; taskId: string; content: string }
 export interface SapSeedComplete extends SapBase { type: "seed:complete"; taskId: string; summary: string; spec: string }
 export interface SapSeedIdle extends SapBase { type: "seed:idle"; taskId: string }
 
@@ -76,7 +78,7 @@ export interface SapCostExceeded extends SapBase { type: "cost:exceeded"; curren
 const SAP_EVENT_TYPES = new Set([
   "agent:spawned", "agent:ended", "agent:crashed",
   "agent:tool_use", "agent:thinking", "agent:text", "agent:cost",
-  "seed:response", "seed:complete", "seed:idle",
+  "seed:response", "seed:chunk", "seed:complete", "seed:idle",
   "task:status", "task:created",
   "gate:result",
   "merge:pr_created", "merge:completed",
