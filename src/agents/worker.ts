@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { bus } from "../broker/event-bus";
 import { parseCost, isAlive } from "./stream-parser";
-import { createCheckpoint } from "./checkpoint";
+import { createCheckpoint, loadCheckpoint } from "./checkpoint";
 import { createWorktree, branchName } from "../shared/worktree";
 import { deploySandbox, triggerPrompt, resumeTriggerPrompt, readReviewFeedback } from "../shared/sandbox";
 import type { Database } from "../broker/db";
@@ -62,6 +62,23 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
   // Check for review feedback from adversarial review loop
   const reviewFeedback = readReviewFeedback(worktreePath);
 
+  // Load checkpoint if resuming
+  const checkpointJson = db.checkpointLoad(task.id);
+  let checkpointCtx = undefined;
+  if (checkpointJson) {
+    try {
+      const cp = JSON.parse(checkpointJson);
+      checkpointCtx = {
+        stepId: cp.stepId,
+        stepIndex: cp.stepIndex,
+        commitSha: cp.commitSha,
+        filesModified: cp.filesModified ?? [],
+        sessionSummary: cp.sessionSummary ?? "",
+        costSoFar: cp.costSoFar ?? 0,
+      };
+    } catch {}
+  }
+
   // Deploy sandbox (guard hooks + CLAUDE.md overlay with prior context)
   deploySandbox(worktreePath, {
     taskId: task.id,
@@ -75,6 +92,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     stepPrompt,
     seedSpec,
     reviewFeedback,
+    checkpoint: checkpointCtx,
   });
 
   // Update task in DB

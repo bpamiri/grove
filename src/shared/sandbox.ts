@@ -78,6 +78,14 @@ export interface OverlayContext {
   stepPrompt?: string;
   seedSpec?: string | null;
   reviewFeedback?: string | null;
+  checkpoint?: {
+    stepId: string;
+    stepIndex: number;
+    commitSha: string | null;
+    filesModified: string[];
+    sessionSummary: string;
+    costSoFar: number;
+  } | null;
 }
 
 export interface ReviewOverlayContext {
@@ -141,6 +149,23 @@ export function buildOverlay(ctx: OverlayContext): string {
     parts.push("The adversarial reviewer rejected your previous plan for the following reasons. Revise your plan to address each point:");
     parts.push("");
     parts.push(ctx.reviewFeedback);
+    parts.push("");
+  }
+
+  if (ctx.checkpoint) {
+    parts.push("### Checkpoint — Resuming from prior session");
+    parts.push(`- **Step:** ${ctx.checkpoint.stepId} (index ${ctx.checkpoint.stepIndex})`);
+    if (ctx.checkpoint.commitSha) {
+      parts.push(`- **Last commit:** ${ctx.checkpoint.commitSha}`);
+    }
+    if (ctx.checkpoint.filesModified.length > 0) {
+      parts.push(`- **Files modified:** ${ctx.checkpoint.filesModified.join(", ")}`);
+    }
+    parts.push(`- **Summary:** ${ctx.checkpoint.sessionSummary}`);
+    parts.push(`- **Cost so far:** $${ctx.checkpoint.costSoFar.toFixed(2)}`);
+    parts.push("");
+    parts.push("Continue from where you left off. The WIP commit contains your in-progress work.");
+    parts.push("Do NOT repeat work that's already committed.");
     parts.push("");
   }
 
