@@ -1,6 +1,35 @@
 # Changelog
 
 
+## v0.1.21
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.20...v0.1.21)
+
+### 🚀 Enhancements
+
+- Add agent adapter interface and types ([86c697d](https://github.com/bpamiri/grove/commit/86c697d))
+- Add adapter registry, Claude Code adapter, and stub adapters ([45824d9](https://github.com/bpamiri/grove/commit/45824d9))
+- Wire adapter registry into broker with schema and API endpoint ([c21e72e](https://github.com/bpamiri/grove/commit/c21e72e))
+- Use adapter registry for worker spawning ([ce83fad](https://github.com/bpamiri/grove/commit/ce83fad))
+- Add checkpoint module with WIP commit and state persistence ([7bfece0](https://github.com/bpamiri/grove/commit/7bfece0))
+- Add checkpoint column and DB helpers ([e524394](https://github.com/bpamiri/grove/commit/e524394))
+- Create checkpoint on graceful worker shutdown ([f37611f](https://github.com/bpamiri/grove/commit/f37611f))
+- Include checkpoint context in CLAUDE.md overlay on resume ([d7fa873](https://github.com/bpamiri/grove/commit/d7fa873))
+- Create checkpoint before stall timeout kills worker ([ffa8dfc](https://github.com/bpamiri/grove/commit/ffa8dfc))
+- Add DAG algorithms — cycle detection, topological sort, ready tasks ([c45e784](https://github.com/bpamiri/grove/commit/c45e784))
+- Add task_edges table and edge CRUD methods ([49c18b3](https://github.com/bpamiri/grove/commit/49c18b3))
+- Use DAG-aware ordering in dispatch queue ([f6a4c07](https://github.com/bpamiri/grove/commit/f6a4c07))
+- Add DAG API endpoints with cycle detection ([0ac00b2](https://github.com/bpamiri/grove/commit/0ac00b2))
+- Add ReactFlow DAG editor with dependency management ([34aabcd](https://github.com/bpamiri/grove/commit/34aabcd))
+
+### 📖 Documentation
+
+- T5 + T6 + T7 implementation plans ([28f8fff](https://github.com/bpamiri/grove/commit/28f8fff))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.20
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.19...v0.1.20)
