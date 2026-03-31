@@ -56,7 +56,7 @@ export async function startBroker(): Promise<BrokerInfo> {
       path: treeConfig.path,
       github: treeConfig.github,
       branch_prefix: treeConfig.branch_prefix ?? config.settings.branch_prefix,
-      config: JSON.stringify({ quality_gates: treeConfig.quality_gates, default_branch: treeConfig.default_branch }),
+      config: JSON.stringify({ quality_gates: treeConfig.quality_gates, default_branch: treeConfig.default_branch, default_path: treeConfig.default_path }),
     });
   }
 

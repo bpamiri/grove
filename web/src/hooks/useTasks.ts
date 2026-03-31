@@ -42,6 +42,8 @@ export interface Tree {
   path: string;
   github: string | null;
   branch_prefix: string;
+  default_path: string | null;
+  default_branch: string | null;
   created_at: string;
 }
 

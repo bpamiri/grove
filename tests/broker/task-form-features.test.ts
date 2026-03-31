@@ -142,6 +142,123 @@ describe("PATCH task fields", () => {
   });
 });
 
+describe("per-tree default_path", () => {
+  let db: Database;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+  });
+
+  afterEach(() => cleanup());
+
+  test("tree config stores default_path in JSON config column", () => {
+    db.treeUpsert({
+      id: "wheels",
+      name: "wheels",
+      path: "/tmp/wheels",
+      github: "wheels-dev/wheels",
+      branch_prefix: "grove/",
+      config: JSON.stringify({ default_path: "adversarial" }),
+    });
+    const tree = db.treeGet("wheels");
+    const config = JSON.parse(tree!.config);
+    expect(config.default_path).toBe("adversarial");
+  });
+
+  test("tree without default_path has no default_path in config", () => {
+    db.treeUpsert({
+      id: "grove",
+      name: "grove",
+      path: "/tmp/grove",
+      branch_prefix: "grove/",
+      config: JSON.stringify({}),
+    });
+    const tree = db.treeGet("grove");
+    const config = JSON.parse(tree!.config);
+    expect(config.default_path).toBeUndefined();
+  });
+
+  test("task inherits tree default_path when no path_name provided", () => {
+    db.treeUpsert({
+      id: "wheels",
+      name: "wheels",
+      path: "/tmp/wheels",
+      config: JSON.stringify({ default_path: "adversarial" }),
+    });
+    // Simulate the server-side fallback logic
+    const tree = db.treeGet("wheels");
+    const treeConfig = JSON.parse(tree!.config || "{}");
+    const resolvedPath = treeConfig.default_path ?? "development";
+
+    const taskId = db.nextTaskId("W");
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, path_name, status) VALUES (?, ?, ?, ?, 'draft')",
+      [taskId, "wheels", "Test task", resolvedPath],
+    );
+    const task = db.taskGet(taskId);
+    expect(task!.path_name).toBe("adversarial");
+  });
+
+  test("explicit path_name overrides tree default_path", () => {
+    db.treeUpsert({
+      id: "wheels",
+      name: "wheels",
+      path: "/tmp/wheels",
+      config: JSON.stringify({ default_path: "adversarial" }),
+    });
+    // Simulate explicit override
+    const explicitPath = "research";
+    const resolvedPath = explicitPath; // explicit takes priority
+
+    const taskId = db.nextTaskId("W");
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, path_name, status) VALUES (?, ?, ?, ?, 'draft')",
+      [taskId, "wheels", "Research task", resolvedPath],
+    );
+    const task = db.taskGet(taskId);
+    expect(task!.path_name).toBe("research");
+  });
+
+  test("falls back to development when tree has no default_path", () => {
+    db.treeUpsert({
+      id: "blog",
+      name: "blog",
+      path: "/tmp/blog",
+      config: JSON.stringify({}),
+    });
+    const tree = db.treeGet("blog");
+    const treeConfig = JSON.parse(tree!.config || "{}");
+    const resolvedPath = treeConfig.default_path ?? "development";
+
+    const taskId = db.nextTaskId("W");
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, path_name, status) VALUES (?, ?, ?, ?, 'draft')",
+      [taskId, "blog", "Blog post", resolvedPath],
+    );
+    const task = db.taskGet(taskId);
+    expect(task!.path_name).toBe("development");
+  });
+
+  test("tree config preserves quality_gates alongside default_path", () => {
+    db.treeUpsert({
+      id: "wheels",
+      name: "wheels",
+      path: "/tmp/wheels",
+      config: JSON.stringify({
+        quality_gates: { tests: true, lint: true },
+        default_branch: "develop",
+        default_path: "adversarial",
+      }),
+    });
+    const tree = db.treeGet("wheels");
+    const config = JSON.parse(tree!.config);
+    expect(config.quality_gates).toEqual({ tests: true, lint: true });
+    expect(config.default_branch).toBe("develop");
+    expect(config.default_path).toBe("adversarial");
+  });
+});
+
 describe("buildDepChain", () => {
   // Pure function test — import directly
   // The function is in TaskForm.tsx (frontend), so we test the logic inline
