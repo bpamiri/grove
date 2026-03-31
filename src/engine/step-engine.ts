@@ -169,8 +169,8 @@ export function onStepComplete(
     bus.emit("task:status", { taskId, status: "completed" });
     bus.emit("merge:completed", { taskId, prNumber: task.pr_number ?? 0 });
 
-    // Best-effort worktree cleanup
-    if (task.tree_id) {
+    // Best-effort worktree cleanup (non-merge path only — merge uses postMergeCleanup)
+    if (task.tree_id && !task.pr_number) {
       const tree = db.treeGet(task.tree_id);
       if (tree) {
         import("../shared/worktree").then(({ cleanupWorktree }) => {

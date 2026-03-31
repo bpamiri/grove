@@ -489,11 +489,17 @@ async function handleApi(
       const deletedTasks = tasks.length > 0 ? db.taskDeleteByTree(tree.id) : 0;
 
       // Clean up any worktrees on disk before removing the tree
+      // Use readdirSync instead of listWorktrees — works even if repo is gone
       try {
-        const { listWorktrees, cleanupWorktree } = await import("../shared/worktree");
-        const worktrees = listWorktrees(tree.path);
-        for (const wt of worktrees) {
-          cleanupWorktree(wt.taskId, tree.path);
+        const { readdirSync, statSync } = await import("node:fs");
+        const { cleanupWorktree, expandHome } = await import("../shared/worktree");
+        const worktreeDir = join(expandHome(tree.path), ".grove", "worktrees");
+        if (existsSync(worktreeDir)) {
+          for (const entry of readdirSync(worktreeDir)) {
+            if (statSync(join(worktreeDir, entry)).isDirectory()) {
+              cleanupWorktree(entry, tree.path);
+            }
+          }
         }
       } catch { /* best-effort */ }
 
