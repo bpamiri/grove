@@ -6,6 +6,7 @@ import { activeWorkerCount } from "../agents/worker";
 import { isSpawningPaused } from "../monitor/cost";
 import type { Database } from "./db";
 import type { Task, Tree } from "../shared/types";
+import { readyTasks, type DagEdge } from "../batch/dag";
 
 interface DispatchOptions {
   db: Database;
@@ -54,6 +55,13 @@ function processQueue(): void {
   if (!opts) return;
   const { db, maxWorkers } = opts;
 
+  // Compute DAG-ready tasks
+  const edges = db.allTaskEdges().map(e => ({ from: e.from_task, to: e.to_task }) as DagEdge);
+  const completedIds = new Set(
+    db.all<{ id: string }>("SELECT id FROM tasks WHERE status = 'completed'").map(t => t.id),
+  );
+  const dagReadySet = new Set(readyTasks(pendingQueue, edges, completedIds));
+
   while (pendingQueue.length > 0) {
     // Check worker limit
     if (activeWorkerCount() >= maxWorkers) {
@@ -80,10 +88,17 @@ function processQueue(): void {
       continue;
     }
 
-    // Skip if blocked by dependencies
+    // Skip if blocked by dependencies (legacy depends_on field)
     if (db.isTaskBlocked(taskId)) {
       pendingQueue.shift();
       // Re-enqueue at the end — might become unblocked later
+      pendingQueue.push(taskId);
+      continue;
+    }
+
+    // Skip if blocked by DAG edges
+    if (!dagReadySet.has(taskId)) {
+      pendingQueue.shift();
       pendingQueue.push(taskId);
       continue;
     }
