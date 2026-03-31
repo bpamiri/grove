@@ -264,6 +264,14 @@ async function executeStep(
       break;
     }
 
+    case "review": {
+      const { spawnReviewer } = await import("../agents/reviewer");
+      const { getEnv } = await import("../broker/db");
+      const logDir = getEnv().GROVE_LOG_DIR;
+      spawnReviewer(task, tree, db, logDir, step.prompt, step.max_retries);
+      break;
+    }
+
     case "merge": {
       const { queueMerge } = await import("../merge/manager");
       queueMerge(task, tree, db);
