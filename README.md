@@ -27,10 +27,10 @@ See [Installation](docs/getting-started/installation.md) for all platforms and b
 You --- Browser (GUI) --- Tunnel ---+
   |                                  |
   +-- grove CLI -------+             |
-                        |             |
-                        v             v
+                        |            |
+                        v            v
               +---------------------------+
-              |    Broker (Bun process)    |
+              |    Broker (Bun process)   |
               |                           |
               |  HTTP+WS . SQLite . SAP   |
               |  Plugins . Adapters       |
