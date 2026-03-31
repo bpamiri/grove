@@ -61,4 +61,14 @@ bun run build
 | Linux | x64 | `grove-linux-x64` |
 | Windows | x64 | `grove-windows-x64` |
 
-Windows binary is available but Grove does not yet support Windows at runtime (pending tmux removal — see issue #23).
+Windows binary is available but Windows runtime support is experimental.
+
+## Config Migration
+
+When upgrading between major versions, run:
+
+```bash
+grove config migrate
+```
+
+This updates `grove.yaml` to the latest schema, preserving your settings and adding new defaults.

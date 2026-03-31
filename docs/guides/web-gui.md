@@ -109,6 +109,9 @@ The seed panel shows a chat interface:
 - Claude's responses appear on the left (with optional HTML fragments for mockups and visual choices)
 - Your messages appear on the right
 - Claude may present **choice buttons** — clickable options that send your selection as a reply
+- **Streaming text** — responses render character-by-character as Claude generates them
+- **Stage indicator** — a badge shows the current brainstorm phase: *exploring* → *clarifying* → *proposing* → *designing*
+- **Conversation branching** — a fork button on any AI message lets you branch the conversation from that point. A branch selector in the header switches between branches.
 
 The conversation is exploratory. Claude generates design specs, visual mockups, and implementation strategies. There's no code committed during seeding.
 
@@ -126,13 +129,24 @@ The seed spec is passed to the worker when the task is dispatched, giving it des
 
 ## Dashboard
 
-Access the dashboard from the sidebar. It provides analytics across three tabs:
+Access the dashboard from the sidebar. It provides analytics across five tabs:
 
 ### Overview Tab
 
 - **KPI cards** — Today's spend, this week's spend, total tasks, gate pass rate
 - **Gantt timeline** — Task execution timeline with color-coded status bars. Hover for cost and duration tooltips
 - **Time range selector** — 1h, 4h, 24h, 7d. Short ranges (1h, 4h) show a "live" pulsing indicator and auto-refresh via WebSocket
+
+### Activity Timeline Tab
+
+- **Horizontal worker bars** — Each active worker gets a swim lane showing tool use, thinking, and idle periods over time
+- **Worker Utilization chart** — Aggregate view of how much time workers spend actively working vs. waiting
+- **Task Breakdown view** — Per-task time split across pipeline steps (plan, implement, evaluate, merge)
+
+### Events Tab
+
+- **Filterable event log** — All SAP events (task status changes, gate results, merge outcomes) in a searchable, filterable table
+- Filter by event type, task ID, tree, or time range
 
 ### Costs Tab
 
@@ -163,7 +177,22 @@ The GUI connects to the broker via WebSocket (`ws://localhost:{port}/ws`). All e
 - Merge events
 - Seed conversation messages
 
+The live activity feed is powered by SAP events (`agent:tool_use`, `agent:thinking`, `agent:text`). The broker maintains a ring buffer of recent events so new connections receive catch-up context immediately. The feed supports a **pause/resume toggle** and automatically truncates long text payloads to keep the UI responsive.
+
 Remote connections (via tunnel) require a Bearer token in the WebSocket handshake. Local connections are auto-authenticated.
+
+---
+
+## DAG Editor
+
+The DAG (Directed Acyclic Graph) editor provides a visual way to manage task dependencies. Access it from the sidebar.
+
+- **ReactFlow visual editor** — tasks appear as draggable nodes, color-coded by status
+- **Drag-to-connect edges** — draw an edge from one task to another to create a dependency
+- **Cycle prevention** — the editor detects and rejects edges that would create circular dependencies, with visual feedback (the invalid edge flashes red)
+- Nodes reflect live task status via WebSocket updates
+
+The DAG editor reads from and writes to the same `task_edges` table used by the dependency system. See [Task Management -- DAG Visualization](task-management.md#dag-visualization) for API details.
 
 ---
 

@@ -26,31 +26,30 @@ See [Installation](docs/getting-started/installation.md) for all platforms and b
 ```
 You --- Browser (GUI) --- Tunnel ---+
   |                                  |
-  +-- tmux attach ---------+         |
-  |                         |        |
-  +-- grove CLI -------+    |        |
-                        |   |        |
-                        v   v        v
+  +-- grove CLI -------+             |
+                        |            |
+                        v            v
               +---------------------------+
               |    Broker (Bun process)   |
               |                           |
-              |  HTTP+WS . SQLite . tmux  |
+              |  HTTP+WS . SQLite . SAP   |
+              |  Plugins . Adapters       |
               |  Monitor . Merge Manager  |
               +----------+----------------+
                          |
           +--------------+--------------+
           v              v              v
     Orchestrator     Worker(s)      Evaluator
-    (Claude Code)  (Claude Code)  (Claude Code)
-    persistent     ephemeral      on-demand
+    (Claude Code)  (configurable)  (in-process)
+    persistent     ephemeral       on-demand
 ```
 
 The system separates **infrastructure** from **intelligence**:
 
-- **Broker** — Bun process managing HTTP+WebSocket server, SQLite state, tmux sessions, tunnel, health/cost monitoring, merge queue, and notifications. Stable, lightweight, never makes decisions.
+- **Broker** — Bun process managing HTTP+WebSocket server, SQLite state, SAP protocol, plugins, adapters, tunnel, health/cost monitoring, merge queue, and notifications. Stable, lightweight, never makes decisions.
 - **Orchestrator** — Persistent Claude Code session. You chat with it to plan and delegate.
-- **Workers** — Ephemeral Claude Code sessions in isolated git worktrees with sandboxed guard hooks.
-- **Evaluator** — Runs quality gates (tests, lint, diff size) on worker output. Separate agent because models are poor critics of their own output.
+- **Workers** — Ephemeral agent sessions in isolated git worktrees with sandboxed guard hooks. Configurable via adapters (Claude Code, Codex, Aider, Gemini).
+- **Evaluator** — Runs quality gates (tests, lint, diff size) on worker output in-process.
 
 ## CLI
 
@@ -64,7 +63,10 @@ The system separates **infrastructure** from **intelligence**:
 | `grove tree add <path>` | Add a repo |
 | `grove tasks` | List tasks |
 | `grove task add "title"` | Create a task |
+| `grove batch` | Dispatch parallel tasks from a plan |
 | `grove chat "message"` | Message the orchestrator |
+| `grove config` | View/edit configuration |
+| `grove plugins` | List and manage plugins |
 | `grove cost` | Spend breakdown |
 | `grove upgrade` | Update to latest version |
 
@@ -72,10 +74,11 @@ The system separates **infrastructure** from **intelligence**:
 
 - **[Bun](https://bun.sh/)** >= 1.0
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**
-- **[tmux](https://github.com/tmux/tmux)**
 - **[git](https://git-scm.com/)**
 - **[gh](https://cli.github.com/)** (optional, for PR management)
 - **[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)** (optional, for remote access)
+
+> **Multi-agent support:** Install [Codex CLI](https://github.com/openai/codex), [Aider](https://aider.chat/), or [Gemini CLI](https://github.com/google-gemini/gemini-cli) to use them as alternative worker agents via adapters.
 
 ## Documentation
 
@@ -87,6 +90,8 @@ The system separates **infrastructure** from **intelligence**:
   - [Configuration](docs/guides/configuration.md)
   - [Notifications](docs/guides/configuration.md#notifications) — Slack, system, and webhook alerts
   - [CLI Reference](docs/guides/cli-reference.md)
+  - [Plugins](docs/guides/plugins.md)
+  - [Adapters](docs/guides/adapters.md)
   - [Architecture](docs/guides/architecture.md)
   - [Security](docs/guides/security.md)
 
@@ -94,7 +99,7 @@ The system separates **infrastructure** from **intelligence**:
 
 ```bash
 bun run dev -- help    # Run from source
-bun run test           # Run tests (121 tests)
+bun run test           # Run tests (480+ tests)
 bun run build          # Build binary + frontend
 ```
 

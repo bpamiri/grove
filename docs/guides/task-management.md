@@ -39,7 +39,9 @@ POST /api/tasks
 }
 ```
 
-The `depends_on` field is a comma-separated list of task IDs. The dispatch system checks all listed tasks — if any are incomplete, the dependent task stays queued.
+The `depends_on` field is a comma-separated list of task IDs (legacy format). Dependencies are also stored as explicit edges in the `task_edges` table, which the DAG editor and API use. The dispatch system checks both sources — if any dependency is incomplete, the dependent task stays queued.
+
+DAG-aware dispatch ordering ensures tasks are started in topological order. Cycle detection prevents invalid dependency graphs from being created.
 
 ### Cascade Dispatch
 
@@ -57,8 +59,24 @@ Task B starts automatically when A's PR merges. Task C starts when B's PR merges
 
 - Dependencies are checked at dispatch time and when any task completes
 - A task with unmet dependencies stays in `queued` status
-- Circular dependencies are not detected — avoid creating them
+- Cycle detection rejects edges that would create circular dependencies
 - Dependencies reference task IDs (e.g., `W-041`), not task titles
+
+---
+
+## DAG Visualization
+
+The web GUI includes a visual DAG editor for managing task dependencies (see [Web GUI -- DAG Editor](web-gui.md#dag-editor)). You can also interact with the dependency graph via the API:
+
+- `GET /api/tasks/dag` — returns all tasks and edges as a graph structure
+- `POST /api/tasks/edges` — create or delete an edge between two tasks
+
+```json
+POST /api/tasks/edges
+{ "from_task_id": "W-041", "to_task_id": "W-042" }
+```
+
+The API validates against cycles before persisting.
 
 ---
 
@@ -160,3 +178,38 @@ A paused task has `paused: 1` in the database. Resume it with the Resume feature
 | **Pause** | Yes | Yes | Yes | Task is burning budget, needs manual intervention |
 | **Resume** | N/A | Yes | N/A | Continue a paused/failed task |
 | **Retry** | N/A | Yes | N/A | Re-run a failed task from scratch (increments retry count) |
+
+---
+
+## Seeding
+
+Before dispatching a task, you can run a brainstorm session ("Plant a Seed") to refine requirements interactively. The seed conversation now features:
+
+- **Streaming responses** — Claude's text renders character-by-character as it generates
+- **Stage detection** — a badge tracks the brainstorm phase: *exploring* → *clarifying* → *proposing* → *designing*
+- **Conversation branching** — fork any AI message to explore alternative directions, then switch between branches
+
+Seeded tasks skip the `plan` step — the seed spec replaces it. See [Web GUI -- Seeding](web-gui.md#seeding-plant-a-seed) for the full UI description.
+
+---
+
+## Checkpointing
+
+Workers save a WIP commit and checkpoint when they are paused, crash, or stall. The checkpoint captures the current pipeline step, modified files, and worker context.
+
+When a task is resumed, the checkpoint is injected into the worker's CLAUDE.md overlay so the new session starts with full context of the previous state. Checkpoints are stored in the database alongside the task record.
+
+---
+
+## Multi-Agent Support
+
+Tasks can specify an `adapter` field to select which coding agent runs the worker steps. Supported adapters:
+
+| Adapter | Agent |
+|---------|-------|
+| `claude-code` | Claude Code (default) |
+| `codex-cli` | OpenAI Codex CLI |
+| `aider` | Aider |
+| `gemini-cli` | Gemini CLI |
+
+The adapter is resolved with a fallback chain: task-level → tree-level → global default. Set it on a task via the API (`"adapter": "aider"`) or in `grove.yaml` under the tree or settings block.

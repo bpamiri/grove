@@ -41,19 +41,17 @@ grove up
   Grove v0.1.16
 
   Broker started (PID 12345)
-  Orchestrator spawned in tmux:grove
+  Orchestrator ready
   Tunnel active
 
   Local:   http://localhost:49231
   Tunnel:  https://random.trycloudflare.com
-  tmux:    tmux attach -t grove
 ```
 
-Three ways to interact:
+Two ways to interact:
 
 1. **Web GUI** — open the Local URL in a browser
-2. **tmux** — `tmux attach -t grove` for direct orchestrator terminal
-3. **CLI** — `grove chat "message"` from any terminal
+2. **CLI** — `grove chat "message"` from any terminal
 
 ## Chat with the Orchestrator
 
@@ -61,7 +59,25 @@ Three ways to interact:
 grove chat "Add error handling to the auth module in api-server"
 ```
 
-Or use the web GUI's chat panel, or the tmux session directly. The orchestrator plans the work, decomposes it into tasks, and delegates to workers.
+Or use the web GUI's chat panel. The orchestrator plans the work, decomposes it into tasks, and delegates to workers.
+
+## Seed a Task
+
+Use the brainstorming workflow to create well-defined tasks:
+
+```bash
+grove chat "I want to add rate limiting to the API"
+```
+
+The orchestrator will brainstorm the approach, propose a plan, and break it into tasks. Approve the plan and workers pick up the tasks automatically. You can also seed tasks directly:
+
+```bash
+grove task add "Add rate limiting middleware"
+```
+
+## Dashboard
+
+Open the web GUI (the Local URL from `grove up`) to see the real-time dashboard: task timeline, worker activity, cost breakdown, and gate pass/fail rates.
 
 ## Monitor Progress
 

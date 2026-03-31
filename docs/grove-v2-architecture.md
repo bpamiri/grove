@@ -1,3 +1,5 @@
+> **Note:** This document describes the original v2 design spec. Grove's current architecture has evolved significantly — see [Architecture](guides/architecture.md) for the current design.
+
 # Grove v2: Unified Development Command Center
 
 ## Revised Design — March 2026
