@@ -458,6 +458,67 @@ export class Database {
       [since]
     );
   }
+
+  // ---- Observability analytics ----
+
+  /** Activity timeline: tasks with start/end/step/cost for timeline rendering */
+  taskActivityTimeline(since: string): any[] {
+    const sinceDate = this.sinceToDate(since);
+    return this.all(
+      `SELECT t.id as task_id, t.title, t.tree_id, t.status, t.started_at, t.completed_at,
+              t.cost_usd, t.current_step, t.step_index
+       FROM tasks t
+       WHERE t.started_at IS NOT NULL AND t.started_at >= ?
+       ORDER BY t.started_at DESC`,
+      [sinceDate],
+    );
+  }
+
+  /** Worker utilization: count of active sessions bucketed by 5-min intervals */
+  workerUtilization(since: string): any[] {
+    const sinceDate = this.sinceToDate(since);
+    return this.all(
+      `SELECT strftime('%Y-%m-%d %H:%M', started_at, 'start of minute', printf('-%d minutes', CAST(strftime('%M', started_at) AS INTEGER) % 5)) as bucket,
+              COUNT(*) as active_workers
+       FROM sessions
+       WHERE role = 'worker' AND started_at >= ?
+       GROUP BY bucket
+       ORDER BY bucket`,
+      [sinceDate],
+    );
+  }
+
+  /** Filtered events for event log viewer */
+  filteredEvents(opts: { taskId?: string; eventType?: string; since?: string; limit?: number }): any[] {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (opts.taskId) { conditions.push("task_id = ?"); params.push(opts.taskId); }
+    if (opts.eventType) { conditions.push("event_type = ?"); params.push(opts.eventType); }
+    if (opts.since) { conditions.push("created_at >= ?"); params.push(this.sinceToDate(opts.since)); }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = opts.limit ?? 200;
+
+    return this.all(
+      `SELECT id, task_id, session_id, event_type, summary, detail, created_at
+       FROM events ${where}
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [...params, limit],
+    );
+  }
+
+  /** Convert "1h", "4h", "24h", "7d" to SQLite-compatible datetime string */
+  private sinceToDate(since: string): string {
+    const now = new Date();
+    const match = since.match(/^(\d+)(h|d)$/);
+    if (!match) return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().replace("T", " ").replace("Z", "");
+    const [, num, unit] = match;
+    const ms = unit === "h" ? Number(num) * 60 * 60 * 1000 : Number(num) * 24 * 60 * 60 * 1000;
+    // Use space-separated format to match SQLite datetime('now') default
+    return new Date(now.getTime() - ms).toISOString().replace("T", " ").replace("Z", "");
+  }
 }
 
 // ---------------------------------------------------------------------------
