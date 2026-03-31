@@ -4,6 +4,7 @@ import { resolve, basename } from "node:path";
 import pc from "picocolors";
 import { loadConfig, configTrees, configSet, reloadConfig } from "../../broker/config";
 import { expandHome } from "../../shared/worktree";
+import { detectGithubRemote } from "../../shared/github";
 
 export async function run(args: string[]) {
   // grove tree add <path> [--github org/repo] [--name name]
@@ -70,15 +71,7 @@ async function addTree(args: string[]) {
   // Auto-detect GitHub remote if not provided
   let detectedGithub = github;
   if (!detectedGithub) {
-    const result = Bun.spawnSync(["git", "-C", treePath, "remote", "get-url", "origin"]);
-    if (result.exitCode === 0) {
-      const url = result.stdout.toString().trim();
-      // Parse github.com:org/repo.git or https://github.com/org/repo.git
-      const match = url.match(/github\.com[:/]([^/]+\/[^/.]+)/);
-      if (match) {
-        detectedGithub = match[1];
-      }
-    }
+    detectedGithub = detectGithubRemote(treePath) ?? undefined;
   }
 
   // Check if tree already exists
