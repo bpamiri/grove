@@ -5,11 +5,12 @@
 | Tool | Required | Install |
 |------|----------|---------|
 | **Bun** >= 1.0 | Yes | `curl -fsSL https://bun.sh/install \| bash` |
-| **tmux** | Yes | `brew install tmux` (macOS) / `apt install tmux` (Linux) |
 | **Claude Code CLI** | Yes | `npm install -g @anthropic-ai/claude-code` (requires Anthropic subscription) |
 | **git** | Yes | Usually pre-installed |
 | **gh** | No | `brew install gh` / `apt install gh` |
 | **cloudflared** | No | `brew install cloudflare/cloudflare/cloudflared` |
+
+> **Optional:** Install additional agent CLIs ([Codex](https://github.com/openai/codex), [Aider](https://aider.chat/), [Gemini CLI](https://github.com/google-gemini/gemini-cli)) for multi-agent support via adapters.
 
 ## Install from Binary (recommended)
 
