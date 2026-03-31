@@ -1,6 +1,34 @@
 # Changelog
 
 
+## v0.1.20
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.19...v0.1.20)
+
+### 🚀 Enhancements
+
+- Add config migration system with v1->v2 migration ([a0198ab](https://github.com/bpamiri/grove/commit/a0198ab))
+- Wire config migrations into loadConfig with version warning ([b222311](https://github.com/bpamiri/grove/commit/b222311))
+- Add grove config CLI commands (version, validate, migrate) ([28aab33](https://github.com/bpamiri/grove/commit/28aab33))
+- Add plugin system type definitions ([d93577a](https://github.com/bpamiri/grove/commit/d93577a))
+- Add PluginHost with discovery, hook execution, and timeout protection ([28cf46f](https://github.com/bpamiri/grove/commit/28cf46f))
+- Initialize PluginHost on broker startup ([d064ffd](https://github.com/bpamiri/grove/commit/d064ffd))
+- Wire plugin gate hooks into evaluator ([425ac93](https://github.com/bpamiri/grove/commit/425ac93))
+- Wire plugin step:pre/step:post hooks into step engine ([1012f03](https://github.com/bpamiri/grove/commit/1012f03))
+- Add plugin CLI commands and API endpoints ([967f928](https://github.com/bpamiri/grove/commit/967f928))
+
+### 🩹 Fixes
+
+- Use module-level plugin host ref in step engine, fix async evaluate tests ([aaa4edf](https://github.com/bpamiri/grove/commit/aaa4edf))
+
+### 📖 Documentation
+
+- T4 + T8 implementation plans — plugin architecture + config versioning ([adfb8f1](https://github.com/bpamiri/grove/commit/adfb8f1))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.19
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.18...v0.1.19)
