@@ -1,16 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import type { Task } from "../hooks/useTasks";
+import type { Task, Tree } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
 import type { PathStep } from "./Pipeline";
+import TaskForm from "./TaskForm";
 import SeedChat from "./SeedChat";
 import type { Seed, SeedMessage } from "../hooks/useSeed";
 import ActivityIndicator from "./ActivityIndicator";
+
+interface PathInfo {
+  description: string;
+  steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
+}
 
 interface Props {
   task: Task;
   activityLog?: Array<{ ts: number; msg: string }>;
   steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }>;
   send: (data: any) => void;
+  trees: Tree[];
+  paths: Record<string, PathInfo>;
+  allTasks: Task[];
+  onRefresh: () => void;
   seed?: Seed | null;
   seedMessages?: SeedMessage[];
   seedActive?: boolean;
@@ -22,11 +32,27 @@ interface Props {
   onSeedDiscard?: () => void;
 }
 
-export default function TaskDetail({ task, activityLog, steps, send, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
+export default function TaskDetail({ task, activityLog, steps, send, trees, paths, allTasks, onRefresh, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
   const [resumeStep, setResumeStep] = useState(task.current_step ?? steps[0]?.id ?? "");
   const canResume = task.status === "failed" || (task.status === "active" && !!task.paused);
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <div className="mt-1">
+        <TaskForm
+          trees={trees}
+          paths={paths}
+          allTasks={allTasks}
+          editTask={task}
+          onSave={() => { setEditing(false); onRefresh(); }}
+          onCancel={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 mt-1 text-sm space-y-4">
@@ -35,9 +61,12 @@ export default function TaskDetail({ task, activityLog, steps, send, seed, seedM
         <Field label="Status" value={task.status} />
         <Field label="Tree" value={task.tree_id ?? "none"} />
         <Field label="Path" value={task.path_name} />
+        <Field label="Priority" value={task.priority === 2 ? "High" : task.priority === 1 ? "Medium" : "Low"} />
         <Field label="Cost" value={`$${task.cost_usd.toFixed(2)}`} />
         {task.started_at && <Field label="Time" value={timeSince(task.started_at)} />}
         {task.branch && <Field label="Branch" value={task.branch} mono />}
+        {task.depends_on && <Field label="Depends on" value={task.depends_on} mono />}
+        {task.max_retries !== 2 && <Field label="Max retries" value={String(task.max_retries)} />}
       </div>
 
       {/* Pipeline */}
@@ -155,6 +184,7 @@ export default function TaskDetail({ task, activityLog, steps, send, seed, seedM
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-800 items-center">
+        <ActionButton label="Edit" onClick={() => setEditing(true)} />
         {task.status === "active" && !task.paused && (
           <ActionButton label="Pause" onClick={() => send({ type: "action", action: "pause_task", taskId: task.id })} />
         )}

@@ -479,16 +479,56 @@ async function handleApi(
 
     // POST /api/tasks
     if (path === "/api/tasks" && req.method === "POST") {
-      const body = await req.json() as { title: string; tree_id?: string; description?: string; path_name?: string };
+      const body = await req.json() as {
+        title: string; tree_id?: string; description?: string; path_name?: string;
+        priority?: number; depends_on?: string; parent_task_id?: string; max_retries?: number;
+        github_issue?: number;
+      };
       const taskId = db.nextTaskId("W");
       db.run(
-        "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'draft')",
-        [taskId, body.tree_id ?? null, body.title, body.description ?? null, body.path_name ?? "development"],
+        `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        [
+          taskId, body.tree_id ?? null, body.title, body.description ?? null,
+          body.path_name ?? "development", body.priority ?? 0,
+          body.depends_on ?? null, body.parent_task_id ?? null,
+          body.max_retries ?? 2, body.github_issue ?? null,
+        ],
       );
       db.addEvent(taskId, null, "task_created", `Task created: ${body.title}`);
       const task = db.taskGet(taskId);
       bus.emit("task:created", { task: task! });
       return json(task, 201);
+    }
+
+    // PATCH /api/tasks/:id — update editable fields
+    const patchMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)$/);
+    if (patchMatch && req.method === "PATCH") {
+      const taskId = patchMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+
+      const body = await req.json() as Record<string, unknown>;
+      // Draft tasks: all editable fields. Active/completed: only title + description.
+      const draftFields = ["title", "description", "tree_id", "path_name", "priority", "depends_on", "parent_task_id", "max_retries", "github_issue"];
+      const limitedFields = ["title", "description"];
+      const allowed = task.status === "draft" ? draftFields : limitedFields;
+
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      for (const field of allowed) {
+        if (field in body) {
+          sets.push(`${field} = ?`);
+          vals.push(body[field] ?? null);
+        }
+      }
+      if (sets.length === 0) return json({ error: "No valid fields to update" }, 400);
+      vals.push(taskId);
+      db.run(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`, vals);
+      db.addEvent(taskId, null, "task_updated", `Task updated: ${sets.map(s => s.split(" ")[0]).join(", ")}`);
+      const updated = db.taskGet(taskId);
+      bus.emit("task:status", { taskId, status: updated!.status });
+      return json(updated);
     }
 
     // POST /api/chat
