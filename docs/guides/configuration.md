@@ -43,7 +43,7 @@ trees:
 |-------|------|-------------|
 | `tests` | bool | Run the test suite during gate evaluation. Default: `true`. |
 | `lint` | bool | Run the linter during gate evaluation. Default: `false`. |
-| `commits` | bool | Validate commit message format (conventional commits). Default: `true`. |
+| `commits` | bool | Check that at least one commit exists on the branch. Default: `true`. |
 | `diff_size` | bool | Fail the gate if the diff is outside the min/max range. Default: `true`. |
 | `min_diff_lines` | int | Minimum lines changed (catches empty commits). Default: `1`. |
 | `max_diff_lines` | int | Maximum lines changed. Default: `5000`. |
@@ -105,6 +105,7 @@ paths:
 |------|-------|-------------|
 | `development` | plan -> implement -> evaluate -> merge | Standard dev workflow with QA gate |
 | `research` | plan -> research -> report | Research task, no code changes |
+| `content` | plan -> implement -> evaluate -> publish | Documentation and content creation |
 
 See [Custom Paths](custom-paths.md) for the full guide on defining pipelines, step types, transitions, type inference, and retry behavior.
 

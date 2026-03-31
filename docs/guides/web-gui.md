@@ -67,18 +67,17 @@ Each task card shows:
 Active tasks show a real-time activity ticker:
 
 - **"Working"** spinner with elapsed time
-- **Current tool** — shows what the worker is doing right now (e.g., "editing auth.ts", "running tests", "searching codebase")
+- **Current tool** — shows what the worker is doing right now
 
-The activity stream is powered by the worker's stream-json output, parsed in real-time and broadcast via WebSocket. Tool names are translated to human-readable labels:
+The activity stream is powered by the worker's stream-json output, parsed in real-time and broadcast via WebSocket. Activity messages use the format `{tool_name}: {argument}` — for example:
 
-| Worker Tool | Display |
-|-------------|---------|
-| Edit / Write | "editing {filename}" |
-| Read | "reading {filename}" |
-| Bash (test/jest/pytest) | "running tests" |
-| Bash (git) | "running git command" |
-| Grep / Glob | "searching codebase" |
-| Thinking block | "thinking" |
+| Activity message | Meaning |
+|-----------------|---------|
+| `str_replace_based_edit_tool: /src/auth.ts` | Editing a file |
+| `Read: /src/config.ts` | Reading a file |
+| `Bash: npm test` | Running a shell command |
+| `Grep: pattern` | Searching codebase |
+| `thinking: considering the auth flow...` | Claude is reasoning |
 
 ### Inline Actions
 

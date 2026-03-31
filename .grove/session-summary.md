@@ -1,22 +1,27 @@
-# Session Summary: W-042
+# Session Summary: W-042 (Session 2)
 
 ## Summary
 
-Comprehensive documentation update covering all features added since the initial docs were written. Created 4 new guide files and updated 4 existing files to document task dependencies, batch dispatch, GitHub issue sync, seeding, filter persistence, status filters, cross-filtering, activity indicators, dashboard, resume at step, cancel/pause, step engine, evaluator, merge manager, worker lifecycle, event bus, custom paths, and worktree management.
+Reviewed all documentation from session 1 against the actual codebase using a code-explorer agent. Found and fixed 7 inaccuracies where the docs diverged from reality. Also fixed a stale source code comment in `evaluator.ts`.
+
+## Inaccuracies Fixed
+
+1. **Evaluator described as "Claude Code session"** — corrected to "in-process function" using `Bun.spawnSync` (architecture.md, evaluator.ts)
+2. **Commits gate claimed "conventional commit format"** — actually just checks at least one commit exists (architecture.md, configuration.md)
+3. **Cancel task showed wrong API** — was `POST /api/tasks/:id/retry`, fixed to WebSocket `cancel_task` message (task-management.md)
+4. **Activity indicators claimed human-readable labels** — actually emits raw `{tool}: {argument}` format (web-gui.md)
+5. **Missing `content` built-in path** — added to built-in paths table and descriptions (configuration.md, custom-paths.md)
+6. **Missing orchestrator events** — added `orchestrator:started` and `orchestrator:rotated` to event bus table (architecture.md)
+7. **Stall detection conflated with crash detection** — separated into two distinct mechanisms: signal 0 for crash, log mtime for stall (architecture.md)
 
 ## Files Modified
 
-### New Files
-- `docs/guides/task-management.md` — Dependencies, batch dispatch, resume at step, cancel/pause
-- `docs/guides/github-integration.md` — Issue sync, PR lifecycle, CI monitoring, merge queue
-- `docs/guides/web-gui.md` — Seeding, filters, dashboard, activity indicators, batch planner UI
-- `docs/guides/custom-paths.md` — Defining pipelines, step types, transitions, type inference, retry behavior
-
-### Modified Files
-- `docs/guides/architecture.md` — Added deep dives: step engine, event bus, worker lifecycle, evaluator, merge manager, worktree management
-- `docs/guides/cli-reference.md` — Added `grove batch` command and task action API endpoints
-- `docs/guides/configuration.md` — Added `base_ref`, `min_diff_lines`, gate defaults, gate tiers, custom paths cross-reference
-- `docs/getting-started/quick-start.md` — Updated version number, added new guides to Next Steps
+- `docs/guides/architecture.md` — evaluator description, commits gate, event bus table, stall detection
+- `docs/guides/configuration.md` — commits gate description, added `content` path
+- `docs/guides/custom-paths.md` — added `content` built-in path section
+- `docs/guides/task-management.md` — cancel task API endpoint
+- `docs/guides/web-gui.md` — activity indicator format
+- `src/agents/evaluator.ts` — fixed stale header comment
 
 ## Next Steps
 

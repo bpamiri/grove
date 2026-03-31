@@ -1,6 +1,6 @@
-// Grove v3 — Evaluator agent: reviews worker output, runs quality gates
-// Spawned as a Claude Code session after a worker completes.
-// Read-only tools only — cannot modify code.
+// Grove v3 — Evaluator: runs quality gates on worker output
+// In-process function — executes git, test, and lint commands via Bun.spawnSync.
+// No Claude API calls — purely mechanical checks.
 import { join } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { bus } from "../broker/event-bus";

@@ -138,13 +138,13 @@ Canceling stops a running task immediately and marks it `failed`.
 
 **Web GUI:** Click the **Cancel** button on an active task card.
 
-**API:**
+**WebSocket:**
 
 ```json
-POST /api/tasks/:id/retry
+{ "action": "cancel_task", "taskId": "W-042" }
 ```
 
-The cancel action kills the worker process (`SIGTERM`) and releases the worker slot.
+The cancel action sets the task status to `failed`, kills the worker process, and releases the worker slot.
 
 ### Pause a Task
 

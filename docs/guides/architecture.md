@@ -22,7 +22,7 @@ You --- Browser (GUI) --- Tunnel ---+
           +--------------+--------------+
           v              v              v
     Orchestrator     Worker(s)      Evaluator
-    (Claude Code)  (Claude Code)  (Claude Code)
+    (Claude Code)  (Claude Code)  (in-process)
     persistent     ephemeral      on-demand
 ```
 
@@ -70,8 +70,8 @@ Workers cannot push to remote. The merge manager handles that.
 
 ### Evaluator
 
-Spawned after a worker completes. Runs quality gates:
-- **Commits** — checks for conventional commit format (hard gate)
+An in-process function that runs after a worker completes. Executes quality gates via shell commands (`Bun.spawnSync`), with no Claude API calls:
+- **Commits** — checks that at least one commit exists on the branch (hard gate)
 - **Tests** — runs the tree's test command (hard gate)
 - **Lint** — runs the tree's lint command (soft gate — warnings only)
 - **Diff size** — rejects changes outside the min/max range (soft gate)
@@ -178,6 +178,7 @@ The event bus (`src/broker/event-bus.ts`) is a typed in-process pub/sub system. 
 | **Merge** | `merge:pr_created`, `merge:ci_passed`, `merge:ci_failed`, `merge:completed` | PR created, CI green, merged |
 | **Cost** | `cost:updated`, `cost:budget_warning`, `cost:budget_exceeded` | Spend updated, budget warning |
 | **Monitor** | `monitor:stall`, `monitor:crash` | Worker stalled, process crashed |
+| **Orchestrator** | `orchestrator:started`, `orchestrator:rotated` | Orchestrator session started, session rotated |
 | **System** | `broker:started`, `broker:stopped`, `message:new` | Broker started, new chat message |
 
 ### WebSocket Bridge
@@ -221,9 +222,12 @@ Costs are extracted from stream-json result events:
 
 The broker accumulates session costs onto the task and checks against budget limits (per-task, per-day, per-week).
 
-### Stall Detection
+### Crash and Stall Detection
 
-The health monitor checks worker liveness by sending signal 0 to the worker PID. If a worker produces no output for `stall_timeout_minutes` (default: 5), it's flagged as stalled and killed.
+The health monitor runs two distinct checks:
+
+1. **Crash detection** — sends signal 0 to the worker PID. If the process is gone, the worker is flagged as crashed and the task is recovered.
+2. **Stall detection** — checks the log file's `mtime`. If no log activity for `stall_timeout_minutes` (default: 5), the worker is flagged as stalled and killed.
 
 ### Cleanup
 
@@ -233,7 +237,7 @@ Workers are killed after completing their step. The worktree is preserved across
 
 ## Deep Dive: Evaluator
 
-The evaluator (`src/agents/evaluator.ts`) runs quality gates on worker output in a separate process. The separation ensures objectivity — models are poor critics of their own work.
+The evaluator (`src/agents/evaluator.ts`) runs quality gates on worker output as an in-process function (no Claude API calls). It executes git, test, and lint commands via `Bun.spawnSync`.
 
 ### Pre-Gate Rebase
 
@@ -250,7 +254,7 @@ After `MAX_REBASE_FAILURES` (3) consecutive rebase conflicts, the failure escala
 
 | Gate | Tier | Check |
 |------|------|-------|
-| `commits` | hard | `git log base..HEAD` — at least one commit exists |
+| `commits` | hard | `git log base..HEAD --oneline` — at least one commit exists |
 | `tests` | hard | Runs `test_command` in the worktree with timeout |
 | `lint` | soft | Runs `lint_command` in the worktree with timeout |
 | `diff_size` | soft | `git diff --stat` — line count within min/max range |

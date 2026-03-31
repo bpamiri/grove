@@ -1,6 +1,6 @@
 # Custom Paths
 
-Paths define the pipeline a task follows from creation to completion. Grove ships with built-in paths (`development` and `research`), and you can define custom ones in `grove.yaml`.
+Paths define the pipeline a task follows from creation to completion. Grove ships with built-in paths (`development`, `research`, and `content`), and you can define custom ones in `grove.yaml`.
 
 ---
 
@@ -154,6 +154,18 @@ plan ──▶ research ──▶ report ──▶ $done
 ```
 
 All three steps are `worker` type — no gates or merges.
+
+### `content`
+
+For documentation and content creation:
+
+```
+plan ──▶ implement ──▶ evaluate ──▶ publish ──▶ $done
+                         │
+                         └── fail ──▶ implement (retry)
+```
+
+Similar to `development` but uses a `publish` step instead of `merge` — semantically indicating the output is content rather than code.
 
 ---
 
