@@ -24,17 +24,24 @@ Each worker gets a dedicated git worktree — a separate working directory on it
 
 ### Guard Hooks
 
-Grove injects PreToolUse hooks into each worker's Claude Code session.
+Grove injects PreToolUse hooks into each worker's Claude Code session. These hooks invoke the `grove _guard` subcommand, which parses `CLAUDE_TOOL_INPUT` as JSON and validates each tool call.
 
-**Bash Guard** blocks dangerous shell commands:
+**Bash Guard** (`grove _guard bash-danger`) blocks dangerous shell commands:
 - `git push`, `git reset --hard` — no direct remote operations
 - `rm -rf /`, `sudo` — no destructive system commands
 - Safe operations (git status, file reads, build commands) are allowed
 
-**Edit Boundary** restricts file writes:
+**Edit Boundary** (`grove _guard edit-boundary`) restricts file writes:
 - `Write` and `Edit` tools are confined to the worktree directory
-- Temp directories (`/tmp/*`) are allowed
+- System temp directories are allowed (cross-platform via `os.tmpdir()`)
 - All other paths are blocked
+
+**Reviewer Guards** enforce stricter rules for adversarial review sessions:
+- `grove _guard review-bash` — blocks all git mutation commands (add, commit, checkout, rebase, etc.)
+- `grove _guard review-write` — only allows writing to `.grove/review-result.json`
+- `Edit` tool is blocked entirely for reviewers
+
+Guard checks use proper JSON parsing (not regex), making them robust against edge cases and cross-platform compatible (macOS, Linux, Windows).
 
 ### CLAUDE.md Overlay
 
