@@ -81,6 +81,29 @@ grove tree add <path> --name my-tree     # Override tree ID
 
 Auto-detection parses the GitHub remote URL with the pattern `github.com[:/]org/repo`.
 
+#### grove tree rescan
+
+Re-detect the GitHub remote for a tree.
+
+```bash
+grove tree rescan <name>
+```
+
+Queries `git remote get-url origin` and updates the tree's `github` field.
+
+#### grove tree remove
+
+Remove a tree from Grove configuration.
+
+```bash
+grove tree remove <name>
+grove tree remove <name> --force    # Remove even if tree has active tasks
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Remove even if the tree has queued or active tasks |
+
 ---
 
 ### grove tasks / grove task
@@ -154,8 +177,22 @@ Requires 2+ draft tasks in the specified tree. The analyzer predicts which files
 |------|-------------|
 | `--run` | Skip the confirmation prompt and dispatch wave 1 immediately |
 | `--json` | Output the full batch plan as JSON (useful for scripting) |
+| `--agent` | Use AI-assisted analysis for file prediction (~$0.01-0.05 per run) |
+| `--hybrid` | Heuristic analysis first, AI fallback for low-confidence tasks |
 
 See [Task Management — Batch Dispatch](task-management.md#batch-dispatch) for details on how wave analysis works.
+
+---
+
+### grove cleanup
+
+Clean up stale worktrees.
+
+```bash
+grove cleanup
+```
+
+Prunes worktrees for tasks that are completed, failed, or no longer in the database. Requires the broker to be running.
 
 ---
 

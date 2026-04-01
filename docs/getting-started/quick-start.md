@@ -38,7 +38,7 @@ grove up
 ```
 
 ```
-  Grove v0.1.16
+  Grove v0.1.29
 
   Broker started (PID 12345)
   Orchestrator ready
@@ -46,6 +46,7 @@ grove up
 
   Local:   http://localhost:49231
   Tunnel:  https://random.trycloudflare.com
+  Remote:  https://my-grove.grove.cloud        (if registered)
 ```
 
 Two ways to interact:

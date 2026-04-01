@@ -1,6 +1,6 @@
 # Custom Paths
 
-Paths define the pipeline a task follows from creation to completion. Grove ships with built-in paths (`development`, `research`, and `content`), and you can define custom ones in `grove.yaml`.
+Paths define the pipeline a task follows from creation to completion. Grove ships with built-in paths (`development`, `research`, `content`, and `adversarial`), and you can define custom ones in `grove.yaml`.
 
 ---
 
@@ -13,6 +13,8 @@ A path is an ordered list of steps. Each step has a type that determines what ha
 | `worker` | Spawns a Claude Code session to do work (plan, implement, research, etc.) |
 | `gate` | Runs quality checks (tests, lint, diff size, commit format) |
 | `merge` | Pushes the branch, creates a PR, monitors CI, auto-merges |
+| `review` | Spawns an adversarial reviewer session that critiques a plan and writes a verdict |
+| `verdict` | Waits for a maintainer decision on an external PR (approve/reject/revise) |
 
 Steps connect via transitions: `on_success` (what happens when the step passes) and `on_failure` (what happens when it fails).
 
@@ -55,10 +57,13 @@ paths:
 
 When using string shorthand, Grove infers the step type from the name:
 
-| Step name contains | Inferred type |
-|-------------------|---------------|
+| Step name | Inferred type |
+|-----------|---------------|
 | `merge` | `merge` |
 | `evaluate` | `gate` |
+| `ci-check` | `gate` |
+| `review` | `review` |
+| `verdict` | `verdict` |
 | Everything else | `worker` |
 
 So `steps: [plan, implement, evaluate, merge]` produces: worker → worker → gate → merge.
@@ -70,7 +75,7 @@ So `steps: [plan, implement, evaluate, merge]` produces: worker → worker → g
 | Field | Required | Description |
 |-------|:--------:|-------------|
 | `id` | Yes | Unique identifier within the path. Used for transition targets. |
-| `type` | No | `worker`, `gate`, or `merge`. Inferred from `id` if omitted. |
+| `type` | No | `worker`, `gate`, `merge`, `review`, or `verdict`. Inferred from `id` if omitted. |
 | `prompt` | No | Instructions passed to the Claude Code worker. Only used for `worker` steps. |
 | `label` | No | Display name shown in the GUI pipeline indicator. Auto-generated from `id` (capitalized) if omitted. |
 | `on_success` | No | Step ID to transition to on success. Defaults to the next step, or `$done` for the last step. |
@@ -90,8 +95,10 @@ When you omit `on_success` or `on_failure`, Grove fills in sensible defaults:
 | Step type | Default `on_failure` |
 |-----------|---------------------|
 | `gate` | Loops back to the nearest preceding `worker` step |
+| `review` | Loops back to the nearest preceding `worker` step |
 | `worker` | `$fail` (task fails) |
 | `merge` | `$fail` (task fails) |
+| `verdict` | `$fail` (task fails) |
 
 The gate-to-worker loop is the core retry mechanism: when tests fail, the evaluator sends the task back to the worker with feedback, and the worker gets another chance to fix it.
 
@@ -167,6 +174,22 @@ plan ──▶ implement ──▶ evaluate ──▶ publish ──▶ $done
 ```
 
 Similar to `development` but uses a `publish` step instead of `merge` — semantically indicating the output is content rather than code.
+
+### `adversarial`
+
+For tasks requiring rigorous plan review before implementation:
+
+```
+plan ──▶ review ──▶ implement ──▶ evaluate ──▶ merge ──▶ $done
+  ▲        │                        │
+  └── reject                        └── fail ──▶ implement (retry)
+```
+
+- **plan**: Worker creates a detailed implementation plan
+- **review**: Adversarial reviewer critiques the plan (up to 3 review rounds)
+- **implement**: Worker implements the approved plan
+- **evaluate**: Gate runs tests, lint, diff size checks
+- **merge**: Push, PR, CI, auto-merge
 
 ---
 

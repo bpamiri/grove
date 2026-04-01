@@ -651,6 +651,8 @@ All endpoints are served by the broker at `http://localhost:{port}`. Remote acce
 | POST | `/api/trees` | Register a tree. Body: `{ path, id?, github?, branch_prefix? }` |
 | GET | `/api/trees/:id/issues` | Fetch open GitHub issues for a tree (proxies `gh issue list`) |
 | POST | `/api/trees/:id/import-issues` | Create draft tasks from open GitHub issues. Skips already-imported issues. |
+| POST | `/api/trees/:id/rescan` | Re-detect GitHub remote for a tree |
+| POST | `/api/trees/:id/import-prs` | Import contributed PRs as draft tasks |
 
 ### Tasks
 
@@ -663,6 +665,8 @@ All endpoints are served by the broker at `http://localhost:{port}`. Remote acce
 | POST | `/api/tasks/:id/retry` | Re-dispatch a failed task (increments retry count, preserves worktree) |
 | POST | `/api/tasks/:id/resume` | Resume at current or specific step. Body: `{ step? }`. Resets retry count. |
 | GET | `/api/tasks/:id/activity` | Recent tool-use activity parsed from the worker's stream-json log (last 100 entries) |
+| POST | `/api/tasks/:id/verdict` | Submit maintainer verdict on an external PR |
+| GET | `/api/tasks/:id/activity/live` | Ring buffer catch-up for real-time activity stream |
 
 ### Seeds
 
