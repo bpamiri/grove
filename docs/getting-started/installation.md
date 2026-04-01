@@ -77,7 +77,7 @@ bun run dev -- help
 ## Verify Installation
 
 ```bash
-grove --version    # Should print: grove 0.1.26
+grove --version    # Should print the current version
 grove help         # Shows all commands
 ```
 
