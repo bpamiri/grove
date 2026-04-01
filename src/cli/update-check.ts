@@ -3,6 +3,7 @@ import { GROVE_VERSION } from "../shared/types";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
+import { groveHome } from "../shared/platform";
 
 const GITHUB_REPO = "bpamiri/grove";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -53,12 +54,8 @@ interface UpdateCache {
   latest_version: string;
 }
 
-function getGroveHome(): string {
-  return process.env.GROVE_HOME || join(process.env.HOME || "~", ".grove");
-}
-
 function getCachePath(): string {
-  return join(getGroveHome(), "update-check.json");
+  return join(groveHome(), "update-check.json");
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -98,8 +95,8 @@ export async function checkForUpdate(): Promise<void> {
       const release = await fetchLatestVersion();
       latestVersion = release.version;
 
-      const groveHome = getGroveHome();
-      if (!existsSync(groveHome)) mkdirSync(groveHome, { recursive: true });
+      const groveDir = groveHome();
+      if (!existsSync(groveDir)) mkdirSync(groveDir, { recursive: true });
 
       writeFileSync(cachePath, JSON.stringify({
         checked_at: new Date().toISOString(),

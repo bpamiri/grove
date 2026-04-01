@@ -3,6 +3,7 @@ import { Database as SQLiteDB } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Tree, Task, Session, GroveEvent, Message } from "../shared/types";
+import { groveHome } from "../shared/platform";
 
 export class Database {
   private db: SQLiteDB;
@@ -536,7 +537,7 @@ export class Database {
 let _db: Database | null = null;
 
 export function getEnv() {
-  const GROVE_HOME = process.env.GROVE_HOME || join(process.env.HOME || "~", ".grove");
+  const GROVE_HOME = groveHome();
   const GROVE_DB = join(GROVE_HOME, "grove.db");
   const GROVE_CONFIG = join(GROVE_HOME, "grove.yaml");
   const GROVE_LOG_DIR = join(GROVE_HOME, "logs");

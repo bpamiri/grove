@@ -1,6 +1,7 @@
 // grove trees — List configured trees / grove tree add <path>
 import { existsSync } from "node:fs";
 import { resolve, basename } from "node:path";
+import { homedir } from "node:os";
 import pc from "picocolors";
 import { loadConfig, configTrees, configSet, reloadConfig } from "../../broker/config";
 import { expandHome } from "../../shared/worktree";
@@ -95,7 +96,7 @@ async function addTree(args: string[]) {
   }
 
   // Use ~ path if under home directory for portability
-  const home = process.env.HOME || "";
+  const home = homedir();
   const storedPath = treePath.startsWith(home) ? `~${treePath.slice(home.length)}` : treePath;
 
   // Write to config

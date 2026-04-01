@@ -4,6 +4,7 @@ import pc from "picocolors";
 import { GROVE_VERSION } from "../shared/types";
 
 const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void> }>> = {
+  _guard: () => import("./commands/_guard"),
   init:   () => import("./commands/init"),
   up:     () => import("./commands/up"),
   down:   () => import("./commands/down"),
