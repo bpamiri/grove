@@ -120,13 +120,15 @@ paths:
 | `worker` | Spawns a Claude Code worker session to execute the step. |
 | `gate` | Runs quality evaluation (tests, lint, diff size) against the current state. |
 | `merge` | Pushes the branch, creates a PR, monitors CI, and auto-merges on green. |
+| `review` | Spawns an adversarial reviewer session that critiques a plan and writes a verdict. |
+| `verdict` | Waits for a maintainer decision on an external PR (approve/reject/revise). |
 
 **Step fields:**
 
 | Field | Description |
 |-------|-------------|
 | `id` | Unique identifier for the step within the path. |
-| `type` | `worker`, `gate`, or `merge`. Inferred from `id` if omitted. |
+| `type` | `worker`, `gate`, `merge`, `review`, or `verdict`. Inferred from `id` if omitted. |
 | `prompt` | Instructions passed to the worker (worker steps only). |
 | `label` | Display name shown in the GUI pipeline indicator. Auto-generated from `id` (capitalized) if omitted. |
 | `on_success` | Step ID to transition to on success. Defaults to the next step, or `$done` for the last step. |
@@ -142,6 +144,7 @@ paths:
 | `development` | plan -> implement -> evaluate -> merge | Standard dev workflow with QA gate |
 | `research` | plan -> research -> report | Research task, no code changes |
 | `content` | plan -> implement -> evaluate -> publish | Documentation and content creation |
+| `adversarial` | plan -> review -> implement -> evaluate -> merge | Adversarial planning with review loop |
 
 See [Custom Paths](custom-paths.md) for the full guide on defining pipelines, step types, transitions, type inference, and retry behavior.
 
