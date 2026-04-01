@@ -1,6 +1,31 @@
 # Changelog
 
 
+## v0.1.28
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.27...v0.1.28)
+
+### 🚀 Enhancements
+
+- Add cross-platform helpers (platform.ts) ([#115](https://github.com/bpamiri/grove/pull/115))
+- Add grove _guard subcommand for cross-platform sandbox hooks (#115, #119) ([#115](https://github.com/bpamiri/grove/issues/115), [#119](https://github.com/bpamiri/grove/issues/119))
+
+### 💅 Refactors
+
+- Sandbox hooks emit grove _guard commands instead of bash (#115, #119) ([#115](https://github.com/bpamiri/grove/issues/115), [#119](https://github.com/bpamiri/grove/issues/119))
+- Replace POSIX assumptions with platform helpers ([#115](https://github.com/bpamiri/grove/pull/115))
+
+### 📖 Documentation
+
+- Add design spec for Windows compat + sandbox hardening (#115, #119) ([#115](https://github.com/bpamiri/grove/issues/115), [#119](https://github.com/bpamiri/grove/issues/119))
+- Add implementation plan for Windows compat + sandbox hardening (#115, #119) ([#115](https://github.com/bpamiri/grove/issues/115), [#119](https://github.com/bpamiri/grove/issues/119))
+- Add CONTRIBUTING.md for new contributors ([8a175d3](https://github.com/bpamiri/grove/commit/8a175d3))
+- Add Windows installation instructions ([#116](https://github.com/bpamiri/grove/pull/116))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.27
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.26...v0.1.27)
