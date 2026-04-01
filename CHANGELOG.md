@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.29
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.28...v0.1.29)
+
+### 📖 Documentation
+
+- Add troubleshooting guide and plugin development guide (#117, #118) ([#117](https://github.com/bpamiri/grove/issues/117), [#118](https://github.com/bpamiri/grove/issues/118))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.28
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.27...v0.1.28)
