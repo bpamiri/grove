@@ -62,6 +62,7 @@ export interface Status {
 // Activity messages per task (transient, not from DB)
 const taskActivity = new Map<string, string>();
 const taskActivityLog = new Map<string, Array<{ ts: number; msg: string; kind?: string }>>();
+const activityLogFetched = new Set<string>();
 const MAX_LOG_ENTRIES = 200;
 
 export function useTasks() {
@@ -156,6 +157,19 @@ export function useTasks() {
         setTasks(prev => [...prev]);
         break;
       }
+      case "agent:cost": {
+        const tid = msg.data.taskId;
+        if (tid === "orchestrator") break;
+        const costMsg = `cost: $${msg.data.costUsd?.toFixed(2) ?? "?"} (${msg.data.tokens ?? 0} tokens)`;
+        if (!taskActivityLog.has(tid)) taskActivityLog.set(tid, []);
+        const clog = taskActivityLog.get(tid)!;
+        clog.push({ ts: msg.data.ts ?? Date.now(), msg: costMsg, kind: "cost" });
+        if (clog.length > MAX_LOG_ENTRIES) clog.shift();
+        setTasks(prev => [...prev]);
+        // Also refresh to update cost_usd on the task object
+        refresh();
+        break;
+      }
       case "worker:spawned":
       case "worker:ended":
       case "cost:updated":
@@ -170,19 +184,26 @@ export function useTasks() {
 
   /** Fetch activity from live ring buffer first, then fall back to historical log */
   const loadActivityLog = useCallback(async (taskId: string) => {
-    if (taskActivityLog.has(taskId) && taskActivityLog.get(taskId)!.length > 0) return;
+    if (activityLogFetched.has(taskId)) return;
+    activityLogFetched.add(taskId);
     try {
       // Try live ring buffer first (for active tasks)
-      const liveEntries = await api<Array<{ type: string; taskId: string; tool?: string; input?: string; snippet?: string; content?: string; ts?: number }>>(`/api/tasks/${taskId}/activity/live`);
+      const liveEntries = await api<Array<{ type: string; taskId: string; tool?: string; input?: string; snippet?: string; content?: string; costUsd?: number; tokens?: number; ts?: number }>>(`/api/tasks/${taskId}/activity/live`);
       if (liveEntries.length > 0) {
-        const log = liveEntries.map(e => {
+        const fetched = liveEntries.map(e => {
           const ts = e.ts ?? Date.now();
           if (e.type === "agent:tool_use") return { ts, msg: `${e.tool}: ${e.input}`, kind: "tool" as const };
           if (e.type === "agent:thinking") return { ts, msg: `thinking: ${e.snippet}`, kind: "thinking" as const };
           if (e.type === "agent:text") return { ts, msg: e.content ?? "", kind: "text" as const };
+          if (e.type === "agent:cost") return { ts, msg: `cost: $${e.costUsd?.toFixed(2) ?? "?"} (${e.tokens ?? 0} tokens)`, kind: "cost" as const };
           return { ts, msg: `${e.type}` };
         });
-        taskActivityLog.set(taskId, log);
+        // Merge with any live WS events already in the log, deduplicating by timestamp
+        const existing = taskActivityLog.get(taskId) ?? [];
+        const existingTs = new Set(existing.map(e => e.ts));
+        const merged = [...fetched.filter(e => !existingTs.has(e.ts)), ...existing].sort((a, b) => a.ts - b.ts);
+        if (merged.length > MAX_LOG_ENTRIES) merged.splice(0, merged.length - MAX_LOG_ENTRIES);
+        taskActivityLog.set(taskId, merged);
         setTasks(prev => [...prev]);
         return;
       }
