@@ -87,6 +87,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     treePath: tree.path,
     branch,
     pathName: task.path_name,
+    workerInstructions: treeConfig.worker_instructions,
     sessionSummary: priorSummary,
     filesModified: task.files_modified,
     stepPrompt,

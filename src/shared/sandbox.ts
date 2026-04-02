@@ -40,6 +40,7 @@ export interface OverlayContext {
   treePath: string;
   branch?: string | null;
   pathName?: string;
+  workerInstructions?: string | null;
   sessionSummary?: string | null;
   filesModified?: string | null;
   stepPrompt?: string;
@@ -91,6 +92,12 @@ export function buildOverlay(ctx: OverlayContext): string {
   if (ctx.pathName) {
     parts.push("### Workflow");
     parts.push(`This task follows the **${ctx.pathName}** path.`);
+    parts.push("");
+  }
+
+  if (ctx.workerInstructions) {
+    parts.push("### Worker Instructions");
+    parts.push(ctx.workerInstructions);
     parts.push("");
   }
 
