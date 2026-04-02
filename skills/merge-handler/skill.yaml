@@ -1,0 +1,7 @@
+name: merge-handler
+version: 1.0.0
+description: Push branch, create PR, monitor CI, merge on green
+author: grove
+suggested_steps: [merge]
+files:
+  - skill.md
