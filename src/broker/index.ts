@@ -100,6 +100,14 @@ export async function startBroker(): Promise<BrokerInfo> {
     console.log(`  Plugins: ${loadedPlugins.map(p => p.name).join(", ")}`);
   }
 
+  // Bootstrap bundled skills if not already installed
+  try {
+    const { bootstrapBundledSkills } = await import("../skills/library");
+    bootstrapBundledSkills();
+  } catch (err) {
+    console.warn("[skills] Failed to bootstrap bundled skills:", err);
+  }
+
   // Initialize adapter registry
   adapterRegistry = new AdapterRegistry();
   adapterRegistry.register(new ClaudeCodeAdapter());

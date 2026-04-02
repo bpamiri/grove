@@ -1,5 +1,5 @@
 import { readdirSync, existsSync, mkdirSync, cpSync, rmSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { parse as parseYaml } from "yaml";
@@ -116,5 +116,46 @@ export function removeSkill(name: string, dir?: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Copy bundled skills from the grove repo into ~/.grove/skills/ if not already present */
+export function bootstrapBundledSkills(): void {
+  // The bundled skills are in the repo at <project-root>/skills/
+  // We need to find that directory relative to this module's location.
+  // In the compiled binary, this path will be different from development.
+
+  // Try multiple strategies to find the bundled skills directory:
+  // 1. Relative to the module (development): ../../skills/
+  // 2. Via GROVE_BUNDLED_SKILLS env var (for compiled binary)
+
+  const candidates = [
+    join(dirname(dirname(__dirname)), "skills"),  // development: src/skills/library.ts → ../../skills/
+    process.env.GROVE_BUNDLED_SKILLS,
+  ].filter(Boolean) as string[];
+
+  let bundledDir: string | null = null;
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      bundledDir = candidate;
+      break;
+    }
+  }
+
+  if (!bundledDir) return;
+
+  const targetDir = skillsDir();
+  mkdirSync(targetDir, { recursive: true });
+
+  for (const entry of readdirSync(bundledDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const targetSkill = join(targetDir, entry.name);
+    if (existsSync(targetSkill)) continue; // Don't overwrite user customizations
+
+    const srcSkill = join(bundledDir, entry.name);
+    if (!existsSync(join(srcSkill, "skill.yaml"))) continue;
+
+    cpSync(srcSkill, targetSkill, { recursive: true });
+    console.log(`[skills] Installed bundled skill: ${entry.name}`);
   }
 }
