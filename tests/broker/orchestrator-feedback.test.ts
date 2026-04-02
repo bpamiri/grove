@@ -3,25 +3,27 @@ import { bus } from "../../src/broker/event-bus";
 import { createTestDb } from "../fixtures/helpers";
 import type { Database } from "../../src/broker/db";
 
-// Capture orchestrator.sendMessage calls
+// Capture orchestrator.sendMessage calls.
+// Spread the real module so mock.module doesn't break other test files
+// that import the same module in the same bun process (mock.module is global).
 const sentMessages: string[] = [];
+const realOrchestrator = await import("../../src/agents/orchestrator");
 mock.module("../../src/agents/orchestrator", () => ({
-  init: () => {},
+  ...realOrchestrator,
   sendMessage: (text: string) => { sentMessages.push(text); },
-  resetSession: () => {},
   isRunning: () => false,
-  stop: () => {},
   getSessionId: () => null,
 }));
 
-// Allow dynamic control of the proactive setting
+// Allow dynamic control of the proactive setting while preserving all other exports.
 let proactiveValue: boolean | undefined = true;
+const realConfig = await import("../../src/broker/config");
 mock.module("../../src/broker/config", () => ({
+  ...realConfig,
   settingsGet: (key: string) => {
     if (key === "proactive") return proactiveValue;
-    return undefined;
+    return realConfig.settingsGet(key as any);
   },
-  loadConfig: () => ({}),
 }));
 
 // Import after mocks are set up
