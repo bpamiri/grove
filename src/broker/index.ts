@@ -17,6 +17,7 @@ import { generateSubdomain, generateSecret } from "./subdomain";
 import { registerGrove, startHeartbeat, stopHeartbeat, deregisterGrove } from "./registry";
 import { wireNotifications } from "../notifications/index";
 import { wireGitHubSync } from "./github-sync";
+import { wireOrchestratorFeedback, unwireOrchestratorFeedback } from "./orchestrator-feedback";
 import { startPrPoller, stopPrPoller } from "../pr/poller";
 import { PluginHost } from "../plugins/host";
 import { setAdapterRegistry } from "../agents/worker";
@@ -136,8 +137,9 @@ export async function startBroker(): Promise<BrokerInfo> {
   // Start PR poller (polls GitHub for new PRs per tree)
   startPrPoller(db);
 
-  // Initialize orchestrator
+  // Initialize orchestrator and wire event feedback loop
   orchestrator.init(db);
+  wireOrchestratorFeedback(db);
 
   // Start tunnel (if configured)
   let tunnelUrl: string | null = null;
@@ -222,6 +224,7 @@ export async function startBroker(): Promise<BrokerInfo> {
       }).catch(() => {});
     }
     tunnel?.stop();
+    unwireOrchestratorFeedback();
     orchestrator.stop(db);
     stopServer();
     db.addEvent(null, null, "broker_stopped", "Broker stopped");

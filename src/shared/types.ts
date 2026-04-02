@@ -211,6 +211,7 @@ export interface SettingsConfig {
   stall_timeout_minutes: number;
   max_retries: number;
   default_adapter?: string;
+  proactive?: boolean;
   quality_gates?: QualityGatesConfig;
 }
 
@@ -413,4 +414,5 @@ export const DEFAULT_SETTINGS: SettingsConfig = {
   branch_prefix: "grove/",
   stall_timeout_minutes: 5,
   max_retries: 2,
+  proactive: true,
 };
