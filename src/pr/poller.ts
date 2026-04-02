@@ -70,7 +70,7 @@ export function startPrPoller(db: Database): void {
       if (!config) continue;
 
       try {
-        const { ghPrList } = await import("../merge/github");
+        const { ghPrList } = await import("../shared/github");
         const prs = ghPrList(tree.github!, { state: "open", limit: 50 });
         const external = filterExternalPRs(prs, tree.branch_prefix);
 

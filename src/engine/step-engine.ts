@@ -286,7 +286,7 @@ export function wireStepEngine(db: Database): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch execution based on step type (worker, gate, merge).
+ * Dispatch execution based on step type (worker, verdict).
  * Uses dynamic imports to avoid circular dependencies.
  */
 async function executeStep(
@@ -324,28 +324,6 @@ async function executeStep(
       const { getEnv } = await import("../broker/db");
       const logDir = getEnv().GROVE_LOG_DIR;
       spawnWorker(task, tree, db, logDir, step);
-      break;
-    }
-
-    case "gate": {
-      const { evaluate } = await import("../agents/evaluator");
-      const result = await evaluate(task, tree, db);
-      const gateOutcome = result.passed ? "success" : (result.fatal ? "fatal" : "failure");
-      onStepComplete(task.id, gateOutcome, result.feedback);
-      break;
-    }
-
-    case "review": {
-      const { spawnReviewer } = await import("../agents/reviewer");
-      const { getEnv } = await import("../broker/db");
-      const logDir = getEnv().GROVE_LOG_DIR;
-      spawnReviewer(task, tree, db, logDir, step.prompt, step.max_retries);
-      break;
-    }
-
-    case "merge": {
-      const { queueMerge } = await import("../merge/manager");
-      queueMerge(task, tree, db);
       break;
     }
 

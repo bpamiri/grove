@@ -50,7 +50,7 @@ export function createIssueForTask(
 
 /** Wire the event listener — call once at broker startup */
 export function wireGitHubSync(db: Database): void {
-  const { ghIssueCreate } = require("../merge/github");
+  const { ghIssueCreate } = require("../shared/github");
 
   bus.on("task:created", ({ task }) => {
     createIssueForTask(db, task.id, ghIssueCreate);

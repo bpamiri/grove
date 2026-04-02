@@ -177,7 +177,6 @@ export interface TreeConfig {
   default_branch?: string; // e.g. "develop", "main" — branch to fork worktrees from
   default_path?: string;   // e.g. "adversarial", "content" — default path for new tasks in this tree
   worker_instructions?: string; // multiline string injected into worker CLAUDE.md overlay
-  quality_gates?: QualityGatesConfig;
 }
 
 export interface PathConfig {
@@ -212,7 +211,6 @@ export interface SettingsConfig {
   max_retries: number;
   default_adapter?: string;
   proactive?: boolean;
-  quality_gates?: QualityGatesConfig;
 }
 
 export type NotificationEventName =
@@ -258,20 +256,6 @@ export interface GroveConfig {
   tunnel: TunnelConfig;
   settings: SettingsConfig;
   notifications?: NotificationsConfig;
-}
-
-export interface QualityGatesConfig {
-  commits?: boolean;
-  tests?: boolean;
-  lint?: boolean;
-  diff_size?: boolean;
-  min_diff_lines?: number;
-  max_diff_lines?: number;
-  test_timeout?: number;
-  lint_timeout?: number;
-  test_command?: string;  // e.g. "npm test", "pytest", "wheels test run"
-  lint_command?: string;  // e.g. "npx eslint .", "ruff check ."
-  base_ref?: string;      // git ref to diff against (default: auto-detect origin/main or main)
 }
 
 export interface PipelineStep {

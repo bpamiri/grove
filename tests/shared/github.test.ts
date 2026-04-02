@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { resolveCheckState, resolveMergeableState, isTrivialConflict, TRIVIAL_CONFLICT_PATTERNS } from "../../src/merge/github";
+import { resolveCheckState, resolveMergeableState, isTrivialConflict, TRIVIAL_CONFLICT_PATTERNS } from "../../src/shared/github";
 
 describe("resolveCheckState", () => {
   test("returns success when total is 0 (no CI checks configured)", () => {

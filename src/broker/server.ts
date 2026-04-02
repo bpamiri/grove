@@ -534,7 +534,7 @@ async function handleApi(
       if (!tree) return json({ error: "Tree not found" }, 404);
       if (!tree.github) return json([]);
       try {
-        const { ghIssueList } = await import("../merge/github");
+        const { ghIssueList } = await import("../shared/github");
         const issues = ghIssueList(tree.github, { state: "open", limit: 30 });
         return json(issues);
       } catch (err: any) {
@@ -556,7 +556,7 @@ async function handleApi(
       if (!tree.github) return json({ error: "No GitHub repo configured" }, 400);
 
       try {
-        const { ghIssueList } = await import("../merge/github");
+        const { ghIssueList } = await import("../shared/github");
         const issues = ghIssueList(tree.github, { state: "open", limit: 50 });
 
         // Sort by issue number ascending so tasks are created in chronological order
@@ -604,7 +604,7 @@ async function handleApi(
       if (!tree.github) return json({ error: "No GitHub repo configured" }, 400);
 
       try {
-        const { ghPrList } = await import("../merge/github");
+        const { ghPrList } = await import("../shared/github");
         const { filterExternalPRs, importPr } = await import("../pr/poller");
         const prs = ghPrList(tree.github, { state: "open", limit: 50 });
         const external = filterExternalPRs(prs, tree.branch_prefix);
@@ -723,7 +723,7 @@ async function handleApi(
         const tree = db.treeGet(updated.tree_id);
         if (tree?.github) {
           try {
-            const { ghIssueEdit } = await import("../merge/github");
+            const { ghIssueEdit } = await import("../shared/github");
             const editOpts: { title?: string; body?: string } = {};
             if ("title" in body) editOpts.title = String(body.title);
             if ("description" in body) editOpts.body = String(body.description ?? "");
@@ -773,7 +773,7 @@ async function handleApi(
       // Deferred GitHub issue creation: if task has a tree but no issue yet, create one now
       if (!task.github_issue && task.tree_id) {
         const { createIssueForTask } = await import("./github-sync");
-        const { ghIssueCreate } = await import("../merge/github");
+        const { ghIssueCreate } = await import("../shared/github");
         createIssueForTask(db, taskId, ghIssueCreate);
       }
 
@@ -927,7 +927,7 @@ async function handleApi(
 
       switch (action) {
         case "merge": {
-          const { ghPrMerge } = await import("../merge/github");
+          const { ghPrMerge } = await import("../shared/github");
           const merged = ghPrMerge(tree.github, task.source_pr);
           if (!merged) return json({ error: "Merge failed — PR may have conflicts" }, 500);
           db.run("UPDATE tasks SET status = 'completed', current_step = '$done', completed_at = datetime('now'), paused = 0 WHERE id = ?", [taskId]);
@@ -937,7 +937,7 @@ async function handleApi(
         }
 
         case "request_changes": {
-          const { ghPrReview } = await import("../merge/github");
+          const { ghPrReview } = await import("../shared/github");
           const posted = ghPrReview(tree.github, task.source_pr, {
             event: "REQUEST_CHANGES",
             body: comment ?? "Changes requested.",
@@ -949,7 +949,7 @@ async function handleApi(
         }
 
         case "close": {
-          const { ghPrClose } = await import("../merge/github");
+          const { ghPrClose } = await import("../shared/github");
           ghPrClose(tree.github, task.source_pr, comment);
           db.run("UPDATE tasks SET status = 'completed', current_step = '$done', completed_at = datetime('now'), paused = 0 WHERE id = ?", [taskId]);
           db.addEvent(taskId, null, "verdict_close", `Maintainer closed PR #${task.source_pr}`);
