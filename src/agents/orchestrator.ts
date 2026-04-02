@@ -36,7 +36,13 @@ export function init(db: Database): void {
 }
 
 /** Send a message to the orchestrator. Spawns or resumes as needed. */
-export function sendMessage(text: string, db: Database): void {
+export function sendMessage(text: string, db?: Database): void {
+  const resolvedDb = db ?? dbRef;
+  if (!resolvedDb) {
+    console.warn(`[orchestrator] sendMessage called before init, dropping: ${text.slice(0, 100)}`);
+    return;
+  }
+
   if (!session) {
     session = {
       sessionId: crypto.randomUUID(),
@@ -54,7 +60,7 @@ export function sendMessage(text: string, db: Database): void {
     return;
   }
 
-  dispatchMessage(text, db);
+  dispatchMessage(text, resolvedDb);
 }
 
 /** Reset the orchestrator session (user-initiated "New Session") */
