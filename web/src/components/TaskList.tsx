@@ -53,6 +53,17 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
     return (allTasks ?? tasks).filter(t => t.tree_id === selectedTree && t.status === "draft").length;
   }, [selectedTree, allTasks, tasks]);
 
+  // Compute per-status counts for filter tabs (scoped to selectedTree if set)
+  const filterCounts = useMemo(() => {
+    const src = (allTasks ?? tasks).filter(t => !selectedTree || t.tree_id === selectedTree);
+    return {
+      all: src.length,
+      active: src.filter(t => ["draft", "queued", "active"].includes(t.status)).length,
+      failed: src.filter(t => t.status === "failed").length,
+      done: src.filter(t => t.status === "completed").length,
+    };
+  }, [allTasks, tasks, selectedTree]);
+
   useEffect(() => {
     if (wsMessage) seedState.handleWsMessage(wsMessage);
   }, [wsMessage, seedState.handleWsMessage]);
@@ -136,19 +147,27 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
           >
             + New
           </button>
-          {(["all", "active", "failed", "done"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => onFilterChange(f)}
-              className={`px-3 py-1 rounded-full capitalize ${
-                filter === f
-                  ? "bg-emerald-400/15 text-emerald-400"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+          {(["all", "active", "failed", "done"] as const).map((f) => {
+            const count = filterCounts[f];
+            const isFailedAlert = f === "failed" && filterCounts.failed > 0 && filter !== "failed";
+            return (
+              <button
+                key={f}
+                onClick={() => onFilterChange(f)}
+                className={`px-3 py-1 rounded-full capitalize ${
+                  filter === f
+                    ? "bg-emerald-400/15 text-emerald-400"
+                    : isFailedAlert
+                      ? "text-red-400 bg-red-400/15"
+                      : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {f}
+                <span className="ml-1 text-[10px] opacity-70">({count})</span>
+                {isFailedAlert && <span className="ml-1 text-red-400 animate-pulse">●</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
 
