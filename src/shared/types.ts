@@ -348,7 +348,7 @@ export interface EventBusMap {
 // Constants
 // ---------------------------------------------------------------------------
 
-export const GROVE_VERSION = "0.1.31";
+export const GROVE_VERSION = "0.2.0";
 
 export const DEFAULT_PATHS: Record<string, PathConfig> = {
   development: {
