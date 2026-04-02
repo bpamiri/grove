@@ -1,6 +1,6 @@
 // Grove v3 — Orchestrator event feedback loop
-// Subscribes to pipeline lifecycle events and injects concise, actionable status
-// messages into the orchestrator's message queue so it can react to outcomes.
+// Subscribes to pipeline lifecycle events and sends concise, actionable status
+// messages to the orchestrator via sendMessage() so it can react to outcomes.
 // Gated by `settings.proactive` in grove.yaml (default: true).
 import { bus } from "./event-bus";
 import { settingsGet } from "./config";
@@ -12,15 +12,29 @@ const _unsubs: Array<() => void> = [];
 
 /** Check whether feedback is enabled (settings.proactive). */
 function isProactive(): boolean {
-  return settingsGet("proactive") !== false;
+  try {
+    return settingsGet("proactive") !== false;
+  } catch {
+    return true; // Default to proactive if config is unreadable
+  }
 }
 
-/** Look up a task title for context-rich messages. Returns "taskId" if not found. */
+/** Look up a task title for context-rich messages. Returns the raw taskId string if not found. */
 function taskLabel(taskId: string): string {
   if (!_db) return taskId;
   const task = _db.taskGet(taskId);
   if (!task) return taskId;
   return `${task.id} ("${task.title}")`;
+}
+
+/** Send a message to the orchestrator, catching errors to avoid crashing event handlers. */
+function safeSend(message: string, context: string): void {
+  try {
+    orchestrator.sendMessage(message);
+  } catch (err) {
+    console.error(`[orchestrator-feedback] Failed to send ${context}:`, err);
+    try { _db?.addEvent(null, null, "feedback_send_failed", `${context}: ${err}`); } catch {}
+  }
 }
 
 /**
@@ -35,13 +49,14 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("worker:ended", ({ taskId, status }) => {
       if (!isProactive()) return;
-      // "done" status is handled by the step engine (eval/merge pipeline).
-      // Only notify for unexpected failures.
+      // "done" means the worker completed its implementation step successfully —
+      // the step engine will advance the pipeline. Notify for all other exits.
       if (status === "done") return;
 
-      orchestrator.sendMessage(
+      safeSend(
         `[event] Worker for ${taskLabel(taskId)} exited with status "${status}". ` +
         `The step engine will handle retries if configured. Review if this is unexpected.`,
+        "worker:ended",
       );
     }),
   );
@@ -52,8 +67,9 @@ export function wireOrchestratorFeedback(db: Database): void {
     bus.on("eval:passed", ({ taskId, feedback }) => {
       if (!isProactive()) return;
       const extra = feedback ? ` Feedback: ${feedback}` : "";
-      orchestrator.sendMessage(
-        `[event] ${taskLabel(taskId)} passed evaluation — queued for merge.${extra}`,
+      safeSend(
+        `[event] ${taskLabel(taskId)} passed evaluation — advancing to next pipeline step.${extra}`,
+        "eval:passed",
       );
     }),
   );
@@ -65,9 +81,10 @@ export function wireOrchestratorFeedback(db: Database): void {
       const retryInfo = task
         ? ` (retry ${task.retry_count}/${task.max_retries})`
         : "";
-      orchestrator.sendMessage(
+      safeSend(
         `[event] ${taskLabel(taskId)} failed evaluation${retryInfo}. ` +
         `Failures: ${feedback}. Step engine will auto-retry if retries remain.`,
+        "eval:failed",
       );
     }),
   );
@@ -77,9 +94,10 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("review:rejected", ({ taskId, feedback }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[event] ${taskLabel(taskId)} review rejected. Feedback: ${feedback}. ` +
         `Should I restructure the approach or address the feedback directly?`,
+        "review:rejected",
       );
     }),
   );
@@ -87,8 +105,9 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("review:approved", ({ taskId }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[event] ${taskLabel(taskId)} review approved — proceeding to next step.`,
+        "review:approved",
       );
     }),
   );
@@ -98,8 +117,9 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("merge:pr_created", ({ taskId, prNumber, prUrl }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[event] PR #${prNumber} created for ${taskLabel(taskId)}. URL: ${prUrl}`,
+        "merge:pr_created",
       );
     }),
   );
@@ -107,9 +127,10 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("merge:ci_failed", ({ taskId, prNumber }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[event] CI failed on PR #${prNumber} for ${taskLabel(taskId)}. ` +
         `Review the CI logs and decide: retry the worker, or escalate to the user.`,
+        "merge:ci_failed",
       );
     }),
   );
@@ -117,13 +138,14 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("merge:completed", ({ taskId, prNumber }) => {
       if (!isProactive()) return;
-      const unblocked = db.getNewlyUnblocked(taskId);
+      const unblocked = _db?.getNewlyUnblocked(taskId) ?? [];
       const unblockedInfo = unblocked.length > 0
         ? ` ${unblocked.length} task(s) now unblocked: ${unblocked.map(t => t.id).join(", ")}.`
         : "";
-      orchestrator.sendMessage(
+      safeSend(
         `[event] ${taskLabel(taskId)} merged (PR #${prNumber}).${unblockedInfo}` +
         ` Plan next steps if needed.`,
+        "merge:completed",
       );
     }),
   );
@@ -137,9 +159,10 @@ export function wireOrchestratorFeedback(db: Database): void {
         const task = _db?.taskGet(taskId);
         const stepInfo = task?.current_step ? ` at step "${task.current_step}"` : "";
         const retryInfo = task ? ` after ${task.retry_count} retries` : "";
-        orchestrator.sendMessage(
+        safeSend(
           `[event] ${taskLabel(taskId)} failed${stepInfo}${retryInfo}. ` +
           `Retries exhausted — please review and decide how to proceed.`,
+          "task:status:failed",
         );
       }
     }),
@@ -150,9 +173,10 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("cost:budget_warning", ({ current, limit, period }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[budget] Warning: $${current.toFixed(2)}/$${limit.toFixed(2)} spent this ${period}. ` +
         `Consider pausing non-critical tasks.`,
+        "cost:budget_warning",
       );
     }),
   );
@@ -160,9 +184,10 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("cost:budget_exceeded", ({ current, limit, period }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[budget] EXCEEDED: $${current.toFixed(2)}/$${limit.toFixed(2)} this ${period}. ` +
         `Worker spawning is paused. Waiting for user decision.`,
+        "cost:budget_exceeded",
       );
     }),
   );
@@ -172,9 +197,10 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("monitor:stall", ({ taskId, inactiveMinutes }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[health] ${taskLabel(taskId)} worker stalled — no activity for ${inactiveMinutes} minutes. ` +
         `Should I restart it?`,
+        "monitor:stall",
       );
     }),
   );
@@ -182,9 +208,10 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("monitor:crash", ({ taskId }) => {
       if (!isProactive()) return;
-      orchestrator.sendMessage(
+      safeSend(
         `[health] ${taskLabel(taskId)} worker crashed. ` +
         `The step engine may auto-retry. Investigate if this recurs.`,
+        "monitor:crash",
       );
     }),
   );

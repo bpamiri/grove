@@ -72,6 +72,15 @@ describe("worker:ended", () => {
     bus.emit("worker:ended", { taskId: "W-001", sessionId: "s1", status: "done" });
     expect(sentMessages).toHaveLength(0);
   });
+
+  test("uses raw taskId when task is not in DB", () => {
+    bus.emit("worker:ended", { taskId: "W-999", sessionId: "s1", status: "crashed" });
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toContain("W-999");
+    // Should not contain a title in parens since task doesn't exist
+    expect(sentMessages[0]).not.toContain('("');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -91,6 +100,19 @@ describe("eval:passed", () => {
     expect(sentMessages[0]).toContain("W-002");
     expect(sentMessages[0]).toContain("passed evaluation");
     expect(sentMessages[0]).toContain("All gates green");
+  });
+
+  test("omits feedback clause when no feedback provided", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-002", "main-tree", "Add search", "active"],
+    );
+
+    bus.emit("eval:passed", { taskId: "W-002" });
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).not.toContain("Feedback:");
+    expect(sentMessages[0]).not.toContain("undefined");
   });
 });
 
@@ -191,6 +213,23 @@ describe("merge:completed", () => {
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0]).toContain("merged");
     expect(sentMessages[0]).toContain("PR #60");
+  });
+
+  test("includes unblocked task IDs when dependencies are resolved", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-008", "main-tree", "Feature Y", "completed"],
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status, depends_on) VALUES (?, ?, ?, ?, ?)",
+      ["W-020", "main-tree", "Depends on Y", "draft", "W-008"],
+    );
+
+    bus.emit("merge:completed", { taskId: "W-008", prNumber: 60 });
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toContain("1 task(s) now unblocked");
+    expect(sentMessages[0]).toContain("W-020");
   });
 });
 
@@ -322,6 +361,26 @@ describe("proactive gating", () => {
     proactiveValue = true;
     bus.emit("eval:passed", { taskId: "W-001" });
     expect(sentMessages).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error resilience
+// ---------------------------------------------------------------------------
+
+describe("safeSend error handling", () => {
+  test("degrades gracefully with missing task data", () => {
+    // Events for tasks that don't exist in the DB — exercises the _db?.taskGet
+    // fallback paths and verifies nothing crashes.
+    bus.emit("eval:failed", { taskId: "NONEXISTENT", feedback: "boom" });
+    bus.emit("task:status", { taskId: "NONEXISTENT", status: "failed" });
+    bus.emit("merge:completed", { taskId: "NONEXISTENT", prNumber: 99 });
+
+    // All messages should have been sent (degraded labels but not crashed)
+    expect(sentMessages.length).toBeGreaterThanOrEqual(2);
+    // Messages use raw taskId since task is not in DB
+    expect(sentMessages[0]).toContain("NONEXISTENT");
+    expect(sentMessages[0]).not.toContain('("');
   });
 });
 
