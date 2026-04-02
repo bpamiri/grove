@@ -1,6 +1,29 @@
 # Changelog
 
 
+## v0.1.31
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.30...v0.1.31)
+
+### 🚀 Enhancements
+
+- (W-055) add grove watch headless mode for CI and scripted use ([f6b2ee3](https://github.com/bpamiri/grove/commit/f6b2ee3))
+- (W-056) add close/delete task actions to GUI ([11e645b](https://github.com/bpamiri/grove/commit/11e645b))
+- (W-052) add orchestrator event feedback loop ([fd46333](https://github.com/bpamiri/grove/commit/fd46333))
+
+### 🩹 Fixes
+
+- Spread real module exports in orchestrator-feedback test mocks ([d97d12a](https://github.com/bpamiri/grove/commit/d97d12a))
+- Address PR review — safeSend, dead code removal, test gaps ([5386389](https://github.com/bpamiri/grove/commit/5386389))
+
+### 📖 Documentation
+
+- (W-052) document proactive setting in configuration guide ([447123e](https://github.com/bpamiri/grove/commit/447123e))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.30
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.29...v0.1.30)
