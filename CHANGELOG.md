@@ -1,6 +1,27 @@
 # Changelog
 
 
+## v0.1.30
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.29...v0.1.30)
+
+### 🚀 Enhancements
+
+- (W-051) add WorkerActivityFeed live SAP event stream component ([a55da2d](https://github.com/bpamiri/grove/commit/a55da2d))
+- (W-053) add per-tree worker_instructions in grove.yaml ([a800380](https://github.com/bpamiri/grove/commit/a800380))
+- (W-054) add task outcome insights with cross-task pattern detection ([929a6c5](https://github.com/bpamiri/grove/commit/929a6c5))
+- (W-057) show task counts on status filter tabs with failed badge ([8ee357d](https://github.com/bpamiri/grove/commit/8ee357d))
+
+### 📖 Documentation
+
+- Add missing step types (review, verdict) and adversarial path ([#122](https://github.com/bpamiri/grove/pull/122))
+- Fix version numbers, add missing API endpoints ([#122](https://github.com/bpamiri/grove/pull/122))
+- Add missing CLI commands, batch flags, and update security guard hooks ([#122](https://github.com/bpamiri/grove/pull/122))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.29
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.28...v0.1.29)
