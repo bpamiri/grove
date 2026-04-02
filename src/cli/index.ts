@@ -13,6 +13,7 @@ const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void
   tree:   () => import("./commands/trees"),   // alias: grove tree add
   tasks:  () => import("./commands/tasks"),
   task:   () => import("./commands/tasks"),   // alias: grove task add
+  watch:  () => import("./commands/watch"),
   batch:  () => import("./commands/batch"),
   chat:   () => import("./commands/chat"),
   config:  () => import("./commands/config"),
@@ -62,6 +63,7 @@ ${pc.bold("Commands:")}
   ${pc.green("status")}    Show system status
   ${pc.green("trees")}     List configured trees (repos)
   ${pc.green("tasks")}     List tasks
+  ${pc.green("watch")}     Run headless — create, dispatch, stream, exit
   ${pc.green("batch")}     Analyze tasks, plan execution waves
   ${pc.green("chat")}      Send a message to the orchestrator
   ${pc.green("config")}    Manage config (version, validate, migrate)
