@@ -220,6 +220,7 @@ settings:
   stall_timeout_minutes: 5
   max_retries: 2
   default_adapter: claude-code
+  proactive: true
 ```
 
 | Field | Description |
@@ -229,6 +230,7 @@ settings:
 | `stall_timeout_minutes` | Health monitor flags a worker as stuck after this many minutes without output. |
 | `max_retries` | Number of times Grove will automatically retry a failed gate before surfacing the failure. |
 | `default_adapter` | Agent backend for workers. Options: `claude-code` (default), `codex-cli`, `aider`, `gemini-cli`. Overridable per tree or per task. |
+| `proactive` | When `true` (default), the orchestrator receives automatic event notifications — worker failures, evaluation results, merge outcomes, budget alerts, and health warnings. Set to `false` to suppress all event feedback; the orchestrator will only respond when prompted. |
 
 ---
 
