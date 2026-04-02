@@ -5,7 +5,7 @@ import { api } from "../api/client";
 // ---- Types ----
 
 export type TimeRange = "1h" | "4h" | "24h" | "7d";
-export type DashboardTab = "overview" | "costs" | "gates" | "activity" | "events";
+export type DashboardTab = "overview" | "costs" | "gates" | "activity" | "events" | "insights";
 
 export interface CostByTree {
   tree_name: string;
@@ -71,6 +71,52 @@ export interface UtilizationBucket {
   active_workers: number;
 }
 
+export interface FailingGate {
+  gate: string;
+  fail_count: number;
+  top_message: string;
+  top_message_count: number;
+}
+
+export interface RetriesByPath {
+  path_name: string;
+  task_count: number;
+  retried_count: number;
+  avg_retries: number;
+  max_retries: number;
+}
+
+export interface TreeFailureRate {
+  tree_id: string;
+  tree_name: string | null;
+  completed: number;
+  failed: number;
+  total: number;
+  success_rate: number;
+}
+
+export interface SuccessTrendDay {
+  date: string;
+  completed: number;
+  failed: number;
+  total: number;
+  success_rate: number;
+}
+
+export interface CommonFailure {
+  gate: string;
+  message: string;
+  count: number;
+}
+
+export interface InsightsData {
+  failing_gates: FailingGate[];
+  retries_by_path: RetriesByPath[];
+  tree_failure_rates: TreeFailureRate[];
+  success_trend: SuccessTrendDay[];
+  common_failures: CommonFailure[];
+}
+
 // WS event types that trigger a refresh in live mode
 const LIVE_EVENTS = new Set(["task:status", "cost:updated", "gate:result", "task:created", "worker:ended"]);
 
@@ -89,6 +135,7 @@ export function useAnalytics(
   const [gateData, setGateData] = useState<GateData | null>(null);
   const [timelineData, setTimelineData] = useState<TimelineData | null>(null);
   const [utilizationData, setUtilizationData] = useState<UtilizationBucket[] | null>(null);
+  const [insightsData, setInsightsData] = useState<InsightsData | null>(null);
   const [loading, setLoading] = useState(false);
   const lastWsMsgTs = useRef(0);
 
@@ -110,6 +157,10 @@ export function useAnalytics(
       if (tab === "activity") {
         const data = await api<UtilizationBucket[]>(`/api/analytics/utilization?range=${r}`);
         setUtilizationData(data);
+      }
+      if (tab === "insights") {
+        const data = await api<InsightsData>(`/api/analytics/insights?range=${r}`);
+        setInsightsData(data);
       }
     } catch {
       // API not available
@@ -137,5 +188,5 @@ export function useAnalytics(
     fetchTab(activeTab, range);
   }, [activeTab, range, fetchTab]);
 
-  return { costData, gateData, timelineData, utilizationData, loading, refresh };
+  return { costData, gateData, timelineData, utilizationData, insightsData, loading, refresh };
 }

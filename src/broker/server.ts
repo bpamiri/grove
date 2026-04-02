@@ -1040,6 +1040,19 @@ async function handleApi(
       return json(db.workerUtilization(range));
     }
 
+    // GET /api/analytics/insights?range=1h|4h|24h|7d — cross-task pattern insights
+    if (path === "/api/analytics/insights" && req.method === "GET") {
+      const url = new URL(req.url);
+      const since = rangeToSince(url.searchParams.get("range") ?? "7d");
+      return json({
+        failing_gates: db.insightsFailingGates(since),
+        retries_by_path: db.insightsRetriesByPath(since),
+        tree_failure_rates: db.insightsTreeFailureRates(since),
+        success_trend: db.insightsSuccessTrend(since),
+        common_failures: db.insightsCommonFailures(since),
+      });
+    }
+
     // GET /api/analytics/events — filtered event log
     if (path === "/api/analytics/events" && req.method === "GET") {
       const params = new URL(req.url).searchParams;

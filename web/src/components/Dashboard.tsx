@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAnalytics, type TimeRange, type DashboardTab, type CostData, type GateData, type TimelineData, type TimelineTask, type GateAnalytics, type UtilizationBucket } from "../hooks/useAnalytics";
+import { useAnalytics, type TimeRange, type DashboardTab, type CostData, type GateData, type TimelineData, type TimelineTask, type GateAnalytics, type UtilizationBucket, type InsightsData } from "../hooks/useAnalytics";
 import type { WsMessage } from "../hooks/useWebSocket";
 import type { Status } from "../hooks/useTasks";
 import ActivityTimeline from "./ActivityTimeline";
@@ -14,7 +14,7 @@ interface Props {
 export default function Dashboard({ wsMessages, status }: Props) {
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [range, setRange] = useState<TimeRange>("24h");
-  const { costData, gateData, timelineData, utilizationData, loading, refresh } = useAnalytics(range, activeTab, wsMessages);
+  const { costData, gateData, timelineData, utilizationData, insightsData, loading, refresh } = useAnalytics(range, activeTab, wsMessages);
 
   const isLive = range === "1h" || range === "4h";
 
@@ -62,6 +62,9 @@ export default function Dashboard({ wsMessages, status }: Props) {
           {activeTab === "events" && (
             <EventsTab />
           )}
+          {activeTab === "insights" && (
+            <InsightsTab data={insightsData} />
+          )}
         </>
       )}
     </div>
@@ -77,6 +80,7 @@ function TabStrip({ active, onChange }: { active: DashboardTab; onChange: (t: Da
     { id: "gates", label: "Gates" },
     { id: "activity", label: "Activity" },
     { id: "events", label: "Events" },
+    { id: "insights", label: "Insights" },
   ];
   return (
     <div className="flex gap-0.5 bg-zinc-800 rounded-md p-0.5">
@@ -459,6 +463,186 @@ function EventsTab() {
     <Panel title="Event Log">
       <EventLogViewer />
     </Panel>
+  );
+}
+
+// ---- Insights Tab ----
+
+function InsightsTab({ data }: { data: InsightsData | null }) {
+  if (!data) {
+    return <div className="text-zinc-600 text-xs py-4 text-center">Loading insights...</div>;
+  }
+
+  const hasData = data.failing_gates.length > 0 || data.common_failures.length > 0 || data.success_trend.length > 0 || data.retries_by_path.length > 0 || data.tree_failure_rates.length > 0;
+
+  if (!hasData) {
+    return (
+      <Panel title="Task Outcome Insights">
+        <div className="text-zinc-600 text-xs py-4 text-center">No completed or failed tasks in this time range</div>
+      </Panel>
+    );
+  }
+
+  return (
+    <>
+      {/* KPI summary */}
+      <InsightKpis data={data} />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        {/* Most-failing gates */}
+        <Panel title="Most-Failing Gates">
+          {data.failing_gates.length === 0 ? (
+            <div className="text-zinc-600 text-xs py-2 text-center">No gate failures</div>
+          ) : (
+            <div className="space-y-2">
+              {data.failing_gates.map((g) => {
+                const maxFail = data.failing_gates[0]?.fail_count ?? 1;
+                return (
+                  <div key={g.gate}>
+                    <div className="flex justify-between text-[10px] mb-0.5">
+                      <span className="text-zinc-400">{g.gate}</span>
+                      <span className="text-red-400">{g.fail_count} failures</span>
+                    </div>
+                    <div className="bg-zinc-800 h-2 rounded-full overflow-hidden">
+                      <div className="bg-red-500 h-full rounded-full transition-all" style={{ width: `${(g.fail_count / maxFail) * 100}%` }} />
+                    </div>
+                    {g.top_message && (
+                      <div className="text-[9px] text-zinc-600 mt-0.5 truncate" title={g.top_message}>
+                        → {g.top_message} <span className="text-zinc-700">(×{g.top_message_count})</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+
+        {/* Common failure reasons */}
+        <Panel title="Common Failure Reasons">
+          {data.common_failures.length === 0 ? (
+            <div className="text-zinc-600 text-xs py-2 text-center">No failures recorded</div>
+          ) : (
+            <div className="space-y-1.5">
+              {data.common_failures.slice(0, 8).map((f, i) => (
+                <div key={i} className="flex items-start gap-2 text-[10px]">
+                  <span className="text-red-400 flex-shrink-0 font-mono">×{f.count}</span>
+                  <span className="text-zinc-500 flex-shrink-0">{f.gate}</span>
+                  <span className="text-zinc-400 truncate" title={f.message}>{f.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        {/* Retries by path */}
+        <Panel title="Retries by Path">
+          {data.retries_by_path.length === 0 ? (
+            <div className="text-zinc-600 text-xs py-2 text-center">No data</div>
+          ) : (
+            <div className="space-y-2">
+              {data.retries_by_path.map((p) => {
+                const retryPct = p.task_count > 0 ? Math.round((p.retried_count / p.task_count) * 100) : 0;
+                return (
+                  <div key={p.path_name}>
+                    <div className="flex justify-between text-[10px] mb-0.5">
+                      <span className="text-zinc-400">{p.path_name}</span>
+                      <span className="text-zinc-500">{retryPct}% retried · avg {p.avg_retries.toFixed(1)} per retry</span>
+                    </div>
+                    <div className="bg-zinc-800 h-2 rounded-full overflow-hidden">
+                      <div className="bg-amber-500 h-full rounded-full transition-all" style={{ width: `${retryPct}%` }} />
+                    </div>
+                    <div className="text-[9px] text-zinc-600 mt-0.5">
+                      {p.task_count} tasks · {p.retried_count} retried · max {p.max_retries}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+
+        {/* Tree success rates */}
+        <Panel title="Tree Success Rates">
+          {data.tree_failure_rates.length === 0 ? (
+            <div className="text-zinc-600 text-xs py-2 text-center">No data</div>
+          ) : (
+            <div className="space-y-2">
+              {data.tree_failure_rates.map((t) => {
+                const color = t.success_rate >= 80 ? "bg-emerald-500" : t.success_rate >= 50 ? "bg-amber-500" : "bg-red-500";
+                return (
+                  <div key={t.tree_id}>
+                    <div className="flex justify-between text-[10px] mb-0.5">
+                      <span className="text-zinc-400">{t.tree_name ?? t.tree_id}</span>
+                      <span className={t.success_rate >= 80 ? "text-emerald-400" : t.success_rate >= 50 ? "text-amber-400" : "text-red-400"}>
+                        {t.success_rate}%
+                      </span>
+                    </div>
+                    <div className="bg-zinc-800 h-2 rounded-full overflow-hidden">
+                      <div className={`${color} h-full rounded-full transition-all`} style={{ width: `${t.success_rate}%` }} />
+                    </div>
+                    <div className="text-[9px] text-zinc-600 mt-0.5">
+                      {t.completed} completed · {t.failed} failed
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Success rate trend */}
+      {data.success_trend.length > 1 && (
+        <div className="mt-3">
+          <Panel title="Success Rate Trend">
+            <SuccessRateChart data={data.success_trend} />
+          </Panel>
+        </div>
+      )}
+    </>
+  );
+}
+
+function InsightKpis({ data }: { data: InsightsData }) {
+  const totalTasks = data.success_trend.reduce((s, d) => s + d.total, 0);
+  const totalFailed = data.success_trend.reduce((s, d) => s + d.failed, 0);
+  const overallRate = totalTasks > 0 ? Math.round(((totalTasks - totalFailed) / totalTasks) * 100) : 0;
+  const topGate = data.failing_gates[0];
+  const totalRetried = data.retries_by_path.reduce((s, p) => s + p.retried_count, 0);
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-1">
+      <KpiCard label="Success Rate" value={totalTasks > 0 ? `${overallRate}%` : "—"} sub={`${totalTasks - totalFailed}/${totalTasks} tasks`} />
+      <KpiCard label="Total Failures" value={String(totalFailed)} sub={totalFailed > 0 ? `across ${data.tree_failure_rates.filter(t => t.failed > 0).length} trees` : "none"} />
+      <KpiCard label="Top Failing Gate" value={topGate?.gate ?? "—"} sub={topGate ? `${topGate.fail_count} failures` : "no failures"} />
+      <KpiCard label="Tasks Retried" value={String(totalRetried)} sub={`${data.retries_by_path.length} paths`} />
+    </div>
+  );
+}
+
+function SuccessRateChart({ data }: { data: InsightsData["success_trend"] }) {
+  const maxTotal = Math.max(...data.map(d => d.total));
+
+  return (
+    <div className="space-y-1">
+      {data.map((d) => (
+        <div key={d.date} className="flex items-center gap-2">
+          <div className="text-[9px] text-zinc-600 w-16 flex-shrink-0">{d.date.slice(5)}</div>
+          <div className="flex-1 flex h-3 rounded-full overflow-hidden bg-zinc-800">
+            {d.completed > 0 && (
+              <div className="bg-emerald-500 transition-all" style={{ width: `${(d.completed / maxTotal) * 100}%` }} title={`${d.completed} completed`} />
+            )}
+            {d.failed > 0 && (
+              <div className="bg-red-500 transition-all" style={{ width: `${(d.failed / maxTotal) * 100}%` }} title={`${d.failed} failed`} />
+            )}
+          </div>
+          <div className="text-[9px] text-zinc-500 w-10 text-right">{d.success_rate}%</div>
+        </div>
+      ))}
+    </div>
   );
 }
 

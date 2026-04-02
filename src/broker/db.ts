@@ -518,6 +518,125 @@ export class Database {
     );
   }
 
+  // ---- Cross-task insight analytics ----
+
+  /** Gates ranked by failure count, with the most common error message per gate */
+  insightsFailingGates(since: string): { gate: string; fail_count: number; top_message: string; top_message_count: number }[] {
+    return this.all(
+      `SELECT
+         json_extract(j.value, '$.gate') AS gate,
+         COUNT(*) AS fail_count,
+         (SELECT msg FROM (
+           SELECT json_extract(j2.value, '$.message') AS msg, COUNT(*) AS cnt
+           FROM tasks t2, json_each(t2.gate_results) AS j2
+           WHERE t2.gate_results IS NOT NULL
+             AND t2.status IN ('completed', 'failed')
+             AND t2.created_at >= ?
+             AND json_extract(j2.value, '$.passed') = 0
+             AND json_extract(j2.value, '$.gate') = json_extract(j.value, '$.gate')
+           GROUP BY msg
+           ORDER BY cnt DESC
+           LIMIT 1
+         )) AS top_message,
+         (SELECT cnt FROM (
+           SELECT json_extract(j2.value, '$.message') AS msg, COUNT(*) AS cnt
+           FROM tasks t2, json_each(t2.gate_results) AS j2
+           WHERE t2.gate_results IS NOT NULL
+             AND t2.status IN ('completed', 'failed')
+             AND t2.created_at >= ?
+             AND json_extract(j2.value, '$.passed') = 0
+             AND json_extract(j2.value, '$.gate') = json_extract(j.value, '$.gate')
+           GROUP BY msg
+           ORDER BY cnt DESC
+           LIMIT 1
+         )) AS top_message_count
+       FROM tasks, json_each(tasks.gate_results) AS j
+       WHERE tasks.gate_results IS NOT NULL
+         AND tasks.status IN ('completed', 'failed')
+         AND tasks.created_at >= ?
+         AND json_extract(j.value, '$.passed') = 0
+       GROUP BY gate
+       ORDER BY fail_count DESC
+       LIMIT 10`,
+      [since, since, since]
+    );
+  }
+
+  /** Average and max retry count grouped by pipeline path */
+  insightsRetriesByPath(since: string): { path_name: string; task_count: number; retried_count: number; avg_retries: number; max_retries: number }[] {
+    return this.all(
+      `SELECT
+         path_name,
+         COUNT(*) AS task_count,
+         SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) AS retried_count,
+         COALESCE(AVG(CASE WHEN retry_count > 0 THEN retry_count END), 0) AS avg_retries,
+         COALESCE(MAX(retry_count), 0) AS max_retries
+       FROM tasks
+       WHERE created_at >= ?
+         AND status IN ('completed', 'failed')
+       GROUP BY path_name
+       ORDER BY avg_retries DESC`,
+      [since]
+    );
+  }
+
+  /** Success/failure breakdown per tree */
+  insightsTreeFailureRates(since: string): { tree_id: string; tree_name: string | null; completed: number; failed: number; total: number; success_rate: number }[] {
+    return this.all(
+      `SELECT
+         tk.tree_id,
+         t.name AS tree_name,
+         SUM(CASE WHEN tk.status = 'completed' THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN tk.status = 'failed' THEN 1 ELSE 0 END) AS failed,
+         COUNT(*) AS total,
+         ROUND(CAST(SUM(CASE WHEN tk.status = 'completed' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100, 1) AS success_rate
+       FROM tasks tk
+       LEFT JOIN trees t ON tk.tree_id = t.id
+       WHERE tk.created_at >= ?
+         AND tk.status IN ('completed', 'failed')
+       GROUP BY tk.tree_id
+       ORDER BY success_rate ASC`,
+      [since]
+    );
+  }
+
+  /** Daily success rate trend */
+  insightsSuccessTrend(since: string): { date: string; completed: number; failed: number; total: number; success_rate: number }[] {
+    return this.all(
+      `SELECT
+         date(created_at) AS date,
+         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+         COUNT(*) AS total,
+         ROUND(CAST(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100, 1) AS success_rate
+       FROM tasks
+       WHERE created_at >= ?
+         AND status IN ('completed', 'failed')
+       GROUP BY date
+       ORDER BY date ASC`,
+      [since]
+    );
+  }
+
+  /** Top N most common (gate, message) failure combinations */
+  insightsCommonFailures(since: string, limit = 10): { gate: string; message: string; count: number }[] {
+    return this.all(
+      `SELECT
+         json_extract(j.value, '$.gate') AS gate,
+         json_extract(j.value, '$.message') AS message,
+         COUNT(*) AS count
+       FROM tasks, json_each(tasks.gate_results) AS j
+       WHERE tasks.gate_results IS NOT NULL
+         AND tasks.status IN ('completed', 'failed')
+         AND tasks.created_at >= ?
+         AND json_extract(j.value, '$.passed') = 0
+       GROUP BY gate, message
+       ORDER BY count DESC
+       LIMIT ?`,
+      [since, limit]
+    );
+  }
+
   /** Convert "1h", "4h", "24h", "7d" to SQLite-compatible datetime string */
   private sinceToDate(since: string): string {
     const now = new Date();
