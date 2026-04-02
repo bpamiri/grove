@@ -10,6 +10,7 @@ export enum TaskStatus {
   Active = "active",
   Completed = "completed",
   Failed = "failed",
+  Closed = "closed",
 }
 
 export enum AgentRole {

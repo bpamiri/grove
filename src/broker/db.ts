@@ -133,6 +133,10 @@ export class Database {
     return this.db.prepare("DELETE FROM tasks WHERE tree_id = ?").run(treeId).changes;
   }
 
+  taskDelete(taskId: string): boolean {
+    return this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId).changes > 0;
+  }
+
   // ---- Task helpers ----
 
   taskGet(taskId: string): Task | null {
@@ -190,7 +194,7 @@ export class Database {
     const candidates = this.all<Task>(
       `SELECT * FROM tasks
        WHERE (',' || depends_on || ',') LIKE ?
-         AND status NOT IN ('completed', 'failed')`,
+         AND status NOT IN ('completed', 'failed', 'closed')`,
       [`%,${completedTaskId},%`]
     );
     return candidates.filter(t => !this.isTaskBlocked(t.id));

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
 import Pipeline from "./Pipeline";
 import TaskForm from "./TaskForm";
@@ -221,8 +222,17 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
         {task.status === "active" && !task.paused && (
           <ActionButton label="Pause" onClick={() => send({ type: "action", action: "pause_task", taskId: task.id })} />
         )}
-        {task.status !== "completed" && task.status !== "failed" && (
+        {task.status !== "completed" && task.status !== "failed" && task.status !== "closed" && (
           <ActionButton label="Cancel" variant="danger" onClick={() => send({ type: "action", action: "cancel_task", taskId: task.id })} />
+        )}
+        {(task.status === "draft" || task.status === "failed") && (
+          <ActionButton label="Close" variant="muted" onClick={() => send({ type: "action", action: "close_task", taskId: task.id })} />
+        )}
+        {task.status === "draft" && (
+          <ActionButton label="Delete" variant="danger" onClick={async () => {
+            if (!confirm("Permanently delete this draft task?")) return;
+            try { await api(`/api/tasks/${task.id}`, { method: "DELETE" }); onRefresh(); } catch {}
+          }} />
         )}
         {canResume && steps.length > 0 && (
           <>
@@ -259,16 +269,14 @@ function Label({ children }: { children: string }) {
   return <div className="text-zinc-500 text-xs uppercase mb-1.5">{children}</div>;
 }
 
-function ActionButton({ label, variant, onClick }: { label: string; variant?: "danger"; onClick?: () => void }) {
+function ActionButton({ label, variant, onClick }: { label: string; variant?: "danger" | "muted"; onClick?: () => void }) {
+  const cls = variant === "danger"
+    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+    : variant === "muted"
+      ? "bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
+      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700";
   return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded text-xs ${
-        variant === "danger"
-          ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-      }`}
-    >
+    <button onClick={onClick} className={`px-3 py-1.5 rounded text-xs ${cls}`}>
       {label}
     </button>
   );

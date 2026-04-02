@@ -350,6 +350,13 @@ function handleWsAction(data: any, db: Database) {
       stopWorker(data.taskId, db);
       break;
     }
+    case "close_task": {
+      const task = db.taskGet(data.taskId);
+      if (!task) break;
+      if (task.status !== "draft" && task.status !== "failed") break;
+      db.taskSetStatus(data.taskId, "closed");
+      break;
+    }
     case "resume_task": {
       const task = db.taskGet(data.taskId);
       if (!task || task.status === "completed") break;
@@ -741,6 +748,18 @@ async function handleApi(
         message: { id: 0, source: "user", channel: "main", content: body.text, created_at: new Date().toISOString() },
       });
       onChat?.(body.text);
+      return json({ ok: true });
+    }
+
+    // DELETE /api/tasks/:id — hard-delete a draft task
+    const deleteMatch = path.match(/^\/api\/tasks\/([A-Z]+-\d+)$/);
+    if (deleteMatch && req.method === "DELETE") {
+      const taskId = deleteMatch[1];
+      const task = db.taskGet(taskId);
+      if (!task) return json({ error: "Task not found" }, 404);
+      if (task.status !== "draft") return json({ error: "Only draft tasks can be deleted" }, 400);
+      db.taskDelete(taskId);
+      db.addEvent(null, null, "task_deleted", `Deleted draft task ${taskId}`);
       return json({ ok: true });
     }
 
