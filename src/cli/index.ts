@@ -16,8 +16,9 @@ const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void
   batch:  () => import("./commands/batch"),
   chat:   () => import("./commands/chat"),
   config:  () => import("./commands/config"),
-  cost:    () => import("./commands/cost"),
-  cleanup: () => import("./commands/cleanup"),
+  cost:     () => import("./commands/cost"),
+  insights: () => import("./commands/insights"),
+  cleanup:  () => import("./commands/cleanup"),
   plugins: () => import("./commands/plugins"),
   help:    () => import("./commands/help"),
   upgrade: () => import("./commands/upgrade"),
@@ -65,6 +66,7 @@ ${pc.bold("Commands:")}
   ${pc.green("chat")}      Send a message to the orchestrator
   ${pc.green("config")}    Manage config (version, validate, migrate)
   ${pc.green("cost")}      Spend breakdown
+  ${pc.green("insights")}  Cross-task pattern insights
   ${pc.green("plugins")}   Manage plugins
   ${pc.green("help")}      Show this help
   ${pc.green("upgrade")}   Upgrade to latest version
