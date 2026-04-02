@@ -98,7 +98,7 @@ export function buildOrchestratorPrompt(db: Database): string {
   const treeList = trees.map(t => `- ${t.id}: ${t.path}${t.github ? ` (${t.github})` : ""}`).join("\n");
 
   const activeTasks = db.all<{ id: string; title: string; status: string; tree_id: string }>(
-    "SELECT id, title, status, tree_id FROM tasks WHERE status NOT IN ('completed', 'merged', 'failed') ORDER BY created_at DESC LIMIT 20"
+    "SELECT id, title, status, tree_id FROM tasks WHERE status NOT IN ('completed', 'merged', 'failed', 'closed') ORDER BY created_at DESC LIMIT 20"
   );
   const taskList = activeTasks.length > 0
     ? activeTasks.map(t => `- ${t.id}: [${t.status}] ${t.title} (${t.tree_id || "no tree"})`).join("\n")

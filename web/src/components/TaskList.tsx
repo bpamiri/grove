@@ -34,6 +34,7 @@ const STATUS_COLORS: Record<string, string> = {
   active: "bg-blue-900/50 text-blue-400",
   completed: "bg-emerald-900/50 text-emerald-400",
   failed: "bg-red-900/50 text-red-400",
+  closed: "bg-zinc-800 text-zinc-500",
 };
 
 const STATUS_BORDER: Record<string, string> = {
@@ -147,8 +148,8 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
           >
             + New
           </button>
-          {(["all", "active", "failed", "done"] as const).map((f) => {
-            const count = filterCounts[f];
+          {(["all", "active", "failed", "done", "closed"] as const).map((f) => {
+            const count = filterCounts[f as keyof typeof filterCounts];
             const isFailedAlert = f === "failed" && filterCounts.failed > 0 && filter !== "failed";
             return (
               <button
@@ -163,7 +164,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                 }`}
               >
                 {f}
-                <span className="ml-1 text-[10px] opacity-70">({count})</span>
+                {count != null && <span className="ml-1 text-[10px] opacity-70">({count})</span>}
                 {isFailedAlert && <span className="ml-1 text-red-400 animate-pulse">●</span>}
               </button>
             );

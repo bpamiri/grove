@@ -12,7 +12,7 @@ import Dashboard from "./components/Dashboard";
 
 const DagEditor = lazy(() => import("./components/DagEditor"));
 
-export type StatusFilter = "all" | "active" | "failed" | "done";
+export type StatusFilter = "all" | "active" | "failed" | "done" | "closed";
 
 type View = "tasks" | "settings" | "dashboard" | "dag";
 type MobileTab = "trees" | "tasks" | "chat";
@@ -92,7 +92,9 @@ export default function App() {
     if (filter === "active") return tasks.filter(t => ["draft", "queued", "active"].includes(t.status));
     if (filter === "failed") return tasks.filter(t => t.status === "failed");
     if (filter === "done") return tasks.filter(t => t.status === "completed");
-    return tasks;
+    if (filter === "closed") return tasks.filter(t => t.status === "closed");
+    // "all" shows everything except closed (like completed, they're dismissed)
+    return tasks.filter(t => t.status !== "closed");
   }, []);
 
   /** Tasks filtered by status (for counts), then further by selected tree (for display) */
