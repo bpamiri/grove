@@ -276,8 +276,12 @@ export interface QualityGatesConfig {
 
 export interface PipelineStep {
   id: string;
-  type: "worker" | "gate" | "merge" | "review" | "verdict";
+  type: "worker" | "verdict";
   prompt?: string;
+  skills?: string[];
+  sandbox?: "read-write" | "read-only";
+  result_file?: string;
+  result_key?: string;
   on_success: string;
   on_failure: string;
   max_retries?: number;
@@ -364,39 +368,33 @@ export const GROVE_VERSION = "0.1.31";
 
 export const DEFAULT_PATHS: Record<string, PathConfig> = {
   development: {
-    description: "Standard dev workflow with QA",
+    description: "Standard dev workflow with review",
     steps: [
-      { id: "plan", type: "worker", prompt: "Analyze the task requirements. Identify which files need changes and outline your implementation approach." },
       { id: "implement", type: "worker", prompt: "Implement the task. Commit your changes with conventional commit messages." },
-      { id: "evaluate", type: "gate", on_failure: "implement" },
-      { id: "merge", type: "merge" },
+      { id: "review", type: "worker", skills: ["code-review"], sandbox: "read-only",
+        result_file: ".grove/review-result.json", result_key: "approved", on_failure: "implement", max_retries: 2 },
+      { id: "merge", type: "worker", skills: ["merge-handler"],
+        result_file: ".grove/merge-result.json", result_key: "merged" },
     ],
   },
   research: {
     description: "Research task — produces a report, no code changes",
     steps: [
-      { id: "plan", type: "worker", prompt: "Analyze what needs to be researched. Identify sources and outline your approach." },
       { id: "research", type: "worker", prompt: "Conduct the research. Document findings as you go." },
-      { id: "report", type: "worker", prompt: "Write a clear summary report of your findings in .grove/report.md in the worktree.", on_success: "$done" },
-    ],
-  },
-  content: {
-    description: "Documentation and content creation",
-    steps: [
-      { id: "plan", type: "worker", prompt: "Outline the content structure, audience, and key points." },
-      { id: "implement", type: "worker", prompt: "Write the content following the plan." },
-      { id: "evaluate", type: "gate", on_failure: "implement" },
-      { id: "publish", type: "merge" },
+      { id: "report", type: "worker", skills: ["research-report"], prompt: "Write a clear summary report of your findings in .grove/report.md in the worktree.", on_success: "$done" },
     ],
   },
   adversarial: {
     description: "Adversarial planning with review loop",
     steps: [
-      { id: "plan", type: "worker", prompt: "Create a detailed implementation plan for this task. Write it to `.grove/plan.md` in the worktree. Include: approach, files to modify, test strategy, edge cases, and backwards compatibility considerations." },
-      { id: "review", type: "review", prompt: "You are an adversarial reviewer for an open-source framework. Critique this plan for: correctness, backwards compatibility, missing edge cases, test coverage gaps, API design quality. Be rigorous — reject plans that are vague, incomplete, or risk breaking existing behavior.", on_failure: "plan", max_retries: 3 },
-      { id: "implement", type: "worker", prompt: "Implement the approved plan from `.grove/plan.md`. Follow it closely. Commit your changes with conventional commit messages." },
-      { id: "evaluate", type: "gate", on_failure: "implement" },
-      { id: "merge", type: "merge" },
+      { id: "plan", type: "worker", prompt: "Create a detailed implementation plan for this task. Write it to `.grove/plan.md`." },
+      { id: "review-plan", type: "worker", skills: ["adversarial-review"], sandbox: "read-only",
+        result_file: ".grove/review-result.json", result_key: "approved", on_failure: "plan", max_retries: 3 },
+      { id: "implement", type: "worker", prompt: "Implement the approved plan from `.grove/plan.md`. Commit your changes with conventional commit messages." },
+      { id: "review-code", type: "worker", skills: ["code-review"], sandbox: "read-only",
+        result_file: ".grove/review-result.json", result_key: "approved", on_failure: "implement", max_retries: 2 },
+      { id: "merge", type: "worker", skills: ["merge-handler"],
+        result_file: ".grove/merge-result.json", result_key: "merged" },
     ],
   },
 };
