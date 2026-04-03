@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.32
+
+[compare changes](https://github.com/bpamiri/grove/compare/v0.1.31...v0.1.32)
+
+### 🚀 Enhancements
+
+- Agent-based pipelines with skill injection (v0.2.0) ([#138](https://github.com/bpamiri/grove/pull/138))
+
+### ❤️ Contributors
+
+- Peter Amiri ([@bpamiri](https://github.com/bpamiri))
+
 ## v0.1.31
 
 [compare changes](https://github.com/bpamiri/grove/compare/v0.1.30...v0.1.31)
