@@ -342,6 +342,10 @@ export interface EventBusMap {
   "seed:chunk": { taskId: string; content: string; ts: number };
   "seed:complete": { taskId: string; summary: string; spec: string; ts: number };
   "seed:idle": { taskId: string; ts: number };
+
+  // Skill management events
+  "skill:installed": { name: string };
+  "skill:removed": { name: string };
 }
 
 // ---------------------------------------------------------------------------
