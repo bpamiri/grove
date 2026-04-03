@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TEXT DEFAULT (datetime('now')),
   started_at TEXT,
   completed_at TEXT,
+  skill_overrides TEXT,
   current_step TEXT,
   step_index INTEGER DEFAULT 0,
   paused INTEGER DEFAULT 0

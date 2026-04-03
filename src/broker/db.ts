@@ -72,6 +72,12 @@ export class Database {
       this.run("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
     }
 
+    // Add skill_overrides column (JSON: per-step skill overrides for tasks)
+    const hasSkillOverrides = cols.some(c => c.name === "skill_overrides");
+    if (!hasSkillOverrides) {
+      this.run("ALTER TABLE tasks ADD COLUMN skill_overrides TEXT");
+    }
+
     // Always fix any stale 'planned' status (SQLite ALTER TABLE doesn't change column defaults)
     this.run("UPDATE tasks SET status = 'draft' WHERE status = 'planned'");
   }
