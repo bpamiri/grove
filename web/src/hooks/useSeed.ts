@@ -31,7 +31,7 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
   const [stage, setStage] = useState<string | null>(null);
   const [branches, setBranches] = useState<SeedBranchInfo[]>([]);
   const [activeBranch, setActiveBranch] = useState("main");
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const loadSeed = useCallback(async (tid: string) => {
     setLoading(true);
@@ -138,12 +138,15 @@ export function useSeed(taskId: string | null, send: (data: any) => void) {
     }
   }, [taskId]);
 
+  // Scroll only the messages container, not ancestor scroll containers
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
   }, [messages.length, streamingText]);
 
   return {
-    seed, messages, loading, bottomRef, streamingText, stage,
+    seed, messages, loading, containerRef, streamingText, stage,
     branches, activeBranch,
     startSeed, stopSeed, sendMessage, discardSeed, handleWsMessage,
     isActive: seed?.active ?? false,

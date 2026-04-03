@@ -9,7 +9,7 @@ interface Props {
   messages: SeedMessage[];
   isActive: boolean;
   isSeeded: boolean;
-  bottomRef: RefObject<HTMLDivElement | null>;
+  containerRef: RefObject<HTMLDivElement | null>;
   taskId?: string;
   taskTitle?: string;
   streamingText?: string;
@@ -49,7 +49,7 @@ function HtmlFragment({ html, onChoice }: { html: string; onChoice: (value: stri
   );
 }
 
-export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef, taskId, taskTitle, streamingText, stage, branches, activeBranch, wsSend, onSend, onStart, onStop, onDiscard }: Props) {
+export default function SeedChat({ seed, messages, isActive, isSeeded, containerRef, taskId, taskTitle, streamingText, stage, branches, activeBranch, wsSend, onSend, onStart, onStop, onDiscard }: Props) {
   const [input, setInput] = useState("");
   const [expanded, setExpanded] = useState(false);
 
@@ -155,7 +155,7 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
       )}
 
       {/* Messages */}
-      <div className="max-h-80 overflow-y-auto p-3 space-y-2">
+      <div ref={containerRef} className="max-h-80 overflow-y-auto p-3 space-y-2">
         {/* Welcome guidance when no messages yet */}
         {messages.length === 0 && (
           <div className="text-center py-4 space-y-2">
@@ -206,7 +206,6 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, bottomRef
             </div>
           </div>
         ) : null}
-        <div ref={bottomRef} />
       </div>
 
       {/* Input */}

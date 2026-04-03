@@ -26,7 +26,7 @@ interface Props {
   seedMessages?: SeedMessage[];
   seedActive?: boolean;
   seedComplete?: boolean;
-  seedBottomRef?: React.RefObject<HTMLDivElement | null>;
+  seedContainerRef?: React.RefObject<HTMLDivElement | null>;
   onSeedSend?: (text: string) => void;
   onSeedStart?: () => void;
   onSeedStop?: () => void;
@@ -37,7 +37,7 @@ interface Props {
   seedActiveBranch?: string;
 }
 
-export default function TaskDetail({ task, activityLog, steps, send, trees, paths, allTasks, onRefresh, seed, seedMessages, seedActive, seedComplete, seedBottomRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard, seedStreamingText, seedStage, seedBranches, seedActiveBranch }: Props) {
+export default function TaskDetail({ task, activityLog, steps, send, trees, paths, allTasks, onRefresh, seed, seedMessages, seedActive, seedComplete, seedContainerRef, onSeedSend, onSeedStart, onSeedStop, onSeedDiscard, seedStreamingText, seedStage, seedBranches, seedActiveBranch }: Props) {
   const gateResults = task.gate_results ? JSON.parse(task.gate_results) : null;
   const filesModified = task.files_modified?.split("\n").filter(Boolean) ?? [];
   const [resumeStep, setResumeStep] = useState(task.current_step ?? steps[0]?.id ?? "");
@@ -118,7 +118,7 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
             messages={seedMessages ?? []}
             isActive={seedActive ?? false}
             isSeeded={seedComplete ?? false}
-            bottomRef={seedBottomRef ?? { current: null }}
+            containerRef={seedContainerRef ?? { current: null }}
             taskId={task.id}
             taskTitle={task.title}
             streamingText={seedStreamingText}
@@ -143,7 +143,7 @@ export default function TaskDetail({ task, activityLog, steps, send, trees, path
             messages={[]}
             isActive={false}
             isSeeded={true}
-            bottomRef={{ current: null }}
+            containerRef={{ current: null }}
             onSend={() => {}}
             onStart={() => {}}
             onStop={() => {}}
