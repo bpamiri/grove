@@ -9,7 +9,22 @@ import { deploySandbox, deployReviewSandbox, triggerPrompt, resumeTriggerPrompt,
 import type { Database } from "../broker/db";
 import type { Task, Tree, PipelineStep } from "../shared/types";
 import type { AdapterRegistry } from "./adapters/registry";
-import { injectSkills } from "../skills/injector";
+import { injectSkills, type InjectionResult } from "../skills/injector";
+
+/**
+ * Validate that all required skills were injected for a step.
+ * Throws if the step requires a result_file and any skills are missing,
+ * because the worker cannot produce the expected artifact without the skill.
+ */
+export function validateSkillInjection(injection: InjectionResult, step: PipelineStep): void {
+  if (injection.missing.length > 0 && step.result_file) {
+    throw new Error(
+      `Required skills missing for step "${step.id}": ${injection.missing.join(", ")}. ` +
+      `Step expects result_file "${step.result_file}" which requires these skills. ` +
+      `Run "grove up" to bootstrap bundled skills or install manually to ~/.grove/skills/.`
+    );
+  }
+}
 
 export interface WorkerHandle {
   taskId: string;
@@ -59,6 +74,9 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     if (injection.missing.length > 0) {
       db.addEvent(task.id, null, "skills_missing", `Missing skills: ${injection.missing.join(", ")}`);
     }
+    // Fail fast if the step requires a result_file but skills are missing —
+    // the worker cannot produce the expected artifact without the skill instructions.
+    validateSkillInjection(injection, step);
     if (injection.injected.length > 0) {
       db.addEvent(task.id, null, "skills_injected", `Injected skills: ${injection.injected.join(", ")}`);
     }

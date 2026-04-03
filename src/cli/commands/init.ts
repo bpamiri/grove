@@ -24,6 +24,14 @@ export async function run(_args: string[]) {
   db.initFromString(SCHEMA_SQL);
   db.close();
 
+  // Install bundled skills (merge-handler, code-review, etc.) into ~/.grove/skills/
+  try {
+    const { bootstrapBundledSkills } = await import("../../skills/library");
+    bootstrapBundledSkills();
+  } catch {
+    // Non-fatal — skills will also be bootstrapped on `grove up`
+  }
+
   console.log(`${pc.green("✓")} Grove initialized at ${pc.bold(GROVE_HOME)}`);
   console.log(`  Config: ${GROVE_CONFIG}`);
   console.log(`  Database: ${GROVE_DB}`);

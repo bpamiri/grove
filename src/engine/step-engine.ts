@@ -331,10 +331,16 @@ async function executeStep(
 
   switch (step.type) {
     case "worker": {
-      const { spawnWorker } = await import("../agents/worker");
-      const { getEnv } = await import("../broker/db");
-      const logDir = getEnv().GROVE_LOG_DIR;
-      spawnWorker(task, tree, db, logDir, step);
+      try {
+        const { spawnWorker } = await import("../agents/worker");
+        const { getEnv } = await import("../broker/db");
+        const logDir = getEnv().GROVE_LOG_DIR;
+        spawnWorker(task, tree, db, logDir, step);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        db.addEvent(task.id, null, "worker_spawn_failed", msg);
+        onStepComplete(task.id, "fatal", msg);
+      }
       break;
     }
 
