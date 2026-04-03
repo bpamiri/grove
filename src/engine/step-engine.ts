@@ -1,5 +1,7 @@
 // Grove v3 — Step Engine: configurable pipeline that replaces hardcoded event wiring.
 // Reads path config to determine step transitions, supports branching and retries.
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { bus } from "../broker/event-bus";
 import { configNormalizedPaths } from "../broker/config";
 import type { Database } from "../broker/db";
@@ -240,6 +242,15 @@ export function onStepComplete(
     "UPDATE tasks SET current_step = ?, step_index = ? WHERE id = ?",
     [nextStep.id, nextIndex, taskId],
   );
+
+  // Persist review feedback when looping back from a gated step (e.g. review → plan)
+  if (context && outcome === "failure" && task.worktree_path) {
+    try {
+      const groveDir = join(task.worktree_path, ".grove");
+      mkdirSync(groveDir, { recursive: true });
+      writeFileSync(join(groveDir, "review-feedback.md"), context);
+    } catch {}
+  }
 
   const retask = db.taskGet(taskId);
   if (!retask || !retask.tree_id) return;

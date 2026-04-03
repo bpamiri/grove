@@ -5,7 +5,7 @@ import { bus } from "../broker/event-bus";
 import { parseCost, isAlive } from "./stream-parser";
 import { createCheckpoint, loadCheckpoint } from "./checkpoint";
 import { createWorktree, branchName } from "../shared/worktree";
-import { deploySandbox, triggerPrompt, resumeTriggerPrompt, readReviewFeedback } from "../shared/sandbox";
+import { deploySandbox, deployReviewSandbox, triggerPrompt, resumeTriggerPrompt, reviewTriggerPrompt, readReviewFeedback } from "../shared/sandbox";
 import type { Database } from "../broker/db";
 import type { Task, Tree, PipelineStep } from "../shared/types";
 import type { AdapterRegistry } from "./adapters/registry";
@@ -93,30 +93,59 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
     } catch {}
   }
 
-  // Deploy sandbox (guard hooks + CLAUDE.md overlay with prior context)
-  deploySandbox(worktreePath, {
-    taskId: task.id,
-    title: task.title,
-    description: task.description,
-    treePath: tree.path,
-    branch,
-    pathName: task.path_name,
-    workerInstructions: treeConfig.worker_instructions,
-    sessionSummary: priorSummary,
-    filesModified: task.files_modified,
-    stepPrompt,
-    seedSpec,
-    reviewFeedback,
-    checkpoint: checkpointCtx,
-    sandbox: step?.sandbox ?? "read-write",
-  });
+  // Detect gated review steps: has result_file + read-only sandbox
+  const isReviewStep = !!(step?.result_file && step?.sandbox === "read-only");
+
+  if (isReviewStep) {
+    // Read plan content for the reviewer to evaluate
+    const planPath = join(worktreePath, ".grove", "plan.md");
+    const planContent = existsSync(planPath)
+      ? readFileSync(planPath, "utf-8")
+      : priorSummary ?? "(No plan document found — review the session summary and code changes instead)";
+
+    // Read prior feedback rounds so reviewer has context
+    const priorFeedback: string[] = [];
+    if (reviewFeedback) {
+      priorFeedback.push(reviewFeedback);
+    }
+
+    deployReviewSandbox(worktreePath, {
+      taskId: task.id,
+      title: task.title,
+      description: task.description,
+      treePath: tree.path,
+      stepPrompt,
+      planContent,
+      priorFeedback,
+    });
+  } else {
+    // Standard worker sandbox
+    deploySandbox(worktreePath, {
+      taskId: task.id,
+      title: task.title,
+      description: task.description,
+      treePath: tree.path,
+      branch,
+      pathName: task.path_name,
+      workerInstructions: treeConfig.worker_instructions,
+      sessionSummary: priorSummary,
+      filesModified: task.files_modified,
+      stepPrompt,
+      seedSpec,
+      reviewFeedback,
+      checkpoint: checkpointCtx,
+      sandbox: step?.sandbox ?? "read-write",
+    });
+  }
 
   // Update task in DB
   db.run("UPDATE tasks SET status = 'active', branch = ?, worktree_path = ?, started_at = datetime('now') WHERE id = ?",
     [branch, worktreePath, task.id]);
 
-  // Use resume prompt if continuing from a prior session
-  const prompt = isResumption ? resumeTriggerPrompt(task.id) : triggerPrompt(task.id);
+  // Use review prompt for gated review steps, else generic prompt
+  const prompt = isReviewStep
+    ? reviewTriggerPrompt(task.id)
+    : isResumption ? resumeTriggerPrompt(task.id) : triggerPrompt(task.id);
 
   // Resolve adapter: task → tree → global default
   const treeAdapter = treeConfig.adapter;
