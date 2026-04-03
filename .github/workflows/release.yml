@@ -110,6 +110,9 @@ jobs:
       - name: Embed web assets
         run: bun run build:embed
 
+      - name: Embed bundled skills
+        run: bun run build:embed-skills
+
       - name: Build binary
         env:
           TARGET: ${{ matrix.target }}
