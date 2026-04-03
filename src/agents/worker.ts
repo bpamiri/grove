@@ -68,9 +68,19 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
 
   const branch = branchName(task.id, task.title, tree.branch_prefix);
 
-  // Inject skills if the step declares any
-  if (step?.skills?.length) {
-    const injection = injectSkills(step.skills, worktreePath);
+  // Resolve effective skills: per-task overrides take priority over path defaults
+  const overrides: Record<string, string[]> | null =
+    task.skill_overrides ? JSON.parse(task.skill_overrides) : null;
+  const effectiveSkills = (overrides && step?.id && overrides[step.id])
+    ? overrides[step.id]
+    : (step?.skills ?? []);
+
+  // Inject skills if the step declares any (or task overrides provide them)
+  if (effectiveSkills.length > 0) {
+    if (overrides && step?.id && overrides[step.id]) {
+      db.addEvent(task.id, null, "skills_overridden", `Step "${step.id}" using overridden skills: ${effectiveSkills.join(", ")}`);
+    }
+    const injection = injectSkills(effectiveSkills, worktreePath);
     if (injection.missing.length > 0) {
       db.addEvent(task.id, null, "skills_missing", `Missing skills: ${injection.missing.join(", ")}`);
     }
