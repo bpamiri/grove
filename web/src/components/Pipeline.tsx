@@ -65,3 +65,26 @@ export default function Pipeline({ task, steps }: Props) {
     </div>
   );
 }
+
+/** Static preview of path steps — no task state, all steps shown with type-based styling */
+export function PipelinePreview({ steps }: { steps: Array<{ id: string; label?: string; type?: string }> }) {
+  if (steps.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {steps.map((step, i) => (
+        <div key={`${step.id}-${i}`} className="flex items-center gap-1">
+          {i > 0 && <div className="w-4 h-0.5 bg-zinc-700" />}
+          <div className={`px-2 py-0.5 rounded text-xs border ${
+            step.type === "verdict"
+              ? "bg-purple-500/12 border-purple-500/30 text-purple-400"
+              : "bg-zinc-800/50 border-zinc-700/50 text-zinc-400"
+          }`}>
+            {step.type === "verdict" ? "\u25c6 " : "\u25cf "}
+            {step.label || step.id.charAt(0).toUpperCase() + step.id.slice(1)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

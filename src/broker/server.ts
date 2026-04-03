@@ -552,6 +552,58 @@ async function handleApi(
       return json(configNormalizedPathsForApi());
     }
 
+    // POST /api/paths — create a new path
+    if (path === "/api/paths" && req.method === "POST") {
+      const body = await req.json() as { name?: string; description?: string; steps?: any[] };
+      if (!body.name?.trim()) return json({ error: "name is required" }, 400);
+      const { configPaths: getPaths, configSetPath } = await import("./config");
+      const existing = getPaths();
+      if (body.name in existing) return json({ error: `Path "${body.name}" already exists` }, 409);
+      const { validatePathConfig } = await import("../engine/normalize");
+      const errors = validatePathConfig({ description: body.description ?? "", steps: body.steps ?? [] });
+      if (errors.length > 0) return json({ error: "Validation failed", details: errors }, 400);
+      configSetPath(body.name, { description: body.description!, steps: body.steps! });
+      const { configNormalizedPathsForApi } = await import("./config");
+      return json(configNormalizedPathsForApi()[body.name], 201);
+    }
+
+    // PUT /api/paths/:name — update an existing path
+    const pathUpdateMatch = path.match(/^\/api\/paths\/([^/]+)$/);
+    if (pathUpdateMatch && req.method === "PUT") {
+      const name = decodeURIComponent(pathUpdateMatch[1]);
+      const { configPaths: getPaths, configSetPath } = await import("./config");
+      const existing = getPaths();
+      if (!(name in existing)) return json({ error: "Path not found" }, 404);
+      const body = await req.json() as { description?: string; steps?: any[] };
+      const { validatePathConfig } = await import("../engine/normalize");
+      const errors = validatePathConfig({ description: body.description ?? "", steps: body.steps ?? [] });
+      if (errors.length > 0) return json({ error: "Validation failed", details: errors }, 400);
+      configSetPath(name, { description: body.description!, steps: body.steps! });
+      const { configNormalizedPathsForApi } = await import("./config");
+      return json(configNormalizedPathsForApi()[name]);
+    }
+
+    // DELETE /api/paths/:name — remove a path (prevent deleting built-in defaults)
+    if (pathUpdateMatch && req.method === "DELETE") {
+      const name = decodeURIComponent(pathUpdateMatch[1]);
+      const { DEFAULT_PATHS } = await import("../shared/types");
+      if (name in DEFAULT_PATHS) return json({ error: `Cannot delete built-in path "${name}"` }, 403);
+      const { configPaths: getPaths, configDeletePath } = await import("./config");
+      const existing = getPaths();
+      if (!(name in existing)) return json({ error: "Path not found" }, 404);
+      configDeletePath(name);
+      return json({ ok: true });
+    }
+
+    // GET /api/paths/:name — full path config including prompts (for editor)
+    if (pathUpdateMatch && req.method === "GET") {
+      const name = decodeURIComponent(pathUpdateMatch[1]);
+      const { configNormalizedPaths } = await import("./config");
+      const all = configNormalizedPaths();
+      if (!(name in all)) return json({ error: "Path not found" }, 404);
+      return json({ name, ...all[name] });
+    }
+
     // POST /api/trees/:id/import-issues — create tasks from open GitHub issues
     const importMatch = path.match(/^\/api\/trees\/([^/]+)\/import-issues$/);
     if (importMatch && req.method === "POST") {

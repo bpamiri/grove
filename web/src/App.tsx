@@ -175,6 +175,7 @@ export default function App() {
               <Settings
                 trees={taskState.trees}
                 status={taskState.status}
+                paths={taskState.paths}
                 onRefresh={taskState.refresh}
                 skills={skillsState.skills}
                 skillsLoading={skillsState.loading}
@@ -276,6 +277,7 @@ export default function App() {
           <Settings
             trees={taskState.trees}
             status={taskState.status}
+            paths={taskState.paths}
             onRefresh={taskState.refresh}
             skills={skillsState.skills}
             skillsLoading={skillsState.loading}

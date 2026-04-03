@@ -99,6 +99,24 @@ export function configDeleteTree(treeId: string): void {
   configUnset(`trees.${treeId}`);
 }
 
+export function configSetPath(name: string, pathConfig: PathConfig): void {
+  const { GROVE_CONFIG } = getEnv();
+  const config = loadConfig();
+  if (!config.paths) config.paths = {} as Record<string, PathConfig>;
+  config.paths[name] = pathConfig;
+  writeFileSync(GROVE_CONFIG, stringifyYaml(config));
+  _config = config;
+}
+
+export function configDeletePath(name: string): void {
+  const { GROVE_CONFIG } = getEnv();
+  const config = loadConfig();
+  if (!config.paths || !(name in config.paths)) return;
+  delete config.paths[name];
+  writeFileSync(GROVE_CONFIG, stringifyYaml(config));
+  _config = config;
+}
+
 export function validateConfig(): string[] {
   const config = loadConfig();
   const errors: string[] = [];
