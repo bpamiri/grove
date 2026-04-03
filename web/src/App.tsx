@@ -172,6 +172,7 @@ export default function App() {
               <Settings
                 trees={taskState.trees}
                 status={taskState.status}
+                paths={taskState.paths}
                 onRefresh={taskState.refresh}
               />
             )
@@ -269,6 +270,7 @@ export default function App() {
           <Settings
             trees={taskState.trees}
             status={taskState.status}
+            paths={taskState.paths}
             onRefresh={taskState.refresh}
           />
         )}

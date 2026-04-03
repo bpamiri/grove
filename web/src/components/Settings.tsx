@@ -1,14 +1,17 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { Tree, Status } from "../hooks/useTasks";
+import PathEditor from "./PathEditor";
+import { PipelinePreview } from "./Pipeline";
 
 interface Props {
   trees: Tree[];
   status: Status | null;
+  paths: Record<string, { description: string; steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>;
   onRefresh: () => void;
 }
 
-export default function Settings({ trees, status, onRefresh }: Props) {
+export default function Settings({ trees, status, paths, onRefresh }: Props) {
   const [newTreePath, setNewTreePath] = useState("");
   const [newTreeGithub, setNewTreeGithub] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -20,6 +23,8 @@ export default function Settings({ trees, status, onRefresh }: Props) {
   const [importPrResult, setImportPrResult] = useState<Record<string, string>>({});
   const [rotating, setRotating] = useState(false);
   const [rotateResult, setRotateResult] = useState<string | null>(null);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [deletingPath, setDeletingPath] = useState<string | null>(null);
 
   const handleAddTree = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +177,66 @@ export default function Settings({ trees, status, onRefresh }: Props) {
             </>
           )}
         </form>
+      </section>
+
+      {/* Pipeline Paths */}
+      <section className="mb-8">
+        <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">Pipeline Paths</h3>
+
+        {editingPath ? (
+          <PathEditor
+            name={editingPath === "__new__" ? null : editingPath}
+            onSave={() => { setEditingPath(null); onRefresh(); }}
+            onCancel={() => setEditingPath(null)}
+          />
+        ) : (
+          <>
+            <div className="space-y-2 mb-4">
+              {Object.entries(paths).map(([name, path]) => (
+                <div key={name} className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className="font-medium text-sm">{name}</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">{path.description}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setEditingPath(name)}
+                        className="text-xs text-blue-400/70 hover:text-blue-400"
+                      >Edit</button>
+                      <button
+                        onClick={async () => {
+                          setDeletingPath(name);
+                          try {
+                            await api(`/api/paths/${encodeURIComponent(name)}`, { method: "DELETE" });
+                            onRefresh();
+                          } catch (err: any) {
+                            alert(err.message);
+                          } finally {
+                            setDeletingPath(null);
+                          }
+                        }}
+                        disabled={deletingPath === name}
+                        className="text-xs text-red-400/60 hover:text-red-400 disabled:opacity-50"
+                      >Delete</button>
+                    </div>
+                  </div>
+                  <PipelinePreview steps={path.steps} />
+                </div>
+              ))}
+              {Object.keys(paths).length === 0 && (
+                <div className="text-zinc-600 text-sm">No paths configured.</div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setEditingPath("__new__")}
+              className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30"
+            >
+              New Path
+            </button>
+          </>
+        )}
       </section>
 
       {/* Budget */}
