@@ -277,6 +277,10 @@ export default function App() {
             trees={taskState.trees}
             status={taskState.status}
             onRefresh={taskState.refresh}
+            skills={skillsState.skills}
+            skillsLoading={skillsState.loading}
+            onInstallSkill={skillsState.install}
+            onRemoveSkill={skillsState.remove}
           />
         )}
       </main>
