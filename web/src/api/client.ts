@@ -32,3 +32,31 @@ export async function postChat(text: string): Promise<any> {
     body: JSON.stringify({ text }),
   });
 }
+
+// Skills API
+export interface SkillManifest {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  source?: string;
+  suggested_steps?: string[];
+  files: string[];
+}
+
+export async function fetchSkills(): Promise<SkillManifest[]> {
+  return api<SkillManifest[]>("/api/skills");
+}
+
+export async function installSkill(source: string): Promise<{ ok: boolean; name: string }> {
+  return api("/api/skills/install", {
+    method: "POST",
+    body: JSON.stringify({ source }),
+  });
+}
+
+export async function removeSkill(name: string): Promise<{ ok: boolean }> {
+  return api(`/api/skills/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}

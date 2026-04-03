@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect, lazy, Suspense } fro
 import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 
 import { useTasks, type Task } from "./hooks/useTasks";
+import { useSkills } from "./hooks/useSkills";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
@@ -72,10 +73,12 @@ export default function App() {
   const [lastWsMsg, setLastWsMsg] = useState<WsMessage | null>(null);
   const [wsMessages, setWsMessages] = useState<WsMessage[]>([]);
   const taskState = useTasks();
+  const skillsState = useSkills();
   const { connected, send } = useWebSocket({
     onMessage: useCallback((msg: WsMessage) => {
       taskState.handleWsMessage(msg);
       chatState.handleWsMessage(msg);
+      skillsState.handleWsMessage(msg);
       setLastWsMsg(msg);
       setWsMessages(prev => [...prev.slice(-50), msg]);
     }, []),
@@ -173,6 +176,10 @@ export default function App() {
                 trees={taskState.trees}
                 status={taskState.status}
                 onRefresh={taskState.refresh}
+                skills={skillsState.skills}
+                skillsLoading={skillsState.loading}
+                onInstallSkill={skillsState.install}
+                onRemoveSkill={skillsState.remove}
               />
             )
           )}
