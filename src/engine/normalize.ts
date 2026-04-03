@@ -104,6 +104,51 @@ export function normalizeAllPaths(paths: Record<string, PathConfig>): Record<str
   return result;
 }
 
+export function validatePathConfig(config: { description: string; steps: Array<Record<string, any>> }): string[] {
+  const errors: string[] = [];
+
+  if (!config.description?.trim()) errors.push("description is required");
+  if (!config.steps || config.steps.length === 0) {
+    errors.push("at least one step is required");
+    return errors;
+  }
+
+  const ids = new Set<string>();
+  const TERMINAL = new Set(["$done", "$fail"]);
+
+  for (let i = 0; i < config.steps.length; i++) {
+    const step = config.steps[i];
+    const prefix = `step[${i}]`;
+
+    if (!step.id?.trim()) {
+      errors.push(`${prefix}: id is required`);
+      continue;
+    }
+
+    if (ids.has(step.id)) {
+      errors.push(`${prefix}: duplicate id "${step.id}"`);
+    }
+    ids.add(step.id);
+
+    if (step.type && !VALID_TYPES.has(step.type)) {
+      errors.push(`${prefix}: invalid type "${step.type}" (must be worker or verdict)`);
+    }
+  }
+
+  // Second pass: validate step references after collecting all ids
+  for (let i = 0; i < config.steps.length; i++) {
+    const step = config.steps[i];
+    if (step.on_success && !TERMINAL.has(step.on_success) && !ids.has(step.on_success)) {
+      errors.push(`step[${i}]: on_success references nonexistent step "${step.on_success}"`);
+    }
+    if (step.on_failure && !TERMINAL.has(step.on_failure) && !ids.has(step.on_failure)) {
+      errors.push(`step[${i}]: on_failure references nonexistent step "${step.on_failure}"`);
+    }
+  }
+
+  return errors;
+}
+
 export function stripPrompts(paths: Record<string, NormalizedPathConfig>): Record<string, NormalizedPathConfig> {
   const result: Record<string, NormalizedPathConfig> = {};
   for (const [name, path] of Object.entries(paths)) {
