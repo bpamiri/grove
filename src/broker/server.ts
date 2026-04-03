@@ -108,6 +108,10 @@ function wireEventBus(db: Database) {
   forward("seed:complete");
   forward("seed:idle");
 
+  // Skill management events
+  forward("skill:installed");
+  forward("skill:removed");
+
   // Clear ring buffer when worker finishes
   bus.on("worker:ended", (data) => {
     activityBuffer.clear(data.taskId);
@@ -144,7 +148,7 @@ export function startServer(opts: ServerOptions) {
 
       const corsHeaders = {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
       };
 
@@ -1306,6 +1310,66 @@ async function handleApi(
       const allIds = new Set([...edges.map(e => e.from), ...edges.map(e => e.to)]);
       const cycle = detectCycle([...allIds], edges);
       return json({ valid: !cycle, cycle });
+    }
+
+    // ---- Skill management endpoints ----
+
+    // GET /api/skills — list installed skills
+    if (path === "/api/skills" && req.method === "GET") {
+      const { loadSkills } = await import("../skills/library");
+      return json(loadSkills().map(s => s.manifest));
+    }
+
+    // GET /api/skills/:name — single skill detail + file contents
+    const skillDetailMatch = path.match(/^\/api\/skills\/([^/]+)$/);
+    if (skillDetailMatch && req.method === "GET") {
+      const { getSkill } = await import("../skills/library");
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const name = decodeURIComponent(skillDetailMatch[1]);
+      const skill = getSkill(name);
+      if (!skill) return json({ error: "Skill not found" }, 404);
+
+      const files: Record<string, string> = {};
+      for (const filename of skill.manifest.files) {
+        try {
+          files[filename] = readFileSync(join(skill.dir, filename), "utf-8");
+        } catch {
+          files[filename] = "";
+        }
+      }
+
+      return json({ ...skill.manifest, files_content: files });
+    }
+
+    // POST /api/skills/install — install from path or git URL
+    if (path === "/api/skills/install" && req.method === "POST") {
+      const body = await req.json() as { source?: string };
+      if (!body.source) return json({ error: "source required" }, 400);
+
+      const { installSkillFromPath, installSkillFromGit } = await import("../skills/library");
+      const source = body.source;
+      const isGit = source.startsWith("http") || source.startsWith("git@") || source.endsWith(".git");
+
+      const result = isGit
+        ? await installSkillFromGit(source)
+        : installSkillFromPath(source);
+
+      if (!result.ok) return json({ error: result.error }, 400);
+
+      bus.emit("skill:installed", { name: result.name! });
+      return json({ ok: true, name: result.name }, 201);
+    }
+
+    // DELETE /api/skills/:name — remove installed skill
+    if (skillDetailMatch && req.method === "DELETE") {
+      const { removeSkill } = await import("../skills/library");
+      const name = decodeURIComponent(skillDetailMatch[1]);
+      const removed = removeSkill(name);
+      if (!removed) return json({ error: "Skill not found" }, 404);
+
+      bus.emit("skill:removed", { name });
+      return json({ ok: true });
     }
 
     return json({ error: "Not found" }, 404);
