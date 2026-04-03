@@ -249,6 +249,19 @@ export function onStepComplete(
   executeStep(retask, nextStep, tree, db);
 }
 
+/** Look up the current PipelineStep config for a task (used by worker for result_file). */
+export function getStepForTask(taskId: string): PipelineStep | null {
+  if (!_db) return null;
+  const task = _db.taskGet(taskId);
+  if (!task?.current_step) return null;
+
+  const paths = configNormalizedPaths();
+  const pathConfig = paths[task.path_name];
+  if (!pathConfig) return null;
+
+  return pathConfig.steps.find(s => s.id === task.current_step) ?? null;
+}
+
 /**
  * Wire the step engine into the event bus. Replaces wirePipeline.
  * Listens for merge:completed to unblock dependent tasks.
@@ -273,7 +286,7 @@ export function wireStepEngine(db: Database): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch execution based on step type (worker, gate, merge).
+ * Dispatch execution based on step type (worker, verdict).
  * Uses dynamic imports to avoid circular dependencies.
  */
 async function executeStep(
@@ -310,29 +323,7 @@ async function executeStep(
       const { spawnWorker } = await import("../agents/worker");
       const { getEnv } = await import("../broker/db");
       const logDir = getEnv().GROVE_LOG_DIR;
-      spawnWorker(task, tree, db, logDir, step.prompt);
-      break;
-    }
-
-    case "gate": {
-      const { evaluate } = await import("../agents/evaluator");
-      const result = await evaluate(task, tree, db);
-      const gateOutcome = result.passed ? "success" : (result.fatal ? "fatal" : "failure");
-      onStepComplete(task.id, gateOutcome, result.feedback);
-      break;
-    }
-
-    case "review": {
-      const { spawnReviewer } = await import("../agents/reviewer");
-      const { getEnv } = await import("../broker/db");
-      const logDir = getEnv().GROVE_LOG_DIR;
-      spawnReviewer(task, tree, db, logDir, step.prompt, step.max_retries);
-      break;
-    }
-
-    case "merge": {
-      const { queueMerge } = await import("../merge/manager");
-      queueMerge(task, tree, db);
+      spawnWorker(task, tree, db, logDir, step);
       break;
     }
 

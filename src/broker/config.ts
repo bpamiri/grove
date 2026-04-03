@@ -5,7 +5,8 @@ import { getEnv } from "./db";
 import type { GroveConfig, TreeConfig, PathConfig, BudgetConfig, SettingsConfig, ServerConfig, TunnelConfig, NormalizedPathConfig, NotificationsConfig } from "../shared/types";
 import { normalizeAllPaths, stripPrompts } from "../engine/normalize";
 import { DEFAULT_PATHS, DEFAULT_BUDGETS, DEFAULT_SETTINGS } from "../shared/types";
-import { detectVersion, latestVersion, migrateConfig as runMigrations } from "./config-migrations";
+import { detectVersion, latestVersion, migrateConfig as runMigrations, migrateV2toV3 } from "./config-migrations";
+export { migrateV2toV3 } from "./config-migrations";
 
 let _config: GroveConfig | null = null;
 

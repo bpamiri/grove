@@ -48,18 +48,6 @@ export interface PluginInfo {
   hooks: string[];
 }
 
-export interface GateHookInput {
-  taskId: string;
-  worktreePath: string;
-  treeId: string;
-  treePath: string;
-}
-
-export interface GateHookResult {
-  passed: boolean;
-  message: string;
-}
-
 export interface StepPreHookInput {
   taskId: string;
   stepId: string;

@@ -1,0 +1,7 @@
+name: research-report
+version: 1.0.0
+description: Summarize research findings into a structured report
+author: grove
+suggested_steps: [report]
+files:
+  - skill.md

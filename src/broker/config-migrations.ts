@@ -19,7 +19,59 @@ const migrations: Migration[] = [
       return config;
     },
   },
+  {
+    from: 2,
+    to: 3,
+    description: "Convert gate/merge/review step types to worker steps with skills",
+    migrate(config: any): any {
+      return migrateV2toV3(config);
+    },
+  },
 ];
+
+export function migrateV2toV3(config: any): any {
+  const migrated = JSON.parse(JSON.stringify(config));
+  migrated.version = 3;
+
+  if (migrated.paths) {
+    for (const [, path] of Object.entries(migrated.paths) as any[]) {
+      if (!path.steps) continue;
+      path.steps = path.steps.map((step: any) => {
+        if (step.type === "gate") {
+          return {
+            ...step,
+            type: "worker",
+            skills: ["code-review"],
+            sandbox: "read-only",
+            result_file: ".grove/review-result.json",
+            result_key: "approved",
+          };
+        }
+        if (step.type === "merge") {
+          return {
+            ...step,
+            type: "worker",
+            skills: step.skills ?? ["merge-handler"],
+            result_file: ".grove/merge-result.json",
+            result_key: "merged",
+          };
+        }
+        if (step.type === "review") {
+          return {
+            ...step,
+            type: "worker",
+            sandbox: "read-only",
+            result_file: ".grove/review-result.json",
+            result_key: "approved",
+          };
+        }
+        return step;
+      });
+    }
+  }
+
+  return migrated;
+}
 
 export function detectVersion(config: any): number {
   if (!config || typeof config !== "object") return 1;

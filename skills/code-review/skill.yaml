@@ -1,0 +1,7 @@
+name: code-review
+version: 1.0.0
+description: Guided code review — runs tests, checks diff quality, verifies task completion
+author: grove
+suggested_steps: [review]
+files:
+  - skill.md

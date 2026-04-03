@@ -12,8 +12,8 @@ describe("verdict step type", () => {
       description: "PR review",
       steps: ["ci-check", "review", "verdict"],
     });
-    expect(result.steps[0].type).toBe("gate");
-    expect(result.steps[1].type).toBe("review");
+    expect(result.steps[0].type).toBe("worker");
+    expect(result.steps[1].type).toBe("worker");
     expect(result.steps[2].type).toBe("verdict");
     expect(result.steps[2].on_success).toBe("$done");
   });
@@ -33,7 +33,7 @@ mock.module("../../src/broker/config", () => ({
     "pr-review": {
       description: "PR review",
       steps: [
-        { id: "ci-check", type: "gate" as const, on_success: "review", on_failure: "verdict", label: "CI Check" },
+        { id: "ci-check", type: "worker" as const, on_success: "review", on_failure: "verdict", label: "CI Check" },
         { id: "review", type: "worker" as const, on_success: "verdict", on_failure: "$fail", label: "Review" },
         { id: "verdict", type: "verdict" as const, on_success: "$done", on_failure: "$fail", label: "Verdict" },
       ],

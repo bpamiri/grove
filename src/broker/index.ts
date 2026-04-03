@@ -68,7 +68,7 @@ export async function startBroker(): Promise<BrokerInfo> {
       path: treeConfig.path,
       github: treeConfig.github,
       branch_prefix: treeConfig.branch_prefix ?? config.settings.branch_prefix,
-      config: JSON.stringify({ quality_gates: treeConfig.quality_gates, default_branch: treeConfig.default_branch, default_path: treeConfig.default_path, worker_instructions: treeConfig.worker_instructions }),
+      config: JSON.stringify({ default_branch: treeConfig.default_branch, default_path: treeConfig.default_path, worker_instructions: treeConfig.worker_instructions }),
     });
   }
 
@@ -98,6 +98,14 @@ export async function startBroker(): Promise<BrokerInfo> {
   const loadedPlugins = pluginHost.list();
   if (loadedPlugins.length > 0) {
     console.log(`  Plugins: ${loadedPlugins.map(p => p.name).join(", ")}`);
+  }
+
+  // Bootstrap bundled skills if not already installed
+  try {
+    const { bootstrapBundledSkills } = await import("../skills/library");
+    bootstrapBundledSkills();
+  } catch (err) {
+    console.warn("[skills] Failed to bootstrap bundled skills:", err);
   }
 
   // Initialize adapter registry

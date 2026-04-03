@@ -54,6 +54,7 @@ export interface OverlayContext {
     sessionSummary: string;
     costSoFar: number;
   } | null;
+  sandbox?: "read-write" | "read-only";
 }
 
 export interface ReviewOverlayContext {
@@ -190,7 +191,9 @@ export function deploySandbox(worktreePath: string, ctx: OverlayContext): void {
 
   // Write settings.local.json with guard hooks (worktree path hardcoded into scripts)
   const settingsPath = join(claudeDir, "settings.local.json");
-  const hooks = buildGuardHooks(worktreePath);
+  const hooks = ctx.sandbox === "read-only"
+    ? buildReviewGuardHooks(worktreePath)
+    : buildGuardHooks(worktreePath);
   let finalSettings: any = {};
 
   if (existsSync(settingsPath)) {

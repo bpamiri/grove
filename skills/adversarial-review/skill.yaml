@@ -1,0 +1,7 @@
+name: adversarial-review
+version: 1.0.0
+description: Strict plan critique — backwards compatibility, edge cases, test strategy
+author: grove
+suggested_steps: [review-plan]
+files:
+  - skill.md

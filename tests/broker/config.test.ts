@@ -68,9 +68,9 @@ describe("Config loading", () => {
 
     const paths = configPaths();
     expect(paths.development).toBeDefined();
-    expect(paths.development.steps.map((s: any) => typeof s === "string" ? s : s.id)).toEqual(["plan", "implement", "evaluate", "merge"]);
+    expect(paths.development.steps.map((s: any) => typeof s === "string" ? s : s.id)).toEqual(["implement", "review", "merge"]);
     expect(paths.research).toBeDefined();
-    expect(paths.content).toBeDefined();
+    expect(paths.adversarial).toBeDefined();
   });
 
   test("user paths merge with defaults", () => {

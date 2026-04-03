@@ -1,12 +1,15 @@
 import type { PathConfig, PipelineStep, NormalizedPathConfig } from "../shared/types";
 
 const TYPE_INFERENCE: Record<string, PipelineStep["type"]> = {
-  merge: "merge",
-  evaluate: "gate",
-  "ci-check": "gate",
-  review: "review",
   verdict: "verdict",
 };
+
+const VALID_TYPES = new Set<string>(["worker", "verdict"]);
+
+function coerceType(t: string | undefined, fallback: PipelineStep["type"]): PipelineStep["type"] {
+  if (t && VALID_TYPES.has(t)) return t as PipelineStep["type"];
+  return fallback;
+}
 
 export function normalizePath(config: PathConfig): NormalizedPathConfig {
   const rawSteps = config.steps;
@@ -22,6 +25,7 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
         type: TYPE_INFERENCE[raw] ?? "worker",
         on_success: "",
         on_failure: "",
+        sandbox: "read-write",
       };
     } else if (typeof raw === "object" && raw !== null) {
       let id: string;
@@ -39,10 +43,14 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
 
       step = {
         id,
-        type: props.type ?? TYPE_INFERENCE[id] ?? "worker",
+        type: coerceType(props.type, TYPE_INFERENCE[id] ?? "worker"),
         on_success: props.on_success ?? "",
         on_failure: props.on_failure ?? "",
         prompt: props.prompt,
+        skills: props.skills,
+        sandbox: props.sandbox ?? "read-write",
+        result_file: props.result_file,
+        result_key: props.result_key,
         max_retries: props.max_retries,
         label: props.label,
       };
@@ -67,13 +75,13 @@ export function normalizePath(config: PathConfig): NormalizedPathConfig {
     }
   }
 
-  // Gate and review steps without explicit on_failure loop back to the nearest preceding worker.
+  // Read-only steps without explicit on_failure loop back to the nearest preceding non-read-only step.
   // All other steps default to $fail.
   for (let i = 0; i < steps.length; i++) {
     if (steps[i].on_failure === "") {
-      if (steps[i].type === "gate" || steps[i].type === "review") {
+      if (steps[i].sandbox === "read-only") {
         for (let j = i - 1; j >= 0; j--) {
-          if (steps[j].type === "worker") {
+          if (steps[j].sandbox !== "read-only") {
             steps[i].on_failure = steps[j].id;
             break;
           }

@@ -17,14 +17,14 @@ describe("normalizePath", () => {
     expect(result.steps[0].on_failure).toBe("$fail");
   });
 
-  test("string step 'merge' infers merge type", () => {
+  test("string step 'merge' infers worker type", () => {
     const result = normalizePath({ description: "test", steps: ["merge"] });
-    expect(result.steps[0].type).toBe("merge");
+    expect(result.steps[0].type).toBe("worker");
   });
 
-  test("string step 'evaluate' infers gate type", () => {
+  test("string step 'evaluate' infers worker type", () => {
     const result = normalizePath({ description: "test", steps: ["evaluate"] });
-    expect(result.steps[0].type).toBe("gate");
+    expect(result.steps[0].type).toBe("worker");
   });
 
   test("object step with id key uses explicit props", () => {
@@ -67,39 +67,29 @@ describe("normalizePath", () => {
     expect(result.steps[0].label).toBe("Implement");
   });
 
-  test("gate step on_failure defaults to nearest preceding worker", () => {
+  test("read-only step on_failure defaults to nearest preceding read-write worker", () => {
     const result = normalizePath({
       description: "test",
-      steps: ["plan", "implement", "evaluate", "merge"],
+      steps: [
+        { id: "implement", type: "worker" },
+        { id: "review", type: "worker", sandbox: "read-only" },
+        { id: "merge", type: "worker" },
+      ],
     });
-    expect(result.steps[2].type).toBe("gate");
-    expect(result.steps[2].on_failure).toBe("implement");
+    expect(result.steps[1].on_failure).toBe("implement");
   });
 
-  test("gate step with no preceding worker defaults on_failure to $fail", () => {
-    const result = normalizePath({ description: "test", steps: ["evaluate"] });
-    expect(result.steps[0].type).toBe("gate");
+  test("read-only step with no preceding read-write worker defaults on_failure to $fail", () => {
+    const result = normalizePath({
+      description: "test",
+      steps: [{ id: "review", type: "worker", sandbox: "read-only" }],
+    });
     expect(result.steps[0].on_failure).toBe("$fail");
   });
 
-  test("string step 'review' infers review type", () => {
+  test("all string steps infer worker type", () => {
     const result = normalizePath({ description: "test", steps: ["review"] });
-    expect(result.steps[0].type).toBe("review");
-  });
-
-  test("review step on_failure defaults to nearest preceding worker", () => {
-    const result = normalizePath({
-      description: "test",
-      steps: ["plan", "review", "implement"],
-    });
-    expect(result.steps[1].type).toBe("review");
-    expect(result.steps[1].on_failure).toBe("plan");
-  });
-
-  test("review step with no preceding worker defaults on_failure to $fail", () => {
-    const result = normalizePath({ description: "test", steps: ["review"] });
-    expect(result.steps[0].type).toBe("review");
-    expect(result.steps[0].on_failure).toBe("$fail");
+    expect(result.steps[0].type).toBe("worker");
   });
 
   test("adversarial path normalizes correctly", () => {
@@ -107,7 +97,7 @@ describe("normalizePath", () => {
       description: "adversarial",
       steps: [
         { plan: { type: "worker", prompt: "Create plan" } },
-        { review: { type: "review", prompt: "Critique plan", on_failure: "plan", max_retries: 3 } },
+        { review: { type: "worker", sandbox: "read-only", prompt: "Critique plan", on_failure: "plan", max_retries: 3 } },
         "implement",
         "evaluate",
         "merge",
@@ -115,12 +105,13 @@ describe("normalizePath", () => {
     });
     expect(result.steps.length).toBe(5);
     expect(result.steps[0].type).toBe("worker");
-    expect(result.steps[1].type).toBe("review");
+    expect(result.steps[1].type).toBe("worker");
+    expect(result.steps[1].sandbox).toBe("read-only");
     expect(result.steps[1].on_failure).toBe("plan");
     expect(result.steps[1].max_retries).toBe(3);
     expect(result.steps[2].type).toBe("worker");
-    expect(result.steps[3].type).toBe("gate");
-    expect(result.steps[4].type).toBe("merge");
+    expect(result.steps[3].type).toBe("worker");
+    expect(result.steps[4].type).toBe("worker");
   });
 
   test("multi-step path wires full chain correctly", () => {
@@ -129,13 +120,13 @@ describe("normalizePath", () => {
       steps: [
         { plan: { type: "worker", prompt: "Plan" } },
         { implement: { type: "worker", prompt: "Build" } },
-        { evaluate: { on_failure: "implement" } },
+        { review: { type: "worker", sandbox: "read-only", on_failure: "implement" } },
         "merge",
       ],
     });
     expect(result.steps.length).toBe(4);
     expect(result.steps[0].on_success).toBe("implement");
-    expect(result.steps[1].on_success).toBe("evaluate");
+    expect(result.steps[1].on_success).toBe("review");
     expect(result.steps[2].on_success).toBe("merge");
     expect(result.steps[2].on_failure).toBe("implement");
     expect(result.steps[3].on_success).toBe("$done");
@@ -166,9 +157,9 @@ const TEST_PATHS = {
     description: "Standard dev workflow",
     steps: [
       { id: "plan", type: "worker" as const, on_success: "implement", on_failure: "$fail", label: "Plan" },
-      { id: "implement", type: "worker" as const, on_success: "evaluate", on_failure: "$fail", label: "Implement" },
-      { id: "evaluate", type: "gate" as const, on_success: "merge", on_failure: "implement", label: "Evaluate", max_retries: 2 },
-      { id: "merge", type: "merge" as const, on_success: "$done", on_failure: "$fail", label: "Merge" },
+      { id: "implement", type: "worker" as const, on_success: "review", on_failure: "$fail", label: "Implement" },
+      { id: "review", type: "worker" as const, sandbox: "read-only" as const, on_success: "merge", on_failure: "implement", label: "Review", max_retries: 2 },
+      { id: "merge", type: "worker" as const, on_success: "$done", on_failure: "$fail", label: "Merge" },
     ],
   },
 };
@@ -186,16 +177,15 @@ const TEST_PATHS = {
   description: "Adversarial planning with review loop",
   steps: [
     { id: "plan", type: "worker" as const, on_success: "review", on_failure: "$fail", label: "Plan" },
-    { id: "review", type: "review" as const, on_success: "implement", on_failure: "plan", label: "Review", max_retries: 3 },
-    { id: "implement", type: "worker" as const, on_success: "evaluate", on_failure: "$fail", label: "Implement" },
-    { id: "evaluate", type: "gate" as const, on_success: "merge", on_failure: "implement", label: "Evaluate" },
-    { id: "merge", type: "merge" as const, on_success: "$done", on_failure: "$fail", label: "Merge" },
+    { id: "review", type: "worker" as const, sandbox: "read-only" as const, on_success: "implement", on_failure: "plan", label: "Review", max_retries: 3 },
+    { id: "implement", type: "worker" as const, on_success: "code-review", on_failure: "$fail", label: "Implement" },
+    { id: "code-review", type: "worker" as const, sandbox: "read-only" as const, on_success: "merge", on_failure: "implement", label: "Code Review" },
+    { id: "merge", type: "worker" as const, on_success: "$done", on_failure: "$fail", label: "Merge" },
   ],
 };
 
 const _realConfig = await import("../../src/broker/config");
 const _realWorker = await import("../../src/agents/worker");
-const _realReviewer = await import("../../src/agents/reviewer");
 
 // config: override configNormalizedPaths only, preserve all other config functions
 mock.module("../../src/broker/config", () => ({
@@ -207,12 +197,6 @@ mock.module("../../src/broker/config", () => ({
 mock.module("../../src/agents/worker", () => ({
   ..._realWorker,
   spawnWorker: mock(() => {}),
-}));
-
-// reviewer: override spawnReviewer to prevent spawning Claude Code processes
-mock.module("../../src/agents/reviewer", () => ({
-  ..._realReviewer,
-  spawnReviewer: mock(() => {}),
 }));
 
 // Dynamic import AFTER mocks are set up
@@ -373,7 +357,7 @@ describe("onStepComplete", () => {
     );
   }
 
-  test("merge step success ($done) completes the task", () => {
+  test("last step success ($done) completes the task", () => {
     createTaskAt("T-100", "merge", 3);
 
     onStepComplete("T-100", "success");
@@ -420,13 +404,13 @@ describe("onStepComplete", () => {
     expect(exhausted).toBeDefined();
   });
 
-  test("evaluate step failure transitions to implement (step-id, not $fail)", () => {
-    createTaskAt("T-104", "evaluate", 2);
+  test("review step failure transitions to implement (step-id, not $fail)", () => {
+    createTaskAt("T-104", "review", 2);
 
     onStepComplete("T-104", "failure");
 
     const updated = db.taskGet("T-104")!;
-    // evaluate's on_failure = "implement", so it loops back
+    // review's on_failure = "implement", so it loops back
     expect(updated.current_step).toBe("implement");
     expect(updated.step_index).toBe(1);
     expect(updated.status).toBe("active");
@@ -451,7 +435,7 @@ describe("onStepComplete", () => {
   });
 
   test("fatal outcome fails the task immediately, bypassing on_failure routing", () => {
-    createTaskAt("T-107", "evaluate", 2);
+    createTaskAt("T-107", "review", 2);
 
     onStepComplete("T-107", "fatal", "Rebase conflict loop — needs manual resolution");
 
@@ -467,7 +451,7 @@ describe("onStepComplete", () => {
   });
 
   test("fatal outcome does not retry even when retries are available", () => {
-    createTaskAt("T-108", "evaluate", 2, { retry_count: 0, max_retries: 5 });
+    createTaskAt("T-108", "review", 2, { retry_count: 0, max_retries: 5 });
 
     onStepComplete("T-108", "fatal", "Unrecoverable failure");
 
@@ -518,7 +502,7 @@ describe("resumePipeline", () => {
   }
 
   test("resumes at task's current_step when no stepId provided", () => {
-    createTaskAt("T-200", "evaluate", 2);
+    createTaskAt("T-200", "review", 2);
     const task = db.taskGet("T-200")!;
     const tree = db.treeGet("tree-1")!;
 
@@ -527,13 +511,13 @@ describe("resumePipeline", () => {
     expect(result.ok).toBe(true);
     const updated = db.taskGet("T-200")!;
     expect(updated.status).toBe("active");
-    expect(updated.current_step).toBe("evaluate");
+    expect(updated.current_step).toBe("review");
     expect(updated.step_index).toBe(2);
     expect(updated.retry_count).toBe(0);
   });
 
   test("resumes at explicit stepId", () => {
-    createTaskAt("T-201", "evaluate", 2);
+    createTaskAt("T-201", "review", 2);
     const task = db.taskGet("T-201")!;
     const tree = db.treeGet("tree-1")!;
 
@@ -548,7 +532,7 @@ describe("resumePipeline", () => {
   });
 
   test("rejects invalid stepId", () => {
-    createTaskAt("T-202", "evaluate", 2);
+    createTaskAt("T-202", "review", 2);
     const task = db.taskGet("T-202")!;
     const tree = db.treeGet("tree-1")!;
 
@@ -612,7 +596,7 @@ describe("resumePipeline", () => {
   });
 
   test("emits task:status event", () => {
-    createTaskAt("T-207", "evaluate", 2);
+    createTaskAt("T-207", "review", 2);
     const task = db.taskGet("T-207")!;
     const tree = db.treeGet("tree-1")!;
 
@@ -625,7 +609,7 @@ describe("resumePipeline", () => {
   });
 
   test("logs step_resumed event", () => {
-    createTaskAt("T-208", "evaluate", 2);
+    createTaskAt("T-208", "review", 2);
     const task = db.taskGet("T-208")!;
     const tree = db.treeGet("tree-1")!;
 
