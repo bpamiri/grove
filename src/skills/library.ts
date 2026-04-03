@@ -1,4 +1,4 @@
-import { readdirSync, existsSync, mkdirSync, cpSync, rmSync, readFileSync } from "node:fs";
+import { readdirSync, existsSync, mkdirSync, cpSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -119,43 +119,101 @@ export function removeSkill(name: string, dir?: string): boolean {
   }
 }
 
-/** Copy bundled skills from the grove repo into ~/.grove/skills/ if not already present */
-export function bootstrapBundledSkills(): void {
-  // The bundled skills are in the repo at <project-root>/skills/
-  // We need to find that directory relative to this module's location.
-  // In the compiled binary, this path will be different from development.
+export type EmbeddedSkills = Record<string, Record<string, string>>;
 
-  // Try multiple strategies to find the bundled skills directory:
-  // 1. Relative to the module (development): ../../skills/
-  // 2. Via GROVE_BUNDLED_SKILLS env var (for compiled binary)
+export interface BootstrapResult {
+  installed: string[];
+  skipped: string[];
+  source: "filesystem" | "embedded" | "none";
+}
 
+export interface BootstrapOptions {
+  bundledDir?: string;
+  targetDir?: string;
+  embeddedSkills?: EmbeddedSkills;
+}
+
+/** Find the bundled skills/ directory on the filesystem */
+function findBundledSkillsDir(): string | null {
   const candidates = [
-    join(dirname(dirname(__dirname)), "skills"),  // development: src/skills/library.ts → ../../skills/
-    process.env.GROVE_BUNDLED_SKILLS,
+    join(dirname(dirname(__dirname)), "skills"),           // dev: src/skills/library.ts → ../../skills/
+    join(dirname(process.execPath), "skills"),              // compiled: next to the binary
+    process.env.GROVE_BUNDLED_SKILLS,                      // explicit override
   ].filter(Boolean) as string[];
 
-  let bundledDir: string | null = null;
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      bundledDir = candidate;
-      break;
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Try loading embedded skill data from the generated module */
+function loadEmbeddedSkills(): EmbeddedSkills | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("./bundled-skills.generated");
+    return mod.BUNDLED_SKILLS ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Copy bundled skills into ~/.grove/skills/ if not already present */
+export function bootstrapBundledSkills(opts?: BootstrapOptions): BootstrapResult {
+  const target = opts?.targetDir ?? skillsDir();
+  const installed: string[] = [];
+  const skipped: string[] = [];
+
+  // --- Strategy 1: filesystem ---
+  const fsDir = opts?.bundledDir
+    ? (existsSync(opts.bundledDir) ? opts.bundledDir : null)
+    : findBundledSkillsDir();
+
+  if (fsDir) {
+    mkdirSync(target, { recursive: true });
+    for (const entry of readdirSync(fsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (!existsSync(join(fsDir, entry.name, "skill.yaml"))) continue;
+      if (existsSync(join(target, entry.name))) {
+        skipped.push(entry.name);
+        continue;
+      }
+      cpSync(join(fsDir, entry.name), join(target, entry.name), { recursive: true });
+      installed.push(entry.name);
     }
+    if (installed.length > 0) {
+      console.log(`[skills] Bootstrapped ${installed.length} bundled skill(s): ${installed.join(", ")}`);
+    }
+    return { installed, skipped, source: "filesystem" };
   }
 
-  if (!bundledDir) return;
+  // --- Strategy 2: embedded data (compiled binary) ---
+  const embedded = opts?.embeddedSkills ?? loadEmbeddedSkills();
 
-  const targetDir = skillsDir();
-  mkdirSync(targetDir, { recursive: true });
-
-  for (const entry of readdirSync(bundledDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const targetSkill = join(targetDir, entry.name);
-    if (existsSync(targetSkill)) continue; // Don't overwrite user customizations
-
-    const srcSkill = join(bundledDir, entry.name);
-    if (!existsSync(join(srcSkill, "skill.yaml"))) continue;
-
-    cpSync(srcSkill, targetSkill, { recursive: true });
-    console.log(`[skills] Installed bundled skill: ${entry.name}`);
+  if (embedded && Object.keys(embedded).length > 0) {
+    mkdirSync(target, { recursive: true });
+    for (const [name, files] of Object.entries(embedded)) {
+      if (existsSync(join(target, name))) {
+        skipped.push(name);
+        continue;
+      }
+      const skillDir = join(target, name);
+      mkdirSync(skillDir, { recursive: true });
+      for (const [filename, content] of Object.entries(files)) {
+        writeFileSync(join(skillDir, filename), content, "utf-8");
+      }
+      installed.push(name);
+    }
+    if (installed.length > 0) {
+      console.log(`[skills] Bootstrapped ${installed.length} bundled skill(s) from embedded data: ${installed.join(", ")}`);
+    }
+    return { installed, skipped, source: "embedded" };
   }
+
+  // --- No source available ---
+  console.warn(
+    "[skills] No bundled skills directory found — skills will not be bootstrapped. " +
+    "Set GROVE_BUNDLED_SKILLS or reinstall grove.",
+  );
+  return { installed, skipped, source: "none" };
 }

@@ -10,8 +10,9 @@
     "dev": "bun run src/cli/index.ts",
     "build:web": "cd web && bun run build",
     "build:embed": "bun run scripts/embed-web.ts",
+    "build:embed-skills": "bun run scripts/embed-skills.ts",
     "build:bin": "mkdir -p bin && bun build src/cli/index.ts --compile --outfile bin/grove",
-    "build": "bun run build:web && bun run build:embed && bun run build:bin",
+    "build": "bun run build:web && bun run build:embed && bun run build:embed-skills && bun run build:bin",
     "test": "bun test tests/",
     "test:integration": "bun test tests/integration/"
   },

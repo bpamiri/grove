@@ -15,6 +15,7 @@ dist/
 web/dist/
 *.compiled
 src/broker/web-assets.generated.ts
+src/skills/bundled-skills.generated.ts
 *.tsbuildinfo
 
 # IDE
