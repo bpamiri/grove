@@ -52,13 +52,16 @@ export default function WorkerActivityFeed({ log, taskStatus, paused: taskPaused
 // ---------------------------------------------------------------------------
 
 function LiveFeed({ log, live, since }: { log: ActivityEntry[]; live: boolean; since?: string | null }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
   const [pinnedLength, setPinnedLength] = useState(0);
 
+  // Scroll only the feed container — NOT ancestor scroll containers.
+  // (scrollIntoView bubbles up to every scrollable ancestor, which
+  //  caused the entire TaskDetail to jump to the bottom on each event.)
   useEffect(() => {
-    if (!paused) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!paused && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [log.length, paused]);
 
@@ -79,7 +82,7 @@ function LiveFeed({ log, live, since }: { log: ActivityEntry[]; live: boolean; s
           </button>
         )}
       </div>
-      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
+      <div ref={containerRef} className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed">
         {displayLog.length === 0 && live && (
           <div className="text-blue-400/70 text-center py-3">
             <ActivityIndicator since={since} label="Waiting for activity" size="md" />
@@ -93,7 +96,6 @@ function LiveFeed({ log, live, since }: { log: ActivityEntry[]; live: boolean; s
             <ActivityIndicator since={displayLog[displayLog.length - 1]?.ts} />
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
     </Section>
   );

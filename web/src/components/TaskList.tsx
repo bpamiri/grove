@@ -296,7 +296,7 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
                 seedMessages={seedState.messages}
                 seedActive={seedState.isActive}
                 seedComplete={seedState.isSeeded}
-                seedBottomRef={seedState.bottomRef}
+                seedContainerRef={seedState.containerRef}
                 onSeedSend={seedState.sendMessage}
                 onSeedStart={seedState.startSeed}
                 onSeedStop={seedState.stopSeed}
