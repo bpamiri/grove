@@ -327,6 +327,14 @@ async function monitorWorker(handle: WorkerHandle, db: Database): Promise<void> 
           const key = currentStep.result_key ?? "approved";
           outcome = result[key] ? "success" : "failure";
           context = result.feedback ?? result.reason;
+
+          // Persist PR details from merge result so downstream events carry them
+          const prNum = typeof result.pr_number === "number" ? result.pr_number : null;
+          const prUrl = typeof result.pr_url === "string" ? result.pr_url : null;
+          if (prNum && prUrl) {
+            db.run("UPDATE tasks SET pr_number = ?, pr_url = ? WHERE id = ?", [prNum, prUrl, taskId]);
+            bus.emit("merge:pr_created", { taskId, prNumber: prNum, prUrl });
+          }
         } catch {
           outcome = "failure";
           context = `Failed to parse result file: ${currentStep.result_file}`;
