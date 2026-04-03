@@ -43,16 +43,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version with changelogen
-        run: npx changelogen --release --no-push --${{ inputs.bump }}
+      - name: Bump version
+        env:
+          BUMP_TYPE: ${{ inputs.bump }}
+        run: npm version "$BUMP_TYPE" --no-git-tag-version
 
       - name: Sync GROVE_VERSION
         run: bun run scripts/sync-version.ts
 
-      - name: Amend release commit with synced types.ts
-        run: |
-          git add src/shared/types.ts
-          git commit --amend --no-edit
+      - name: Generate changelog
+        run: npx changelogen --no-bump --no-push
 
       - name: Extract version
         id: version
@@ -61,9 +61,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-      - name: Re-tag after amend
+      - name: Commit and tag release
         run: |
-          git tag -f "v${{ steps.version.outputs.version }}"
+          git add package.json src/shared/types.ts CHANGELOG.md
+          git commit -m "chore(release): v${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
 
       - name: Push commit and tag
         run: |
