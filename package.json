@@ -1,6 +1,6 @@
 {
   "name": "@grove-ai/cli",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "main": "src/cli/index.ts",
   "bin": {
