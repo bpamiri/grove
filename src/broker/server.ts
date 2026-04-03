@@ -717,7 +717,7 @@ async function handleApi(
       const body = await req.json() as {
         title: string; tree_id?: string; description?: string; path_name?: string;
         priority?: number; depends_on?: string; parent_task_id?: string; max_retries?: number;
-        github_issue?: number; labels?: string;
+        github_issue?: number; labels?: string; skill_overrides?: string;
       };
       // Resolve path: explicit override → tree's default_path → "development"
       let resolvedPath = body.path_name;
@@ -730,14 +730,14 @@ async function handleApi(
       }
       const taskId = db.nextTaskId("W");
       db.run(
-        `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, labels, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        `INSERT INTO tasks (id, tree_id, title, description, path_name, priority, depends_on, parent_task_id, max_retries, github_issue, labels, skill_overrides, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
         [
           taskId, body.tree_id ?? null, body.title, body.description ?? null,
           resolvedPath ?? "development", body.priority ?? 0,
           body.depends_on ?? null, body.parent_task_id ?? null,
           body.max_retries ?? 2, body.github_issue ?? null,
-          body.labels ?? null,
+          body.labels ?? null, body.skill_overrides ?? null,
         ],
       );
       db.addEvent(taskId, null, "task_created", `Task created: ${body.title}`);
@@ -755,7 +755,7 @@ async function handleApi(
 
       const body = await req.json() as Record<string, unknown>;
       // Draft tasks: all editable fields. Active/completed: only title + description.
-      const draftFields = ["title", "description", "tree_id", "path_name", "priority", "depends_on", "parent_task_id", "max_retries", "github_issue", "labels"];
+      const draftFields = ["title", "description", "tree_id", "path_name", "priority", "depends_on", "parent_task_id", "max_retries", "github_issue", "labels", "skill_overrides"];
       const limitedFields = ["title", "description"];
       const allowed = task.status === "draft" ? draftFields : limitedFields;
 

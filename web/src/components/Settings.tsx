@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
+import type { SkillManifest } from "../api/client";
 import type { Tree, Status } from "../hooks/useTasks";
 import PathEditor from "./PathEditor";
 import { PipelinePreview } from "./Pipeline";
@@ -9,9 +10,13 @@ interface Props {
   status: Status | null;
   paths: Record<string, { description: string; steps: Array<{ id: string; type: string; label: string; on_success: string; on_failure: string }> }>;
   onRefresh: () => void;
+  skills: SkillManifest[];
+  skillsLoading: boolean;
+  onInstallSkill: (source: string) => Promise<{ ok: boolean; name: string }>;
+  onRemoveSkill: (name: string) => Promise<void>;
 }
 
-export default function Settings({ trees, status, paths, onRefresh }: Props) {
+export default function Settings({ trees, status, paths, onRefresh, skills, skillsLoading, onInstallSkill, onRemoveSkill }: Props) {
   const [newTreePath, setNewTreePath] = useState("");
   const [newTreeGithub, setNewTreeGithub] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -25,6 +30,11 @@ export default function Settings({ trees, status, paths, onRefresh }: Props) {
   const [rotateResult, setRotateResult] = useState<string | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
+  const [skillSource, setSkillSource] = useState("");
+  const [installingSkill, setInstallingSkill] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
+  const [removingSkill, setRemovingSkill] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   const handleAddTree = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,6 +245,117 @@ export default function Settings({ trees, status, paths, onRefresh }: Props) {
             >
               New Path
             </button>
+          </>
+        )}
+      </section>
+
+      {/* Skills */}
+      <section className="mb-8">
+        <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">Skills Library</h3>
+
+        {skillsLoading ? (
+          <div className="text-zinc-600 text-sm">Loading skills...</div>
+        ) : (
+          <>
+            <div className="space-y-2 mb-4">
+              {skills.map((skill) => (
+                <div key={skill.name} className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{skill.name}</span>
+                        <span className="text-xs text-zinc-600">v{skill.version}</span>
+                      </div>
+                      <div className="text-xs text-zinc-500 mt-0.5 truncate">{skill.description}</div>
+                      {skill.author && (
+                        <div className="text-xs text-zinc-600 mt-0.5">by {skill.author}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 ml-3 shrink-0">
+                      <span className="text-xs text-zinc-600">{skill.files.length} file{skill.files.length !== 1 ? "s" : ""}</span>
+                      {confirmRemove === skill.name ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={async () => {
+                              setRemovingSkill(skill.name);
+                              setConfirmRemove(null);
+                              try {
+                                await onRemoveSkill(skill.name);
+                              } catch (err: any) {
+                                setSkillError(err.message);
+                              } finally {
+                                setRemovingSkill(null);
+                              }
+                            }}
+                            disabled={removingSkill === skill.name}
+                            className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30 disabled:opacity-50"
+                          >
+                            {removingSkill === skill.name ? "..." : "Confirm"}
+                          </button>
+                          <button
+                            onClick={() => setConfirmRemove(null)}
+                            className="text-xs text-zinc-500 px-2 py-1 rounded hover:text-zinc-400"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmRemove(skill.name)}
+                          className="text-xs text-zinc-500 px-2 py-1 rounded hover:text-red-400 hover:bg-red-500/10"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {skill.suggested_steps && skill.suggested_steps.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-zinc-800">
+                      <div className="text-xs text-zinc-600">Suggested steps: {skill.suggested_steps.join(", ")}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {skills.length === 0 && (
+                <div className="text-zinc-600 text-sm">No skills installed.</div>
+              )}
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!skillSource.trim()) return;
+                setInstallingSkill(true);
+                setSkillError(null);
+                try {
+                  await onInstallSkill(skillSource.trim());
+                  setSkillSource("");
+                } catch (err: any) {
+                  setSkillError(err.message);
+                } finally {
+                  setInstallingSkill(false);
+                }
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={skillSource}
+                onChange={(e) => setSkillSource(e.target.value)}
+                placeholder="Local path or Git URL"
+                className="flex-1 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+              />
+              <button
+                type="submit"
+                disabled={installingSkill || !skillSource.trim()}
+                className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-lg text-sm hover:bg-emerald-500/30 disabled:opacity-50"
+              >
+                {installingSkill ? "Installing..." : "Install"}
+              </button>
+            </form>
+            {skillError && (
+              <div className="text-xs text-red-400 mt-2">{skillError}</div>
+            )}
           </>
         )}
       </section>

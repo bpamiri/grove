@@ -125,6 +125,7 @@ export interface Task {
   pr_number: number | null;
   cost_usd: number;
   tokens_used: number;
+  skill_overrides: string | null; // JSON: {"step_id": ["skill1", "skill2"]}
   gate_results: string | null; // JSON
   session_summary: string | null;
   files_modified: string | null;
