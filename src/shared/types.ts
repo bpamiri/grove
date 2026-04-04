@@ -347,6 +347,11 @@ export interface EventBusMap {
   // Skill management events
   "skill:installed": { name: string };
   "skill:removed": { name: string };
+
+  // Path management events
+  "path:created": { name: string };
+  "path:updated": { name: string };
+  "path:deleted": { name: string };
 }
 
 // ---------------------------------------------------------------------------
