@@ -1290,6 +1290,37 @@ async function handleApi(
       return json({ ok: true, dispatched, dependsOnSet, wave: body.wave });
     }
 
+    // GET /api/batch/plan?treeId=X — lightweight wave plan without side effects
+    if (path === "/api/batch/plan" && req.method === "GET") {
+      const treeId = new URL(req.url).searchParams.get("treeId");
+      if (!treeId) return json({ error: "treeId required" }, 400);
+
+      const tree = db.treeGet(treeId);
+      if (!tree) return json({ error: `Tree "${treeId}" not found` }, 404);
+
+      const drafts = db.all<any>(
+        "SELECT * FROM tasks WHERE tree_id = ? AND status = 'draft' ORDER BY priority ASC, created_at ASC",
+        [treeId]
+      );
+
+      if (drafts.length === 0) {
+        return json({ treeId, waves: [], taskWaves: {} });
+      }
+
+      const { analyzeBatch } = await import("../batch/analyze");
+      const plan = await analyzeBatch(drafts, tree.path);
+
+      // Build a taskId → wave lookup for easy client-side consumption
+      const taskWaves: Record<string, number> = {};
+      for (const w of plan.waves) {
+        for (const id of w.taskIds) {
+          taskWaves[id] = w.wave;
+        }
+      }
+
+      return json({ treeId, waves: plan.waves, taskWaves });
+    }
+
     // GET /api/plugins — list loaded plugins
     if (path === "/api/plugins" && req.method === "GET") {
       const { getPluginHost } = await import("./index");
@@ -1331,12 +1362,23 @@ async function handleApi(
 
     // ---- DAG endpoints ----
 
-    // GET /api/tasks/dag — full DAG (nodes + edges)
+    // GET /api/tasks/dag — full DAG (nodes + edges), optionally filtered by treeId
     if (path === "/api/tasks/dag" && req.method === "GET") {
-      const tasks = db.all<{ id: string; title: string; status: string }>(
-        "SELECT id, title, status FROM tasks ORDER BY created_at DESC",
-      );
-      const edges = db.allTaskEdges();
+      const treeId = new URL(req.url).searchParams.get("treeId");
+      const tasks = treeId
+        ? db.all<{ id: string; title: string; status: string }>(
+            "SELECT id, title, status FROM tasks WHERE tree_id = ? ORDER BY created_at DESC",
+            [treeId],
+          )
+        : db.all<{ id: string; title: string; status: string }>(
+            "SELECT id, title, status FROM tasks ORDER BY created_at DESC",
+          );
+      const allEdges = db.allTaskEdges();
+      const taskIds = new Set(tasks.map(t => t.id));
+      // Filter edges to only include tasks in the result set
+      const edges = treeId
+        ? allEdges.filter(e => taskIds.has(e.from_task) && taskIds.has(e.to_task))
+        : allEdges;
       return json({ nodes: tasks, edges });
     }
 

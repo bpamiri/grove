@@ -167,11 +167,11 @@ export default function App() {
             ) : view === "dag" ? (
               <Suspense fallback={<div className="text-zinc-500 p-4">Loading DAG editor...</div>}>
                 <div className="h-[500px]">
-                  <DagEditor onSelectTask={(id) => { taskState.setSelectedTree(null); setView("tasks"); }} />
+                  <DagEditor onSelectTask={(id) => { taskState.setSelectedTree(null); setView("tasks"); }} treeId={taskState.selectedTree} />
                 </div>
               </Suspense>
             ) : view === "dashboard" ? (
-              <Dashboard wsMessages={wsMessages} status={taskState.status} />
+              <Dashboard wsMessages={wsMessages} status={taskState.status} trees={taskState.trees} selectedTree={taskState.selectedTree} />
             ) : (
               <Settings
                 trees={taskState.trees}

@@ -1,17 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAnalytics, type TimeRange, type DashboardTab, type CostData, type GateData, type TimelineData, type TimelineTask, type GateAnalytics, type UtilizationBucket, type InsightsData } from "../hooks/useAnalytics";
 import type { WsMessage } from "../hooks/useWebSocket";
-import type { Status } from "../hooks/useTasks";
+import type { Status, Tree } from "../hooks/useTasks";
 import ActivityTimeline from "./ActivityTimeline";
 import WorkerUtilization from "./WorkerUtilization";
 import EventLogViewer from "./EventLogViewer";
+import { api } from "../api/client";
+
+interface WavePlan {
+  treeId: string;
+  waves: Array<{ wave: number; taskIds: string[] }>;
+  taskWaves: Record<string, number>;
+}
 
 interface Props {
   wsMessages: WsMessage[];
   status: Status | null;
+  trees?: Tree[];
+  selectedTree?: string | null;
 }
 
-export default function Dashboard({ wsMessages, status }: Props) {
+export default function Dashboard({ wsMessages, status, trees, selectedTree }: Props) {
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [range, setRange] = useState<TimeRange>("24h");
   const { costData, gateData, timelineData, utilizationData, insightsData, loading, refresh } = useAnalytics(range, activeTab, wsMessages);
@@ -65,6 +74,9 @@ export default function Dashboard({ wsMessages, status }: Props) {
           {activeTab === "insights" && (
             <InsightsTab data={insightsData} />
           )}
+          {activeTab === "batch" && (
+            <BatchTab trees={trees ?? []} selectedTree={selectedTree ?? null} />
+          )}
         </>
       )}
     </div>
@@ -81,6 +93,7 @@ function TabStrip({ active, onChange }: { active: DashboardTab; onChange: (t: Da
     { id: "activity", label: "Activity" },
     { id: "events", label: "Events" },
     { id: "insights", label: "Insights" },
+    { id: "batch", label: "Batch" },
   ];
   return (
     <div className="flex gap-0.5 bg-zinc-800 rounded-md p-0.5">
@@ -643,6 +656,146 @@ function SuccessRateChart({ data }: { data: InsightsData["success_trend"] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ---- Batch Tab ----
+
+const WAVE_COLORS = ["#8b5cf6", "#06b6d4", "#f59e0b", "#ec4899", "#10b981", "#f97316", "#6366f1", "#14b8a6"];
+
+function BatchTab({ trees, selectedTree }: { trees: Tree[]; selectedTree: string | null }) {
+  const [treeId, setTreeId] = useState<string | null>(selectedTree);
+  const [plan, setPlan] = useState<WavePlan | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchPlan = useCallback(async (id: string) => {
+    setLoading(true);
+    try {
+      const data = await api<WavePlan>(`/api/batch/plan?treeId=${id}`);
+      setPlan(data);
+    } catch {
+      setPlan(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (treeId) fetchPlan(treeId);
+    else setPlan(null);
+  }, [treeId, fetchPlan]);
+
+  // Auto-select if parent passes a tree
+  useEffect(() => {
+    if (selectedTree && selectedTree !== treeId) setTreeId(selectedTree);
+  }, [selectedTree]);
+
+  const totalTasks = plan?.waves.reduce((s, w) => s + w.taskIds.length, 0) ?? 0;
+  const maxParallel = plan?.waves.reduce((max, w) => Math.max(max, w.taskIds.length), 0) ?? 0;
+
+  return (
+    <>
+      {/* Tree selector */}
+      <div className="mb-4">
+        <select
+          value={treeId ?? ""}
+          onChange={e => setTreeId(e.target.value || null)}
+          className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded px-2 py-1.5"
+        >
+          <option value="">Select a tree...</option>
+          {trees.map(t => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {loading && (
+        <div className="text-zinc-500 text-sm py-8 text-center">Analyzing batch plan...</div>
+      )}
+
+      {!loading && !plan && treeId && (
+        <div className="text-zinc-600 text-sm py-8 text-center">No draft tasks in this tree</div>
+      )}
+
+      {plan && plan.waves.length > 0 && (
+        <>
+          {/* KPI cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            <KpiCard label="Total Waves" value={String(plan.waves.length)} sub={`${totalTasks} tasks total`} />
+            <KpiCard label="Max Parallelism" value={String(maxParallel)} sub="tasks in largest wave" />
+            <KpiCard label="Avg per Wave" value={totalTasks > 0 ? (totalTasks / plan.waves.length).toFixed(1) : "0"} sub="tasks per wave" />
+            <KpiCard label="Sequential Steps" value={String(plan.waves.length)} sub={plan.waves.length === 1 ? "all parallel" : `${plan.waves.length} sequential batches`} />
+          </div>
+
+          {/* Wave breakdown */}
+          <Panel title="Execution Waves">
+            <div className="space-y-3">
+              {plan.waves.map(w => {
+                const color = WAVE_COLORS[(w.wave - 1) % WAVE_COLORS.length];
+                const pct = totalTasks > 0 ? (w.taskIds.length / totalTasks) * 100 : 0;
+                return (
+                  <div key={w.wave}>
+                    <div className="flex justify-between items-center text-[10px] mb-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-sm"
+                          style={{ background: color }}
+                        />
+                        <span className="text-zinc-300 font-medium">Wave {w.wave}</span>
+                        <span className="text-zinc-600">
+                          {w.taskIds.length} {w.taskIds.length === 1 ? "task" : "tasks"} — {w.taskIds.length > 1 ? "parallel" : "single"}
+                        </span>
+                      </div>
+                      <span className="text-zinc-500">{Math.round(pct)}%</span>
+                    </div>
+                    <div className="bg-zinc-800 h-3 rounded-full overflow-hidden mb-1">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, background: color }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {w.taskIds.map(id => (
+                        <span key={id} className="text-[10px] font-mono text-zinc-400 bg-zinc-800/50 px-1.5 py-0.5 rounded">
+                          {id}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+
+          {/* Parallelism chart */}
+          <div className="mt-3">
+            <Panel title="Tasks per Wave">
+              <div className="flex items-end gap-2 h-24">
+                {plan.waves.map(w => {
+                  const color = WAVE_COLORS[(w.wave - 1) % WAVE_COLORS.length];
+                  const heightPct = maxParallel > 0 ? (w.taskIds.length / maxParallel) * 100 : 0;
+                  return (
+                    <div key={w.wave} className="flex-1 flex flex-col items-center">
+                      <div className="text-[9px] text-zinc-500 mb-1">{w.taskIds.length}</div>
+                      <div
+                        className="w-full rounded-t transition-all"
+                        style={{ height: `${heightPct}%`, background: color, opacity: 0.85 }}
+                        title={`Wave ${w.wave}: ${w.taskIds.length} tasks`}
+                      />
+                      <div className="text-[9px] text-zinc-600 mt-1">W{w.wave}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {plan && plan.waves.length === 0 && (
+        <div className="text-zinc-600 text-sm py-8 text-center">No draft tasks to analyze</div>
+      )}
+    </>
   );
 }
 

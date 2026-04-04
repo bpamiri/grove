@@ -5,7 +5,7 @@ import { api } from "../api/client";
 // ---- Types ----
 
 export type TimeRange = "1h" | "4h" | "24h" | "7d";
-export type DashboardTab = "overview" | "costs" | "gates" | "activity" | "events" | "insights";
+export type DashboardTab = "overview" | "costs" | "gates" | "activity" | "events" | "insights" | "batch";
 
 export interface CostByTree {
   tree_name: string;
