@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useState, useCallback, useEffect, useRef, useLayoutEffect, type ReactNode, type RefObject } from "react";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { TypingIndicator } from "./ActivityIndicator";
 
@@ -55,8 +55,8 @@ export default function AgentDialogue({
   className = "flex flex-col h-full",
   messageListClassName = "flex-1 overflow-y-auto p-3 space-y-3 text-sm",
 }: Props) {
-  // Persist draft to sessionStorage when a draftKey is provided
-  const [persisted, setPersisted] = usePersistedState(draftKey ?? "", "", sessionStorage);
+  // Persist draft to sessionStorage when a draftKey is provided; plain useState otherwise
+  const [persisted, setPersisted] = usePersistedState(draftKey, "", sessionStorage);
   const [ephemeral, setEphemeral] = useState("");
   const input = draftKey ? persisted : ephemeral;
   const setInput = draftKey ? setPersisted : setEphemeral;
@@ -65,26 +65,37 @@ export default function AgentDialogue({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const setScrollRef = useCallback((node: HTMLDivElement | null) => {
     scrollRef.current = node;
-    if (containerRef) (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    if (containerRef && "current" in containerRef) {
+      (containerRef as { current: HTMLDivElement | null }).current = node;
+    }
   }, [containerRef]);
 
-  // Save scroll position on beforeunload, restore on mount
-  useEffect(() => {
-    if (!scrollKey) return;
+  // Restore scroll position once after messages load
+  const scrollRestored = useRef(false);
+  useLayoutEffect(() => {
+    if (!scrollKey || scrollRestored.current) return;
     const el = scrollRef.current;
+    if (!el || messages.length === 0) return;
 
-    // Restore saved position once messages are loaded
-    if (el && messages.length > 0) {
-      try {
-        const saved = sessionStorage.getItem(scrollKey);
-        if (saved !== null) {
-          el.scrollTop = Number(saved);
-          sessionStorage.removeItem(scrollKey);
-        }
-      } catch { /* noop */ }
+    try {
+      const saved = sessionStorage.getItem(scrollKey);
+      if (saved === null) {
+        scrollRestored.current = true;
+        return;
+      }
+      const target = Number(saved);
+      // Defer to next frame so layout is finalized after render
+      requestAnimationFrame(() => {
+        el.scrollTop = target;
+        scrollRestored.current = true;
+        sessionStorage.removeItem(scrollKey);
+      });
+    } catch {
+      scrollRestored.current = true;
     }
-  }, [scrollKey, messages.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scrollKey, messages.length]);
 
+  // Save scroll position on beforeunload
   useEffect(() => {
     if (!scrollKey) return;
     const handler = () => {
@@ -102,10 +113,7 @@ export default function AgentDialogue({
     if (!input.trim()) return;
     onSend(input);
     setInput("");
-    if (draftKey) {
-      try { sessionStorage.removeItem(draftKey); } catch { /* noop */ }
-    }
-  }, [input, onSend, setInput, draftKey]);
+  }, [input, onSend, setInput]);
 
   return (
     <div className={className}>

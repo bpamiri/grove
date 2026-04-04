@@ -30,8 +30,7 @@ function useIsMobile(breakpoint = 768) {
 }
 
 function useDragResize(initial: number, min: number, max: number, direction: "left" | "right", storageKey?: string) {
-  const [width, setWidth] = usePersistedState(storageKey ?? "", initial, localStorage);
-  // When no storageKey is provided the persisted hook still works fine (in-memory only for empty key)
+  const [width, setWidth] = usePersistedState(storageKey, initial, localStorage);
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
