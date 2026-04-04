@@ -82,6 +82,8 @@ export default function SeedChat({ seed, messages, isActive, isSeeded, container
       containerRef={containerRef}
       thinking={aiThinking}
       streamingText={streamingText}
+      draftKey={taskId ? `grove-draft-seed-${taskId}` : undefined}
+      scrollKey={taskId ? `grove-scroll-seed-${taskId}` : undefined}
       inputVariant="inline"
       placeholder="Reply to seed..."
       submitLabel="Send"

@@ -25,6 +25,8 @@ export default function Chat({ messages, onSend, onReset, bottomRef, connected, 
       bottomRef={bottomRef}
       thinking={thinking}
       disabled={!connected}
+      draftKey="grove-draft-orchestrator"
+      scrollKey="grove-scroll-orchestrator"
       placeholder={connected ? "Message the orchestrator... (Shift+Enter for newline)" : "Connecting..."}
       header={
         <div className="p-3 border-b border-zinc-800 flex items-center justify-between">

@@ -4,6 +4,7 @@ import { useWebSocket, type WsMessage } from "./hooks/useWebSocket";
 import { useTasks, type Task } from "./hooks/useTasks";
 import { useSkills } from "./hooks/useSkills";
 import { useLocalStorage } from "./hooks/useLocalStorage";
+import { usePersistedState } from "./hooks/usePersistedState";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
@@ -28,8 +29,9 @@ function useIsMobile(breakpoint = 768) {
   return mobile;
 }
 
-function useDragResize(initial: number, min: number, max: number, direction: "left" | "right") {
-  const [width, setWidth] = useState(initial);
+function useDragResize(initial: number, min: number, max: number, direction: "left" | "right", storageKey?: string) {
+  const [width, setWidth] = usePersistedState(storageKey ?? "", initial, localStorage);
+  // When no storageKey is provided the persisted hook still works fine (in-memory only for empty key)
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
@@ -61,14 +63,14 @@ function useDragResize(initial: number, min: number, max: number, direction: "le
     document.body.style.userSelect = "none";
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [width, min, max, direction]);
+  }, [width, min, max, direction, setWidth]);
 
   return { width, onMouseDown };
 }
 
 export default function App() {
-  const [view, setView] = useState<View>("tasks");
-  const [mobileTab, setMobileTab] = useState<MobileTab>("tasks");
+  const [view, setView] = usePersistedState<View>("grove-active-view", "tasks", sessionStorage);
+  const [mobileTab, setMobileTab] = usePersistedState<MobileTab>("grove-mobile-tab", "tasks", sessionStorage);
   const isMobile = useIsMobile();
   const [lastWsMsg, setLastWsMsg] = useState<WsMessage | null>(null);
   const [wsMessages, setWsMessages] = useState<WsMessage[]>([]);
@@ -85,8 +87,8 @@ export default function App() {
   });
   const chatState = useChat(send);
 
-  const sidebar = useDragResize(240, 160, 400, "left");
-  const chat = useDragResize(320, 200, 600, "right");
+  const sidebar = useDragResize(240, 160, 400, "left", "grove-sidebar-width");
+  const chat = useDragResize(320, 200, 600, "right", "grove-chat-width");
 
   const [statusFilter, setStatusFilter] = useLocalStorage<StatusFilter>("grove-status-filter", "active");
 
