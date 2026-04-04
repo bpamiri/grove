@@ -126,13 +126,19 @@ export default function Sidebar({ trees, status, taskCount, treeCounts, selected
       {/* Compact Status Bar */}
       <div className="mt-auto pt-3 border-t border-zinc-800/50">
         <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+          {/* Row 1: Labels */}
           <div className="flex items-center gap-2">
             <span>Broker</span>
             <span className={`inline-block w-1.5 h-1.5 rounded-full ${status?.broker === "running" ? "bg-emerald-400" : "bg-red-400"}`} />
           </div>
-          <span>Workers {status?.workers ?? 0}</span>
-          <span className="text-right">Today ${(status?.cost.today ?? 0).toFixed(2)}</span>
-          {status?.version && <span className="text-zinc-600">v{status.version}</span>}
+          <span className="text-center">Workers</span>
+          <span className="text-right">Today</span>
+          {/* Row 2: Values */}
+          <div>
+            {status?.version && <span className="text-zinc-600">v{status.version}</span>}
+          </div>
+          <span className="text-center">{status?.workers ?? 0}</span>
+          <span className="text-right">${(status?.cost.today ?? 0).toFixed(2)}</span>
         </div>
         {status?.remoteUrl && (
           <a
