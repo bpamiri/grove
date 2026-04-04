@@ -188,6 +188,7 @@ export default function App() {
             <Chat
               messages={chatState.messages}
               onSend={chatState.sendMessage}
+              onReset={chatState.clearMessages}
               bottomRef={chatState.bottomRef}
               connected={connected}
               thinking={chatState.thinking}
@@ -298,6 +299,7 @@ export default function App() {
         <Chat
           messages={chatState.messages}
           onSend={chatState.sendMessage}
+          onReset={chatState.clearMessages}
           bottomRef={chatState.bottomRef}
           connected={connected}
           thinking={chatState.thinking}

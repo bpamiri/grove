@@ -6,13 +6,16 @@ import { api } from "../api/client";
 interface Props {
   messages: ChatMessage[];
   onSend: (text: string) => void;
+  onReset?: () => void;
   bottomRef: RefObject<HTMLDivElement | null>;
   connected: boolean;
   thinking?: boolean;
 }
 
-export default function Chat({ messages, onSend, bottomRef, connected, thinking }: Props) {
+export default function Chat({ messages, onSend, onReset, bottomRef, connected, thinking }: Props) {
   const [input, setInput] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [resetFlash, setResetFlash] = useState<"ok" | "err" | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,14 +33,31 @@ export default function Chat({ messages, onSend, bottomRef, connected, thinking 
         </div>
         <button
           onClick={async () => {
+            if (resetting) return;
+            setResetting(true);
+            setResetFlash(null);
             try {
               await api("/api/orchestrator/reset", { method: "POST" });
-            } catch {}
+              onReset?.();
+              setResetFlash("ok");
+            } catch {
+              setResetFlash("err");
+            } finally {
+              setResetting(false);
+              setTimeout(() => setResetFlash(null), 2000);
+            }
           }}
-          className="text-zinc-500 hover:text-zinc-300 text-[10px] px-2 py-0.5 rounded border border-zinc-700 hover:border-zinc-600 transition-colors"
+          disabled={resetting}
+          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+            resetFlash === "ok"
+              ? "text-emerald-400 border-emerald-500/50"
+              : resetFlash === "err"
+              ? "text-red-400 border-red-500/50"
+              : "text-zinc-500 hover:text-zinc-300 border-zinc-700 hover:border-zinc-600"
+          } ${resetting ? "opacity-50 cursor-wait" : ""}`}
           title="Start a fresh orchestrator session"
         >
-          New Session
+          {resetting ? "Resetting…" : resetFlash === "ok" ? "Session Reset ✓" : resetFlash === "err" ? "Reset Failed" : "New Session"}
         </button>
       </div>
 
