@@ -21,7 +21,7 @@ trees:
   #   branch_prefix: grove/
 
 # Paths: workflow templates that define the step pipeline per task type.
-# Built-in paths (development, research, content) are always available.
+# Built-in paths (development, research, adversarial, security-audit) are always available.
 # Add custom paths here:
 paths:
   # ops:
@@ -37,6 +37,21 @@ paths:
       - review:
           prompt: "Review this contributed PR. Check out the PR branch, read the diff, and write a structured review report to .grove/pr-review.md. Analyze for: backwards compatibility, test coverage, code quality, and adherence to project conventions. Include a clear verdict (Recommend Merge / Request Changes / Needs Discussion) and specific suggested comments per file."
       - verdict
+
+  # The security-audit path is built-in but can be customized here:
+  # security-audit:
+  #   description: Security audit — dependency scan, SAST, secrets detection, and report
+  #   steps:
+  #     - scan:
+  #         skills: [security-audit]
+  #     - analyze:
+  #         skills: [security-audit]
+  #         sandbox: read-only
+  #     - report:
+  #         skills: [security-audit]
+  #     - remediate:
+  #         skills: [security-audit]
+  #         on_failure: $done
 
 # Budget controls
 budgets:
