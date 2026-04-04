@@ -148,6 +148,10 @@ describe("buildCliReferenceSection", () => {
     expect(section).toContain("tasks");
     expect(section).toContain("skills");
     expect(section).toContain("config");
+    expect(section).toContain("insights");
+    expect(section).toContain("paths");
+    expect(section).toContain("plugins");
+    expect(section).toContain("upgrade");
   });
 });
 

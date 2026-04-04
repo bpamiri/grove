@@ -234,6 +234,10 @@ export function buildCliReferenceSection(): string {
 | skills list/install/remove | Manage skills |
 | batch | Batch task operations |
 | watch | Live monitoring dashboard |
+| insights | Cross-task analytics and patterns |
+| paths | List / add / remove pipeline paths |
+| plugins | Manage installed plugins |
+| upgrade | Update Grove binary |
 | cleanup | Prune stale worktrees |`;
 }
 
@@ -414,10 +418,10 @@ function handleOrchestratorEvent(event: any, db: Database): void {
     case "spawn_worker": {
       const taskId = db.nextTaskId("W");
       db.run(
-        "INSERT INTO tasks (id, tree_id, title, description, path_name, status) VALUES (?, ?, ?, ?, ?, 'queued')",
-        [taskId, event.tree, event.prompt, event.prompt, event.path_name ?? "development"]
+        "INSERT INTO tasks (id, tree_id, title, description, path_name, depends_on, status) VALUES (?, ?, ?, ?, ?, ?, 'queued')",
+        [taskId, event.tree, event.task, event.prompt, event.path_name ?? "development", event.depends_on ?? null]
       );
-      db.addEvent(taskId, null, "task_created", `Task created by orchestrator: ${event.prompt}`);
+      db.addEvent(taskId, null, "task_created", `Task created by orchestrator: ${event.task}`);
       const task = db.taskGet(taskId);
       if (task) {
         bus.emit("task:created", { task });
