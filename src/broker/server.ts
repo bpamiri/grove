@@ -112,6 +112,11 @@ function wireEventBus(db: Database) {
   forward("skill:installed");
   forward("skill:removed");
 
+  // Path management events
+  forward("path:created");
+  forward("path:updated");
+  forward("path:deleted");
+
   // Clear ring buffer when worker finishes
   bus.on("worker:ended", (data) => {
     activityBuffer.clear(data.taskId);
@@ -563,6 +568,7 @@ async function handleApi(
       const errors = validatePathConfig({ description: body.description ?? "", steps: body.steps ?? [] });
       if (errors.length > 0) return json({ error: "Validation failed", details: errors }, 400);
       configSetPath(body.name, { description: body.description!, steps: body.steps! });
+      bus.emit("path:created", { name: body.name });
       const { configNormalizedPathsForApi } = await import("./config");
       return json(configNormalizedPathsForApi()[body.name], 201);
     }
@@ -579,6 +585,7 @@ async function handleApi(
       const errors = validatePathConfig({ description: body.description ?? "", steps: body.steps ?? [] });
       if (errors.length > 0) return json({ error: "Validation failed", details: errors }, 400);
       configSetPath(name, { description: body.description!, steps: body.steps! });
+      bus.emit("path:updated", { name });
       const { configNormalizedPathsForApi } = await import("./config");
       return json(configNormalizedPathsForApi()[name]);
     }
@@ -592,6 +599,7 @@ async function handleApi(
       const existing = getPaths();
       if (!(name in existing)) return json({ error: "Path not found" }, 404);
       configDeletePath(name);
+      bus.emit("path:deleted", { name });
       return json({ ok: true });
     }
 
