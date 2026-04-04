@@ -186,17 +186,35 @@ const TEST_PATHS = {
 
 const _realConfig = await import("../../src/broker/config");
 const _realWorker = await import("../../src/agents/worker");
+const _realWorktree = await import("../../src/shared/worktree");
 
-// config: override configNormalizedPaths only, preserve all other config functions
+// Track rebaseOnMain calls for assertions
+let mockRebaseResult: { ok: boolean; conflictFiles?: string[]; error?: string } = { ok: true };
+const rebaseOnMainMock = mock(() => mockRebaseResult);
+
+// Control rebase_before_eval setting per-test
+let mockRebaseBeforeEval = true;
+
+// config: override configNormalizedPaths + settingsGet, preserve all other config functions
 mock.module("../../src/broker/config", () => ({
   ..._realConfig,
   configNormalizedPaths: () => TEST_PATHS,
+  settingsGet: (key: string) => {
+    if (key === "rebase_before_eval") return mockRebaseBeforeEval;
+    return (_realConfig as any).settingsGet(key);
+  },
 }));
 
 // worker: override spawnWorker to prevent spawning Claude Code processes
 mock.module("../../src/agents/worker", () => ({
   ..._realWorker,
   spawnWorker: mock(() => {}),
+}));
+
+// worktree: override rebaseOnMain to control rebase behavior in tests
+mock.module("../../src/shared/worktree", () => ({
+  ..._realWorktree,
+  rebaseOnMain: rebaseOnMainMock,
 }));
 
 // Dynamic import AFTER mocks are set up
@@ -748,5 +766,130 @@ describe("review step transitions", () => {
     expect(updated.status).toBe("active");
     expect(updated.current_step).toBe("plan");
     expect(updated.step_index).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rebase before eval tests (W-078)
+// ---------------------------------------------------------------------------
+
+describe("rebase before eval", () => {
+  let db: Database;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    const t = createTestDb();
+    db = t.db;
+    cleanup = t.cleanup;
+    db.treeUpsert({ id: "tree-1", name: "Test Tree", path: "/tmp/test-tree" });
+    _setDb(db);
+    rebaseOnMainMock.mockClear();
+    mockRebaseResult = { ok: true };
+    mockRebaseBeforeEval = true;
+  });
+
+  afterEach(async () => {
+    bus.removeAll();
+    await new Promise((r) => setTimeout(r, 10));
+    cleanup();
+  });
+
+  function createTaskAt(
+    id: string,
+    step: string,
+    stepIndex: number,
+    opts: { worktree_path?: string; path_name?: string } = {},
+  ) {
+    db.run(
+      `INSERT INTO tasks (id, title, status, tree_id, path_name, current_step, step_index, worktree_path)
+       VALUES (?, ?, 'active', 'tree-1', ?, ?, ?, ?)`,
+      [
+        id,
+        `Task ${id}`,
+        opts.path_name ?? "development",
+        step,
+        stepIndex,
+        opts.worktree_path ?? "/tmp/test-tree/.grove/worktrees/" + id,
+      ],
+    );
+  }
+
+  test("calls rebaseOnMain before read-only step", async () => {
+    createTaskAt("T-400", "review", 2);
+    const task = db.taskGet("T-400")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db, "review");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(rebaseOnMainMock).toHaveBeenCalled();
+
+    // Verify rebase_completed event was logged
+    const events = db.eventsByTask("T-400");
+    const rebaseEvent = events.find((e) => e.event_type === "rebase_completed");
+    expect(rebaseEvent).toBeDefined();
+  });
+
+  test("does not call rebaseOnMain for read-write steps", async () => {
+    createTaskAt("T-401", "plan", 0);
+    const task = db.taskGet("T-401")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db, "plan");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(rebaseOnMainMock).not.toHaveBeenCalled();
+  });
+
+  test("does not call rebaseOnMain when setting is disabled", async () => {
+    mockRebaseBeforeEval = false;
+    createTaskAt("T-402", "review", 2);
+    const task = db.taskGet("T-402")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db, "review");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(rebaseOnMainMock).not.toHaveBeenCalled();
+  });
+
+  test("rebase conflict fails the step with context", async () => {
+    mockRebaseResult = {
+      ok: false,
+      conflictFiles: ["src/index.ts", "package.json"],
+      error: "rebase conflict with origin/main",
+    };
+    createTaskAt("T-403", "review", 2);
+    const task = db.taskGet("T-403")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db, "review");
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should have logged a rebase_conflict event
+    const events = db.eventsByTask("T-403");
+    const conflictEvent = events.find((e) => e.event_type === "rebase_conflict");
+    expect(conflictEvent).toBeDefined();
+    expect(conflictEvent!.summary).toContain("src/index.ts");
+    expect(conflictEvent!.summary).toContain("package.json");
+
+    // The step should have failed, transitioning back to implement (review's on_failure)
+    const updated = db.taskGet("T-403")!;
+    expect(updated.current_step).toBe("implement");
+  });
+
+  test("does not call rebaseOnMain when worktree_path is null", async () => {
+    db.run(
+      `INSERT INTO tasks (id, title, status, tree_id, path_name, current_step, step_index, worktree_path)
+       VALUES (?, ?, 'active', 'tree-1', 'development', 'review', 2, NULL)`,
+      ["T-404", "Task T-404"],
+    );
+    const task = db.taskGet("T-404")!;
+    const tree = db.treeGet("tree-1")!;
+
+    resumePipeline(task, tree, db, "review");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(rebaseOnMainMock).not.toHaveBeenCalled();
   });
 });

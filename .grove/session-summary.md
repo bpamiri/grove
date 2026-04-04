@@ -1,26 +1,28 @@
-# Session Summary: W-075
+# Session Summary: W-078
 
 ## Summary
 
-Implemented DAG wave visualization across three UI surfaces. Added a new `GET /api/batch/plan` endpoint that returns wave assignments without side effects, then built wave-aware layouts in the DagEditor, wave badges in the TaskList, and a new "Batch" tab in the Dashboard.
+Implemented auto-rebase of worktrees onto main before read-only evaluation steps. This prevents phantom test failures caused by stale worktrees when multiple tasks run in parallel and earlier tasks merge to main before later tasks reach their evaluation gate.
 
-### Key Design Decisions
+### Changes Made
 
-- **New GET /api/batch/plan endpoint** — idempotent endpoint returning `{ treeId, waves, taskWaves }` where `taskWaves` is a `Record<taskId, waveNumber>` for easy client-side consumption. Reuses existing `analyzeBatch` from `analyze.ts`.
-- **Column-based wave layout** in DagEditor — nodes positioned by wave column (Wave 1 leftmost, Wave 2 next, etc.) with color-coded borders from an 8-color palette. Falls back to the original grid layout when no wave data is available.
-- **Wave badges fetched at list level** — TaskList fetches the wave plan once when a tree has 2+ drafts, then renders `W1`/`W2` badges on individual cards. No per-card API calls.
-- **Dashboard "Batch" tab** — standalone tab with KPI cards (total waves, max parallelism, avg tasks/wave), execution wave breakdown bars, and a tasks-per-wave bar chart. Includes a tree selector dropdown.
-- **DAG treeId filter** — `GET /api/tasks/dag` now accepts optional `treeId` query parameter, filtering both nodes and edges to that tree.
+1. **`rebase_before_eval` setting** — Added to `SettingsConfig` interface and `DEFAULT_SETTINGS` (default: `true`), configurable in grove.yaml `settings:`.
+
+2. **`rebaseOnMain()` utility** — New exported function in `worktree.ts` that fetches origin and rebases the task branch onto the default branch. On conflict, aborts the rebase and returns conflicting file names. Also exported `resolveDefaultBranch` (previously private).
+
+3. **Step engine hook** — In `executeStep()`, before spawning a worker for `sandbox: "read-only"` steps, the engine now calls `rebaseOnMain()`. On success, logs a `rebase_completed` event. On conflict, logs `rebase_conflict` with file names and fails via `on_failure` (typically back to implement). On unexpected errors, logs `rebase_failed` but proceeds non-fatally.
+
+4. **Tests** — 4 unit tests for `rebaseOnMain()` (clean rebase, conflicts, custom defaultBranch, no-op) and 5 integration tests for the step engine hook (calls before read-only, skips read-write, respects disabled setting, handles conflicts, skips null worktree_path).
 
 ## Files Modified
 
-- `src/broker/server.ts` — new `GET /api/batch/plan` endpoint; `GET /api/tasks/dag` treeId filter
-- `web/src/components/DagEditor.tsx` — wave-aware column layout, color-coded nodes, wave lane labels, legend overlay
-- `web/src/components/TaskList.tsx` — wave plan fetch, `W1`/`W2` badges on draft task cards
-- `web/src/components/Dashboard.tsx` — new `BatchTab` component with KPI cards, wave breakdown, parallelism chart
-- `web/src/hooks/useAnalytics.ts` — added `"batch"` to `DashboardTab` union type
-- `web/src/App.tsx` — pass `treeId` to DagEditor, pass `trees`/`selectedTree` to Dashboard
+- `src/shared/types.ts` — Added `rebase_before_eval` to `SettingsConfig` + `DEFAULT_SETTINGS`
+- `src/shared/worktree.ts` — Added `rebaseOnMain()`, `RebaseResult` interface, exported `resolveDefaultBranch`
+- `src/engine/step-engine.ts` — Added rebase logic in `executeStep()` before worker spawn
+- `tests/shared/worktree-rebase.test.ts` — New: 4 unit tests for `rebaseOnMain()`
+- `tests/engine/step-engine.test.ts` — Added 5 integration tests for rebase-before-eval behavior
+- `docs/superpowers/plans/2026-04-04-auto-rebase-before-eval.md` — Implementation plan (from previous session)
 
 ## Next Steps
 
-- None — all three scope items implemented, build passes, 656 tests pass.
+None — implementation is complete. All 387 core tests pass (0 failures).

@@ -212,6 +212,7 @@ export interface SettingsConfig {
   max_retries: number;
   default_adapter?: string;
   proactive?: boolean;
+  rebase_before_eval?: boolean;
 }
 
 export type NotificationEventName =
@@ -447,4 +448,5 @@ export const DEFAULT_SETTINGS: SettingsConfig = {
   stall_timeout_minutes: 5,
   max_retries: 2,
   proactive: true,
+  rebase_before_eval: true,
 };
