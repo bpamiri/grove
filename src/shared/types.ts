@@ -393,6 +393,24 @@ export const DEFAULT_PATHS: Record<string, PathConfig> = {
         result_file: ".grove/merge-result.json", result_key: "merged" },
     ],
   },
+  "security-audit": {
+    description: "Security audit — dependency scan, SAST, secrets detection, and report",
+    steps: [
+      { id: "scan", type: "worker", skills: ["security-audit"],
+        prompt: "Run a comprehensive security scan of this codebase. Check for dependency vulnerabilities, hardcoded secrets, and OWASP top-10 patterns. Write structured findings to `.grove/security-scan.json`.",
+        result_file: ".grove/security-scan.json", result_key: "scan_complete" },
+      { id: "analyze", type: "worker", skills: ["security-audit"], sandbox: "read-only",
+        prompt: "Triage the scan findings in `.grove/security-scan.json`. Cross-reference with known false-positive patterns, classify by severity (critical/high/medium/low/info), and write the triaged results to `.grove/security-analysis.json`.",
+        result_file: ".grove/security-analysis.json", result_key: "analysis_complete",
+        on_failure: "scan", max_retries: 2 },
+      { id: "report", type: "worker", skills: ["security-audit"],
+        prompt: "Generate a security audit report at `.grove/security-report.md` from the analysis in `.grove/security-analysis.json`. Include executive summary, critical findings, recommended remediations, and risk ratings." },
+      { id: "remediate", type: "worker", skills: ["security-audit"],
+        prompt: "Attempt automated fixes for low-risk findings from `.grove/security-analysis.json` — dependency upgrades, pinning versions, removing unused dependencies. Commit each fix separately. Skip anything that requires manual review. Write results to `.grove/security-remediation.json`.",
+        result_file: ".grove/security-remediation.json", result_key: "remediation_complete",
+        on_failure: "$done" },
+    ],
+  },
 };
 
 export const DEFAULT_BUDGETS: BudgetConfig = {

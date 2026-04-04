@@ -1,0 +1,7 @@
+name: security-audit
+version: 1.0.0
+description: Security scanning, analysis, reporting, and automated remediation for codebases
+author: grove
+suggested_steps: [scan, analyze, report, remediate]
+files:
+  - skill.md
