@@ -55,6 +55,7 @@ export interface OverlayContext {
     costSoFar: number;
   } | null;
   sandbox?: "read-write" | "read-only";
+  stepId?: string;
 }
 
 export interface ReviewOverlayContext {
@@ -175,7 +176,9 @@ export function buildOverlay(ctx: OverlayContext): string {
   }
   parts.push("- Run tests if available before marking done");
   parts.push("- Write the session summary file before finishing");
-  parts.push("- Do NOT push to remote — Grove handles that");
+  if (ctx.stepId !== "merge") {
+    parts.push("- Do NOT push to remote — Grove handles that");
+  }
 
   return parts.join("\n");
 }
