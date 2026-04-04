@@ -411,6 +411,26 @@ export const DEFAULT_PATHS: Record<string, PathConfig> = {
         on_failure: "$done" },
     ],
   },
+  refactoring: {
+    description: "Code refactoring with analysis, safe transformation, and verification",
+    steps: [
+      { id: "analyze", type: "worker", skills: ["refactoring"],
+        prompt: "Analyze the codebase for refactoring targets: code smells, duplicated logic, high cyclomatic complexity, large files. Write a structured analysis to `.grove/refactor-analysis.json` with fields: targets (array of {file, issue, severity, suggestion}), summary, and metrics." },
+      { id: "plan", type: "worker", skills: ["refactoring"],
+        prompt: "Based on the analysis in `.grove/refactor-analysis.json`, create a refactoring plan. For each change, describe: before/after, risk assessment, and test strategy. Write the plan to `.grove/refactor-plan.md`." },
+      { id: "implement", type: "worker", skills: ["refactoring"],
+        prompt: "Execute the refactoring plan from `.grove/refactor-plan.md`. Commit atomically per logical change. Preserve all existing behavior — no functional changes." },
+      { id: "verify", type: "worker",
+        prompt: "Run the full test suite. Compare results against pre-refactoring baseline. Verify: all tests pass, no behavior changes, complexity metrics improved. Write results to `.grove/verify-result.json` with fields: tests_passed (bool), baseline_comparison, metrics_improved (bool).",
+        result_file: ".grove/verify-result.json", result_key: "tests_passed", on_failure: "implement", max_retries: 2 },
+      { id: "review", type: "worker", skills: ["code-review"], sandbox: "read-only",
+        prompt: "Review the refactoring changes. Focus on: accidental behavior changes, missing test coverage for refactored paths, API surface changes, and whether complexity actually decreased. Write verdict to `.grove/review-result.json`.",
+        result_file: ".grove/review-result.json", result_key: "approved", on_failure: "implement", max_retries: 2 },
+      { id: "merge", type: "worker", skills: ["merge-handler"],
+        prompt: "Push the branch, create a PR, wait for CI, and merge. Follow the merge-handler skill instructions exactly. Write your result to .grove/merge-result.json.",
+        result_file: ".grove/merge-result.json", result_key: "merged" },
+    ],
+  },
 };
 
 export const DEFAULT_BUDGETS: BudgetConfig = {

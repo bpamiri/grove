@@ -1,0 +1,7 @@
+name: refactoring
+version: 1.0.0
+description: Code refactoring guidance — smell detection, complexity analysis, safe transformation patterns
+author: grove
+suggested_steps: [analyze, plan, implement]
+files:
+  - skill.md
