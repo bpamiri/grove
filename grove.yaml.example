@@ -21,11 +21,7 @@ trees:
   #   branch_prefix: grove/
 
 # Paths: workflow templates that define the step pipeline per task type.
-<<<<<<< HEAD
-# Built-in paths (development, research, adversarial, security-audit) are always available.
-=======
-# Built-in paths (development, research, adversarial, refactoring) are always available.
->>>>>>> 81a94f7 (feat: (W-071) add refactoring pipeline path with analysis, verification, and review)
+# Built-in paths (development, research, adversarial, security-audit, refactoring) are always available.
 # Add custom paths here:
 paths:
   # ops:
