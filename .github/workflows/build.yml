@@ -11,6 +11,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +25,26 @@ jobs:
           cd web && bun install
 
       - name: Run tests
-        run: bun test tests/
+        run: |
+          # Run test directories individually to avoid bun mock.module() hang.
+          # Per-directory timeout (60s) kills hung processes so the rest still runs.
+          failed=0
+          for dir in agents batch broker cli engine integration monitor notifications plugins pr shared skills; do
+            echo "::group::tests/$dir/"
+            if timeout 60 bun test "tests/$dir/"; then
+              echo "::endgroup::"
+            else
+              code=$?
+              echo "::endgroup::"
+              if [ $code -eq 124 ]; then
+                echo "::error::tests/$dir/ timed out after 60s"
+              else
+                echo "::error::tests/$dir/ failed with exit code $code"
+              fi
+              failed=1
+            fi
+          done
+          exit $failed
 
   build:
     needs: test
