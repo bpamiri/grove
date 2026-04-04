@@ -10,6 +10,12 @@ import type { Database } from "./db";
 let _db: Database | null = null;
 const _unsubs: Array<() => void> = [];
 
+/** Tracks repeated stall alerts per task to avoid flooding the chat. */
+const _stallCounts = new Map<string, number>();
+
+/** Exported for tests. */
+export function _getStallCounts(): Map<string, number> { return _stallCounts; }
+
 /** Check whether feedback is enabled (settings.proactive). */
 function isProactive(): boolean {
   try {
@@ -27,9 +33,17 @@ function taskLabel(taskId: string): string {
   return `${task.id} ("${task.title}")`;
 }
 
-/** Send a message to the orchestrator, catching errors to avoid crashing event handlers. */
+/** Send a message to the orchestrator, catching errors to avoid crashing event handlers.
+ *  Also persists the event as a system message and broadcasts it to WebSocket clients
+ *  so the GUI shows the triggering event alongside the orchestrator's response. */
 function safeSend(message: string, context: string): void {
   try {
+    // Persist and broadcast as a system message so the chat UI shows the event
+    const id = _db?.addMessage("system", message) ?? 0;
+    bus.emit("message:new", {
+      message: { id, source: "system", channel: "main", content: message, created_at: new Date().toISOString() },
+    });
+
     orchestrator.sendMessage(message);
   } catch (err) {
     console.error(`[orchestrator-feedback] Failed to send ${context}:`, err);
@@ -48,6 +62,9 @@ export function wireOrchestratorFeedback(db: Database): void {
 
   _unsubs.push(
     bus.on("worker:ended", ({ taskId, status }) => {
+      // Clear stall counter regardless of proactive setting — the worker is done.
+      _stallCounts.delete(taskId);
+
       if (!isProactive()) return;
       // "done" means the worker completed its implementation step successfully —
       // the step engine will advance the pipeline. Notify for all other exits.
@@ -197,11 +214,30 @@ export function wireOrchestratorFeedback(db: Database): void {
   _unsubs.push(
     bus.on("monitor:stall", ({ taskId, inactiveMinutes }) => {
       if (!isProactive()) return;
-      safeSend(
-        `[health] ${taskLabel(taskId)} worker stalled — no activity for ${inactiveMinutes} minutes. ` +
-        `Should I restart it?`,
-        "monitor:stall",
-      );
+
+      const count = (_stallCounts.get(taskId) ?? 0) + 1;
+      _stallCounts.set(taskId, count);
+
+      const label = taskLabel(taskId);
+      const stallMsg = count > 1
+        ? `[health] ${label} worker stalled (×${count}) — no activity for ${inactiveMinutes} minutes. Should I restart it?`
+        : `[health] ${label} worker stalled — no activity for ${inactiveMinutes} minutes. Should I restart it?`;
+
+      // Always show the system message (with count), but only forward the
+      // first stall per task to the orchestrator to avoid confused responses.
+      const id = _db?.addMessage("system", stallMsg) ?? 0;
+      bus.emit("message:new", {
+        message: { id, source: "system", channel: "main", content: stallMsg, created_at: new Date().toISOString() },
+      });
+
+      if (count === 1) {
+        try {
+          orchestrator.sendMessage(stallMsg);
+        } catch (err) {
+          console.error("[orchestrator-feedback] Failed to send monitor:stall:", err);
+          try { _db?.addEvent(null, null, "feedback_send_failed", `monitor:stall: ${err}`); } catch {}
+        }
+      }
     }),
   );
 
@@ -221,5 +257,6 @@ export function wireOrchestratorFeedback(db: Database): void {
 export function unwireOrchestratorFeedback(): void {
   for (const unsub of _unsubs) unsub();
   _unsubs.length = 0;
+  _stallCounts.clear();
   _db = null;
 }

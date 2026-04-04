@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:
 import { bus } from "../../src/broker/event-bus";
 import { createTestDb } from "../fixtures/helpers";
 import type { Database } from "../../src/broker/db";
+import type { Message } from "../../src/shared/types";
 
 // Capture orchestrator.sendMessage calls.
 // Spread the real module so mock.module doesn't break other test files
@@ -27,23 +28,31 @@ mock.module("../../src/broker/config", () => ({
 }));
 
 // Import after mocks are set up
-const { wireOrchestratorFeedback, unwireOrchestratorFeedback } = await import(
+const { wireOrchestratorFeedback, unwireOrchestratorFeedback, _getStallCounts } = await import(
   "../../src/broker/orchestrator-feedback"
 );
 
+// Capture message:new bus emissions for verifying system message broadcast.
+let emittedMessages: Message[] = [];
+
 let db: Database;
 let cleanup: () => void;
+let unsubMessages: () => void;
 
 beforeEach(() => {
   sentMessages.length = 0;
+  emittedMessages = [];
   proactiveValue = true;
   bus.removeAll();
   ({ db, cleanup } = createTestDb());
   db.treeUpsert({ id: "main-tree", name: "Main", path: "/code/main" });
   wireOrchestratorFeedback(db);
+  // Subscribe to message:new AFTER wiring so we capture system messages from safeSend
+  unsubMessages = bus.on("message:new", ({ message }) => { emittedMessages.push(message); });
 });
 
 afterEach(() => {
+  unsubMessages();
   unwireOrchestratorFeedback();
   bus.removeAll();
   cleanup();
@@ -381,6 +390,136 @@ describe("safeSend error handling", () => {
     // Messages use raw taskId since task is not in DB
     expect(sentMessages[0]).toContain("NONEXISTENT");
     expect(sentMessages[0]).not.toContain('("');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// System message broadcast (W-079)
+// ---------------------------------------------------------------------------
+
+describe("system message broadcast", () => {
+  test("emits message:new with source 'system' for every event sent to orchestrator", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-050", "main-tree", "Sys msg test", "active"],
+    );
+
+    bus.emit("eval:passed", { taskId: "W-050" });
+
+    // Orchestrator received the message
+    expect(sentMessages).toHaveLength(1);
+    // message:new was also emitted as a system message
+    expect(emittedMessages).toHaveLength(1);
+    expect(emittedMessages[0].source).toBe("system");
+    expect(emittedMessages[0].channel).toBe("main");
+    expect(emittedMessages[0].content).toContain("W-050");
+    expect(emittedMessages[0].content).toContain("passed evaluation");
+  });
+
+  test("persists system messages to the database", () => {
+    bus.emit("cost:budget_warning", { current: 10, limit: 25, period: "day" });
+
+    const msgs = db.recentMessages("main", 10);
+    const systemMsgs = msgs.filter(m => m.source === "system");
+    expect(systemMsgs.length).toBeGreaterThanOrEqual(1);
+    expect(systemMsgs.some(m => m.content.includes("$10.00"))).toBe(true);
+  });
+
+  test("does not emit system messages when proactive is false", () => {
+    proactiveValue = false;
+
+    bus.emit("eval:passed", { taskId: "W-001" });
+
+    expect(sentMessages).toHaveLength(0);
+    expect(emittedMessages).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stall deduplication (W-079)
+// ---------------------------------------------------------------------------
+
+describe("stall deduplication", () => {
+  test("sends first stall to orchestrator, suppresses subsequent stalls", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-060", "main-tree", "Stalling task", "active"],
+    );
+
+    // First stall — goes to orchestrator
+    bus.emit("monitor:stall", { taskId: "W-060", sessionId: "s1", inactiveMinutes: 5 });
+    expect(sentMessages).toHaveLength(1);
+    expect(emittedMessages).toHaveLength(1);
+    expect(emittedMessages[0].content).not.toContain("×");
+
+    // Second stall — system message only, not to orchestrator
+    bus.emit("monitor:stall", { taskId: "W-060", sessionId: "s1", inactiveMinutes: 10 });
+    expect(sentMessages).toHaveLength(1); // Still 1 — not forwarded
+    expect(emittedMessages).toHaveLength(2);
+    expect(emittedMessages[1].content).toContain("×2");
+
+    // Third stall
+    bus.emit("monitor:stall", { taskId: "W-060", sessionId: "s1", inactiveMinutes: 15 });
+    expect(sentMessages).toHaveLength(1); // Still 1
+    expect(emittedMessages).toHaveLength(3);
+    expect(emittedMessages[2].content).toContain("×3");
+  });
+
+  test("tracks stall counts independently per task", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-061", "main-tree", "Task A", "active"],
+    );
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-062", "main-tree", "Task B", "active"],
+    );
+
+    bus.emit("monitor:stall", { taskId: "W-061", sessionId: "s1", inactiveMinutes: 5 });
+    bus.emit("monitor:stall", { taskId: "W-062", sessionId: "s2", inactiveMinutes: 5 });
+
+    // Both first stalls go to orchestrator
+    expect(sentMessages).toHaveLength(2);
+
+    bus.emit("monitor:stall", { taskId: "W-061", sessionId: "s1", inactiveMinutes: 10 });
+    // W-061 second stall suppressed, total still 2
+    expect(sentMessages).toHaveLength(2);
+    expect(emittedMessages).toHaveLength(3);
+    expect(emittedMessages[2].content).toContain("×2");
+  });
+
+  test("resets stall count when worker ends", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-063", "main-tree", "Restart test", "active"],
+    );
+
+    bus.emit("monitor:stall", { taskId: "W-063", sessionId: "s1", inactiveMinutes: 5 });
+    expect(sentMessages).toHaveLength(1);
+
+    // Worker ends — resets stall counter
+    bus.emit("worker:ended", { taskId: "W-063", sessionId: "s1", status: "done" });
+    expect(_getStallCounts().has("W-063")).toBe(false);
+
+    // New stall after restart — treated as first stall again
+    bus.emit("monitor:stall", { taskId: "W-063", sessionId: "s2", inactiveMinutes: 5 });
+    expect(sentMessages).toHaveLength(2); // New first stall forwarded
+    expect(emittedMessages[emittedMessages.length - 1].content).not.toContain("×");
+  });
+
+  test("persists all stall messages to DB even when deduplicated", () => {
+    db.run(
+      "INSERT INTO tasks (id, tree_id, title, status) VALUES (?, ?, ?, ?)",
+      ["W-064", "main-tree", "Persist test", "active"],
+    );
+
+    bus.emit("monitor:stall", { taskId: "W-064", sessionId: "s1", inactiveMinutes: 5 });
+    bus.emit("monitor:stall", { taskId: "W-064", sessionId: "s1", inactiveMinutes: 10 });
+    bus.emit("monitor:stall", { taskId: "W-064", sessionId: "s1", inactiveMinutes: 15 });
+
+    const msgs = db.recentMessages("main", 50);
+    const stallMsgs = msgs.filter(m => m.source === "system" && m.content.includes("stalled"));
+    expect(stallMsgs).toHaveLength(3);
   });
 });
 

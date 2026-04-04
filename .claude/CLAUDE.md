@@ -1,34 +1,32 @@
-# Task: W-075
-## DAG wave visualization — show execution waves in task list and DAG editor
+# Task: W-079
+## Display broker events in orchestrator chat as system messages
 
 ### Description
 ## Problem
-The DAG editor (`DagEditor.tsx`) positions nodes on a simple grid (`i % 4` columns, `i / 4` rows). There's no visual grouping by execution wave, so users can't see which tasks will run in parallel vs. which are blocked.
+Broker events (merges, PR creations, stalls, eval results, budget warnings) are sent to the orchestrator via `safeSend()` → `orchestrator.sendMessage()` in `orchestrator-feedback.ts`. The orchestrator processes these and responds, but the original event message is never displayed in the GUI chat panel. Users see the orchestrator's response ("W-007 merged, no follow-up needed") without the triggering event ("[event] W-007 merged (PR #2018)"), leaving them confused about what the orchestrator is reacting to.
 
 ## Scope
-### 1. Wave-aware layout in DagEditor
-- After loading DAG data from `/api/tasks/dag`, compute execution waves client-side using the same algorithm as `grove batch` (topological sort → group by depth level).
-- Position nodes in columns by wave: Wave 1 tasks in the leftmost column, Wave 2 in the next, etc.
-- Add wave labels ("Wave 1", "Wave 2") as non-interactive group headers or lane dividers.
-- Color-code or badge nodes by wave assignment.
+In `orchestrator-feedback.ts`, each `safeSend()` call should also emit the event message to the chat UI as a `system` message, so users see the full event→response flow:
 
-### 2. Wave badges in TaskList
-- In the task list sidebar, show a small wave badge (e.g., `W1`, `W2`) next to each draft task that's part of a computed batch plan.
-- This lets users see wave assignments without opening the DAG editor.
+```
+[system]  [event] W-007 merged (PR #2018). Plan next steps if needed.
+[orchestrator]  W-007 merged successfully. No follow-up needed.
+```
 
-### 3. Wave summary in Dashboard
-- Add a "Batch Plan" section to the Dashboard showing: total waves, tasks per wave, estimated parallelism.
+### Implementation
+1. In `safeSend()`, before calling `orchestrator.sendMessage()`, also call `bus.emit('message:new', { message: { source: 'system', channel: 'main', content: message } })` and `db.addMessage('system', message)` to persist and broadcast the event to WebSocket clients.
+2. Style system messages distinctly in the chat UI — they already have styling in `Chat.tsx` (`messageStyle` returns `bg-zinc-800/50 text-zinc-500 text-xs` for source `system`).
+3. Consider adding a collapsible/dimmed style for high-frequency events (stall alerts) to avoid flooding the chat with repeated stall warnings.
 
 ## Key Files
-- `web/src/components/DagEditor.tsx` — node positioning logic (line 46-61), currently grid-based
-- `web/src/components/TaskList.tsx` — task list rendering
-- `web/src/components/Dashboard.tsx` — dashboard panels
-- `src/batch/dag.ts` — `topoSort`, `readyTasks` algorithms (reuse client-side or expose via API)
+- `src/broker/orchestrator-feedback.ts` — `safeSend()` function (line 31-37)
+- `src/broker/event-bus.ts` — `message:new` event
+- `src/broker/db.ts` — `addMessage()` for persistence
+- `web/src/components/Chat.tsx` or `web/src/components/AgentDialogue.tsx` — system message rendering
 
-## Technical Notes
-- The wave computation is lightweight (Kahn's algorithm) — fine to run client-side in the browser.
-- ReactFlow supports group nodes and sub-flows which could be used for wave lanes.
-- Consider adding a `GET /api/batch/plan?tree=grove` endpoint that returns the wave plan without dispatching, so the UI doesn't need to re-implement the heuristic file-overlap analysis.
+## Notes
+- The W-072 stall spam showed why this matters — 14+ stall alerts were sent to the orchestrator but the user had no idea repeated alerts were firing until they saw the orchestrator's confused responses.
+- Consider deduplication: if the same event type fires repeatedly for the same task (e.g., stall alerts), collapse them in the UI ("Worker stalled (×8)") rather than showing 8 identical system messages.
 
 ### Workflow
 This task follows the **development** path.
@@ -37,56 +35,42 @@ This task follows the **development** path.
 You are the sole worker on this task. Complete it end-to-end: implement, test, and commit.
 
 ### Step Instructions
-Push the branch, create a PR, wait for CI, and merge. Follow the merge-handler skill instructions exactly. Write your result to .grove/merge-result.json.
+Implement the task. Commit your changes with conventional commit messages.
 
 ### Git Branch
-Work on branch: `grove/W-075-dag-wave-visualization-show-execution-wa`
-Commit message format: conventional commits — `feat: (W-075) description`, `fix: (W-075) description`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.
-
-### Reviewer Feedback
-The adversarial reviewer rejected your previous plan for the following reasons. Revise your plan to address each point:
-
-WRONG PLAN: The 'plan under review' is a W-072 session summary about markdown pipe-table rendering in Chat.tsx. It has nothing to do with W-075 (DAG wave visualization). None of the three scope items — (1) wave-aware DagEditor layout, (2) wave badges in TaskList, (3) wave summary in Dashboard — are addressed. The plan concludes 'feature is complete, ready for merge' referring to an entirely different feature.
-
-To pass review, W-075 needs an actual implementation plan covering:
-1. How wave data flows to DagEditor (reuse existing POST /api/batch/analyze or add a lighter GET endpoint)
-2. Node positioning strategy — Dagre/ELK layout vs manual column assignment by wave index
-3. How to integrate wave badges into TaskList without requiring a full batch analyze call on every render
-4. Dashboard 'Batch Plan' section design — what data to show, where it fits among existing tabs
-5. Whether to reuse the existing BatchPlan.tsx component or build new wave-specific components
-
-Note: the codebase already has significant wave infrastructure (deriveWaves in analyze.ts, BatchPlan.tsx, /api/batch/analyze endpoint) that a proper plan should build on rather than duplicate.
+Work on branch: `grove/W-079-display-broker-events-in-orchestrator-ch`
+Commit message format: conventional commits — `feat: (W-079) description`, `fix: (W-079) description`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.
 
 ### Checkpoint — Resuming from prior session
-- **Step:** merge (index 3)
-- **Last commit:** 64436fe62434adb6253d06ec182c0ccd608c6e88
-- **Files modified:** .claude/CLAUDE.md, .grove/session-summary.md
-- **Summary:** # Session Summary: W-075
+- **Step:** implement (index 1)
+- **Last commit:** e47561cc7a8becb0eb537488553739368cdb9679
+- **Files modified:** .claude/CLAUDE.md, src/broker/orchestrator-feedback.ts, tests/broker/orchestrator-feedback.test.ts
+- **Summary:** # Session Summary: W-070
 
 ## Summary
 
-Implemented DAG wave visualization across three UI surfaces. Added a new `GET /api/batch/plan` endpoint that returns wave assignments without side effects, then built wave-aware layouts in the DagEditor, wave badges in the TaskList, and a new "Batch" tab in the Dashboard.
+Implemented the `security-audit` built-in pipeline path with four steps (scan → analyze → report → remediate) and a comprehensive security-audit skill. The path is now available as a default alongside development, research, and adversarial.
 
 ### Key Design Decisions
 
-- **New GET /api/batch/plan endpoint** — idempotent endpoint returning `{ treeId, waves, taskWaves }` where `taskWaves` is a `Record<taskId, waveNumber>` for easy client-side consumption. Reuses existing `analyzeBatch` from `analyze.ts`.
-- **Column-based wave layout** in DagEditor — nodes positioned by wave column (Wave 1 leftmost, Wave 2 next, etc.) with color-coded borders from an 8-color palette. Falls back to the original grid layout when no wave data is available.
-- **Wave badges fetched at list level** — TaskList fetches the wave plan once when a tree has 2+ drafts, then renders `W1`/`W2` badges on individual cards. No per-card API calls.
-- **Dashboard "Batch" tab** — standalone tab with KPI cards (total waves, max parallelism, avg tasks/wave), execution wave breakdown bars, and a tasks-per-wave bar chart. Includes a tree selector dropdown.
-- **DAG treeId filter** — `GET /api/tasks/dag` now accepts optional `treeId` query parameter, filtering both nodes and edges to that tree.
+- **Single skill, four steps**: One `security-audit` skill serves all pipeline steps, with step-specific sections. Matches the pattern used by other skills.
+- **Read-only analyze step**: The analysis/triage step runs in read-only sandbox — it reads scan results and classifies findings without modifying source files. On failure, it loops back to `scan`.
+- **Best-effort remediation**: The `remediate` step uses `on_failure: "$done"` — the pipeline succeeds even if auto-fixes fail, since the scan and report are the primary deliverables.
+- **Structured JSON interchange**: Each step produces a JSON file (`.grove/security-scan.json`, `.grove/security-analysis.json`, `.grove/security-remediation.json`) that downstream steps consume, plus a human-readable `.grove/security-report.md`.
+- **OWASP Top 10 coverage**: The skill includes a lookup table mapping each OWASP category to concrete patterns the worker should search for.
+- **False-positive heuristics**: The analyze step includes specific rules for common false positives (test fixtures, env var references, ORM parameterization, etc.).
 
 ## Files Modified
 
-- `src/broker/server.ts` — new `GET /api/batch/plan` endpoint; `GET /api/tasks/dag` treeId filter
-- `web/src/components/DagEditor.tsx` — wave-aware column layout, color-coded nodes, wave lane labels, legend overlay
-- `web/src/components/TaskList.tsx` — wave plan fetch, `W1`/`W2` badges on draft task cards
-- `web/src/components/Dashboard.tsx` — new `BatchTab` component with KPI cards, wave breakdown, parallelism chart
-- `web/src/hooks/useAnalytics.ts` — added `"batch"` to `DashboardTab` union type
-- `web/src/App.tsx` — pass `treeId` to DagEditor, pass `trees`/`selectedTree` to Dashboard
+- `src/shared/types.ts` — added `security-audit` to `DEFAULT_PATHS`
+- `grove.yaml.example` — updated built-in path list comment, added commented-out customization example
+- `skills/security-audit/skill.yaml` — new skill metadata
+- `skills/security-audit/skill.md` — comprehensive skill instructions for all 4 steps
+- `.grove/session-summary.md` — this file
 
 ## Next Steps
 
-- None — all three scope items implemented, build passes, 656 tests pass.
+- None — feature is complete. Tests pass. Ready for commit.
 
 - **Cost so far:** $0.00
 
@@ -94,43 +78,38 @@ Continue from where you left off. The WIP commit contains your in-progress work.
 Do NOT repeat work that's already committed.
 
 ### Previous Session
-# Session Summary: W-075
+# Session Summary: W-070
 
 ## Summary
 
-Implemented DAG wave visualization across three UI surfaces. Added a new `GET /api/batch/plan` endpoint that returns wave assignments without side effects, then built wave-aware layouts in the DagEditor, wave badges in the TaskList, and a new "Batch" tab in the Dashboard.
+Implemented the `security-audit` built-in pipeline path with four steps (scan → analyze → report → remediate) and a comprehensive security-audit skill. The path is now available as a default alongside development, research, and adversarial.
 
 ### Key Design Decisions
 
-- **New GET /api/batch/plan endpoint** — idempotent endpoint returning `{ treeId, waves, taskWaves }` where `taskWaves` is a `Record<taskId, waveNumber>` for easy client-side consumption. Reuses existing `analyzeBatch` from `analyze.ts`.
-- **Column-based wave layout** in DagEditor — nodes positioned by wave column (Wave 1 leftmost, Wave 2 next, etc.) with color-coded borders from an 8-color palette. Falls back to the original grid layout when no wave data is available.
-- **Wave badges fetched at list level** — TaskList fetches the wave plan once when a tree has 2+ drafts, then renders `W1`/`W2` badges on individual cards. No per-card API calls.
-- **Dashboard "Batch" tab** — standalone tab with KPI cards (total waves, max parallelism, avg tasks/wave), execution wave breakdown bars, and a tasks-per-wave bar chart. Includes a tree selector dropdown.
-- **DAG treeId filter** — `GET /api/tasks/dag` now accepts optional `treeId` query parameter, filtering both nodes and edges to that tree.
+- **Single skill, four steps**: One `security-audit` skill serves all pipeline steps, with step-specific sections. Matches the pattern used by other skills.
+- **Read-only analyze step**: The analysis/triage step runs in read-only sandbox — it reads scan results and classifies findings without modifying source files. On failure, it loops back to `scan`.
+- **Best-effort remediation**: The `remediate` step uses `on_failure: "$done"` — the pipeline succeeds even if auto-fixes fail, since the scan and report are the primary deliverables.
+- **Structured JSON interchange**: Each step produces a JSON file (`.grove/security-scan.json`, `.grove/security-analysis.json`, `.grove/security-remediation.json`) that downstream steps consume, plus a human-readable `.grove/security-report.md`.
+- **OWASP Top 10 coverage**: The skill includes a lookup table mapping each OWASP category to concrete patterns the worker should search for.
+- **False-positive heuristics**: The analyze step includes specific rules for common false positives (test fixtures, env var references, ORM parameterization, etc.).
 
 ## Files Modified
 
-- `src/broker/server.ts` — new `GET /api/batch/plan` endpoint; `GET /api/tasks/dag` treeId filter
-- `web/src/components/DagEditor.tsx` — wave-aware column layout, color-coded nodes, wave lane labels, legend overlay
-- `web/src/components/TaskList.tsx` — wave plan fetch, `W1`/`W2` badges on draft task cards
-- `web/src/components/Dashboard.tsx` — new `BatchTab` component with KPI cards, wave breakdown, parallelism chart
-- `web/src/hooks/useAnalytics.ts` — added `"batch"` to `DashboardTab` union type
-- `web/src/App.tsx` — pass `treeId` to DagEditor, pass `trees`/`selectedTree` to Dashboard
+- `src/shared/types.ts` — added `security-audit` to `DEFAULT_PATHS`
+- `grove.yaml.example` — updated built-in path list comment, added commented-out customization example
+- `skills/security-audit/skill.yaml` — new skill metadata
+- `skills/security-audit/skill.md` — comprehensive skill instructions for all 4 steps
+- `.grove/session-summary.md` — this file
 
 ## Next Steps
 
-- None — all three scope items implemented, build passes, 656 tests pass.
+- None — feature is complete. Tests pass. Ready for commit.
 
 
 ### Files Already Modified
 .claude/CLAUDE.md
-.grove/session-summary.md
-src/broker/server.ts
-web/src/App.tsx
-web/src/components/DagEditor.tsx
-web/src/components/Dashboard.tsx
-web/src/components/TaskList.tsx
-web/src/hooks/useAnalytics.ts
+src/broker/orchestrator-feedback.ts
+tests/broker/orchestrator-feedback.test.ts
 
 ### Session Summary Instructions
 Before finishing, create `.grove/session-summary.md` in the worktree with:
@@ -139,6 +118,7 @@ Before finishing, create `.grove/session-summary.md` in the worktree with:
 - **Next Steps**: What remains (if anything)
 
 ### Working Guidelines
-- Make atomic commits: `feat: (W-075) description`, `fix: (W-075) description`
+- Make atomic commits: `feat: (W-079) description`, `fix: (W-079) description`
 - Run tests if available before marking done
 - Write the session summary file before finishing
+- Do NOT push to remote — Grove handles that
