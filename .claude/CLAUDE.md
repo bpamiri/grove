@@ -1,32 +1,31 @@
-# Task: W-079
-## Display broker events in orchestrator chat as system messages
+# Task: W-078
+## Auto-rebase worktree on main before evaluate step
 
 ### Description
 ## Problem
-Broker events (merges, PR creations, stalls, eval results, budget warnings) are sent to the orchestrator via `safeSend()` → `orchestrator.sendMessage()` in `orchestrator-feedback.ts`. The orchestrator processes these and responds, but the original event message is never displayed in the GUI chat panel. Users see the orchestrator's response ("W-007 merged, no follow-up needed") without the triggering event ("[event] W-007 merged (PR #2018)"), leaving them confused about what the orchestrator is reacting to.
+When multiple tasks run in parallel (e.g., wave 1 with 5 concurrent workers), tasks that finish last have stale worktrees. Earlier tasks have already merged to main, but the late-finishing worktree doesn't know about those changes. This causes:
+1. Phantom test failures from missing schema changes or deleted imports
+2. Evaluate gates rejecting valid work over stale-base issues
+3. Unnecessary implement→evaluate retry loops wasting time and budget
+
+Observed with W-068: its worktree was branched before W-069, W-072, and W-073 merged. The evaluate step saw the worker "deleting" files that other PRs had added.
 
 ## Scope
-In `orchestrator-feedback.ts`, each `safeSend()` call should also emit the event message to the chat UI as a `system` message, so users see the full event→response flow:
+Add an automatic rebase-on-main step in the step engine before running the evaluate gate:
 
-```
-[system]  [event] W-007 merged (PR #2018). Plan next steps if needed.
-[orchestrator]  W-007 merged successfully. No follow-up needed.
-```
-
-### Implementation
-1. In `safeSend()`, before calling `orchestrator.sendMessage()`, also call `bus.emit('message:new', { message: { source: 'system', channel: 'main', content: message } })` and `db.addMessage('system', message)` to persist and broadcast the event to WebSocket clients.
-2. Style system messages distinctly in the chat UI — they already have styling in `Chat.tsx` (`messageStyle` returns `bg-zinc-800/50 text-zinc-500 text-xs` for source `system`).
-3. Consider adding a collapsible/dimmed style for high-frequency events (stall alerts) to avoid flooding the chat with repeated stall warnings.
+1. **Before evaluate starts:** fetch `origin/main` and rebase the task branch onto it in the worktree.
+2. **If rebase succeeds cleanly:** proceed to evaluate as normal.
+3. **If rebase has conflicts:** mark the conflicts in the task events, fail the evaluate step with a clear error ("rebase conflict with main"), and surface the conflicting files so the implement step can resolve them on retry.
+4. **Configurable:** add a `rebase_before_eval: true` (default) setting in grove.yaml `settings:` so it can be disabled if needed.
 
 ## Key Files
-- `src/broker/orchestrator-feedback.ts` — `safeSend()` function (line 31-37)
-- `src/broker/event-bus.ts` — `message:new` event
-- `src/broker/db.ts` — `addMessage()` for persistence
-- `web/src/components/Chat.tsx` or `web/src/components/AgentDialogue.tsx` — system message rendering
+- `src/engine/step-engine.ts` — step transition logic, pre-step hooks
+- `src/agents/worker.ts` — worktree management
+- `src/broker/dispatch.ts` — task dispatch (may need to pass base branch info)
 
 ## Notes
-- The W-072 stall spam showed why this matters — 14+ stall alerts were sent to the orchestrator but the user had no idea repeated alerts were firing until they saw the orchestrator's confused responses.
-- Consider deduplication: if the same event type fires repeatedly for the same task (e.g., stall alerts), collapse them in the UI ("Worker stalled (×8)") rather than showing 8 identical system messages.
+- This is the evaluate-specific case. A more general "rebase before each step" might be overkill — evaluate is where stale bases actually cause problems because it runs tests.
+- The rebase should be a fast, non-worker operation (just git commands) — no need to spawn a Claude agent for it.
 
 ### Workflow
 This task follows the **development** path.
@@ -38,78 +37,51 @@ You are the sole worker on this task. Complete it end-to-end: implement, test, a
 Implement the task. Commit your changes with conventional commit messages.
 
 ### Git Branch
-Work on branch: `grove/W-079-display-broker-events-in-orchestrator-ch`
-Commit message format: conventional commits — `feat: (W-079) description`, `fix: (W-079) description`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.
-
-### Checkpoint — Resuming from prior session
-- **Step:** implement (index 1)
-- **Last commit:** e47561cc7a8becb0eb537488553739368cdb9679
-- **Files modified:** .claude/CLAUDE.md, src/broker/orchestrator-feedback.ts, tests/broker/orchestrator-feedback.test.ts
-- **Summary:** # Session Summary: W-070
-
-## Summary
-
-Implemented the `security-audit` built-in pipeline path with four steps (scan → analyze → report → remediate) and a comprehensive security-audit skill. The path is now available as a default alongside development, research, and adversarial.
-
-### Key Design Decisions
-
-- **Single skill, four steps**: One `security-audit` skill serves all pipeline steps, with step-specific sections. Matches the pattern used by other skills.
-- **Read-only analyze step**: The analysis/triage step runs in read-only sandbox — it reads scan results and classifies findings without modifying source files. On failure, it loops back to `scan`.
-- **Best-effort remediation**: The `remediate` step uses `on_failure: "$done"` — the pipeline succeeds even if auto-fixes fail, since the scan and report are the primary deliverables.
-- **Structured JSON interchange**: Each step produces a JSON file (`.grove/security-scan.json`, `.grove/security-analysis.json`, `.grove/security-remediation.json`) that downstream steps consume, plus a human-readable `.grove/security-report.md`.
-- **OWASP Top 10 coverage**: The skill includes a lookup table mapping each OWASP category to concrete patterns the worker should search for.
-- **False-positive heuristics**: The analyze step includes specific rules for common false positives (test fixtures, env var references, ORM parameterization, etc.).
-
-## Files Modified
-
-- `src/shared/types.ts` — added `security-audit` to `DEFAULT_PATHS`
-- `grove.yaml.example` — updated built-in path list comment, added commented-out customization example
-- `skills/security-audit/skill.yaml` — new skill metadata
-- `skills/security-audit/skill.md` — comprehensive skill instructions for all 4 steps
-- `.grove/session-summary.md` — this file
-
-## Next Steps
-
-- None — feature is complete. Tests pass. Ready for commit.
-
-- **Cost so far:** $0.00
-
-Continue from where you left off. The WIP commit contains your in-progress work.
-Do NOT repeat work that's already committed.
+Work on branch: `grove/W-078-auto-rebase-worktree-on-main-before-eval`
+Commit message format: conventional commits — `feat: (W-078) description`, `fix: (W-078) description`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.
 
 ### Previous Session
-# Session Summary: W-070
+# Session Summary: W-078
 
 ## Summary
 
-Implemented the `security-audit` built-in pipeline path with four steps (scan → analyze → report → remediate) and a comprehensive security-audit skill. The path is now available as a default alongside development, research, and adversarial.
+Explored the Grove step engine, worker, worktree, and config systems to understand how pipeline evaluation steps work. Created a detailed implementation plan for auto-rebasing worktrees onto main before read-only (evaluation) steps.
 
 ### Key Design Decisions
 
-- **Single skill, four steps**: One `security-audit` skill serves all pipeline steps, with step-specific sections. Matches the pattern used by other skills.
-- **Read-only analyze step**: The analysis/triage step runs in read-only sandbox — it reads scan results and classifies findings without modifying source files. On failure, it loops back to `scan`.
-- **Best-effort remediation**: The `remediate` step uses `on_failure: "$done"` — the pipeline succeeds even if auto-fixes fail, since the scan and report are the primary deliverables.
-- **Structured JSON interchange**: Each step produces a JSON file (`.grove/security-scan.json`, `.grove/security-analysis.json`, `.grove/security-remediation.json`) that downstream steps consume, plus a human-readable `.grove/security-report.md`.
-- **OWASP Top 10 coverage**: The skill includes a lookup table mapping each OWASP category to concrete patterns the worker should search for.
-- **False-positive heuristics**: The analyze step includes specific rules for common false positives (test fixtures, env var references, ORM parameterization, etc.).
+- **Trigger on `sandbox: "read-only"` steps** — These are the evaluation/review gates where stale worktrees cause phantom test failures. Read-write steps (implement, merge) don't need rebase because they produce code or use GitHub's merge mechanism.
+- **`rebaseOnMain()` utility in worktree.ts** — New function that fetches origin, rebases, and on conflict aborts + returns conflicting file list. Uses the existing `git()` helper and `resolveDefaultBranch()`.
+- **Hook in `executeStep()` before worker spawn** — After plugin pre-hook, before `switch (step.type)`, gated by `settingsGet("rebase_before_eval")` and `task.worktree_path` presence.
+- **Conflict = failure, not fatal** — Routes through `on_failure` path (back to implement), giving the worker a retry opportunity to resolve conflicts.
+- **Non-fatal catch for unexpected errors** — If rebaseOnMain throws, logs the error but proceeds with evaluation on the potentially stale base.
+- **`rebase_before_eval: true` default** in `SettingsConfig` — Can be disabled in grove.yaml `settings:`.
 
 ## Files Modified
 
-- `src/shared/types.ts` — added `security-audit` to `DEFAULT_PATHS`
-- `grove.yaml.example` — updated built-in path list comment, added commented-out customization example
-- `skills/security-audit/skill.yaml` — new skill metadata
-- `skills/security-audit/skill.md` — comprehensive skill instructions for all 4 steps
-- `.grove/session-summary.md` — this file
+- `docs/superpowers/plans/2026-04-04-auto-rebase-before-eval.md` — Implementation plan (4 tasks)
 
 ## Next Steps
 
-- None — feature is complete. Tests pass. Ready for commit.
+- Execute the plan (4 tasks):
+  1. Add `rebase_before_eval` to `SettingsConfig` in types.ts
+  2. Add `rebaseOnMain()` to worktree.ts with unit tests
+  3. Hook rebase into `executeStep()` in step-engine.ts
+  4. Add step engine integration tests
 
 
 ### Files Already Modified
 .claude/CLAUDE.md
+.grove/session-summary.md
+package.json
 src/broker/orchestrator-feedback.ts
+src/broker/server.ts
+src/shared/types.ts
 tests/broker/orchestrator-feedback.test.ts
+web/src/App.tsx
+web/src/components/DagEditor.tsx
+web/src/components/Dashboard.tsx
+web/src/components/TaskList.tsx
+web/src/hooks/useAnalytics.ts
 
 ### Session Summary Instructions
 Before finishing, create `.grove/session-summary.md` in the worktree with:
@@ -118,7 +90,7 @@ Before finishing, create `.grove/session-summary.md` in the worktree with:
 - **Next Steps**: What remains (if anything)
 
 ### Working Guidelines
-- Make atomic commits: `feat: (W-079) description`, `fix: (W-079) description`
+- Make atomic commits: `feat: (W-078) description`, `fix: (W-078) description`
 - Run tests if available before marking done
 - Write the session summary file before finishing
 - Do NOT push to remote — Grove handles that
