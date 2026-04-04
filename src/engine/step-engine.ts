@@ -7,6 +7,7 @@ import { configNormalizedPaths } from "../broker/config";
 import type { Database } from "../broker/db";
 import type { Task, Tree, PipelineStep, NormalizedPathConfig } from "../shared/types";
 import type { PluginHost } from "../plugins/host";
+import { settingsGet } from "../broker/config";
 
 // Module-level DB reference so onStepComplete can access it without threading db through events.
 let _db: Database | null = null;
@@ -334,6 +335,29 @@ async function executeStep(
     } catch (err) {
       // Plugin errors must never crash step execution
       console.error("[plugins] step:pre hook error:", err);
+    }
+  }
+
+  // Auto-rebase onto main before read-only (evaluation) steps to prevent stale-base failures
+  if (step.sandbox === "read-only" && settingsGet("rebase_before_eval") && task.worktree_path) {
+    try {
+      const { rebaseOnMain } = await import("../shared/worktree");
+      const treeConfig = tree.config ? JSON.parse(tree.config) : {};
+      const result = rebaseOnMain(task.worktree_path, treeConfig.default_branch);
+
+      if (result.ok) {
+        db.addEvent(task.id, null, "rebase_completed", "Rebased onto latest main before evaluation");
+      } else {
+        const files = result.conflictFiles?.join(", ") ?? "unknown";
+        const msg = `Rebase conflict with main before "${step.id}" step — conflicting files: ${files}`;
+        db.addEvent(task.id, null, "rebase_conflict", msg);
+        onStepComplete(task.id, "failure", msg);
+        return;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      db.addEvent(task.id, null, "rebase_failed", `Rebase error: ${msg}`);
+      // Non-fatal — proceed without rebase rather than blocking evaluation
     }
   }
 
