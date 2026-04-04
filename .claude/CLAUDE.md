@@ -1,88 +1,128 @@
-# Review: W-068
-## Enrich orchestrator system prompt with full CLI docs, MCP server, and skill catalog
+# Task: W-071
+## Create code-refactoring pipeline path (analysis, refactor, test, review)
 
-### Role
-You are an adversarial reviewer. Your job is to rigorously critique the plan below.
-You CANNOT modify any code or files except `.grove/review-result.json`.
-You MUST read the plan carefully, review the codebase for context, and write your verdict.
-
-### Task Description
+### Description
 ## Problem
-The orchestrator's system prompt (`buildOrchestratorPrompt` in `src/agents/orchestrator.ts:102`) only knows about trees, active tasks, and recent messages. It has no knowledge of:
-- Full CLI commands and their usage
-- Available pipeline paths and their step definitions
-- Installed skills and their capabilities
-- MCP server availability
-- Budget status / cost context
-
-This limits the orchestrator's ability to guide users effectively.
+The `development` and `adversarial` paths are oriented around feature work. Refactoring tasks have different concerns: preserving behavior, maintaining test coverage, measuring complexity reduction.
 
 ## Scope
-1. **CLI reference** — inject a concise summary of all `grove` CLI commands into the system prompt (from `src/cli/commands/help.ts` or hardcoded reference).
-2. **Pipeline paths** — serialize the `paths:` section from grove.yaml into the prompt so the orchestrator knows what pipelines exist and what steps they contain.
-3. **Skill catalog** — list installed skills (from `skills/` dir + built-in) with one-line descriptions.
-4. **Budget context** — include current spend vs. limits so the orchestrator can make cost-aware decisions.
-5. **Grove event reference** — document all available event types the orchestrator can emit (currently only `spawn_worker` and `task_update` — but there may be more to add).
+Create a `refactoring` path with these steps:
+
+1. **analyze** (worker) — Identify refactoring targets: code smells, duplicated logic, high cyclomatic complexity, large files. Produce a structured analysis in `.grove/refactor-analysis.json`.
+2. **plan** (worker) — Based on analysis, create a refactoring plan with before/after descriptions, risk assessment, and test strategy. Write to `.grove/refactor-plan.md`.
+3. **implement** (worker) — Execute the refactoring plan. Commit atomically per logical change.
+4. **verify** (gate) — Run full test suite, verify no behavior changes (same test results pre/post), check that complexity metrics improved.
+5. **review** (worker, read-only) — Adversarial review focused on: accidental behavior changes, missing test coverage for refactored paths, API surface changes.
+6. **merge** (worker) — Standard merge step.
+
+### Skill
+Create a `refactoring` skill with refactoring patterns, code smell detection guidance, and complexity measurement instructions.
 
 ## Key Files
-- `src/agents/orchestrator.ts` — `buildOrchestratorPrompt()` function (line 102-151)
-- `src/skills/` — built-in skill injector
-- `src/cli/commands/help.ts` — CLI reference
+- `grove.yaml` — add `refactoring` path definition
+- `skills/refactoring/` — new skill directory
 
-## Notes
-Keep the prompt lean — use compressed reference tables rather than verbose documentation. The context window budget matters.
+## Depends On
+- W-069 (pipeline CRUD) — use the new API/CLI to create the path.
 
-### Plan Under Review
-```markdown
-# Session Summary: W-068
+### Workflow
+This task follows the **development** path.
+
+### Strategy
+You are the sole worker on this task. Complete it end-to-end: implement, test, and commit.
+
+### Step Instructions
+Push the branch, create a PR, wait for CI, and merge. Follow the merge-handler skill instructions exactly. Write your result to .grove/merge-result.json.
+
+### Git Branch
+Work on branch: `grove/W-071-create-code-refactoring-pipeline-path-an`
+Commit message format: conventional commits — `feat: (W-071) description`, `fix: (W-071) description`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.
+
+### Checkpoint — Resuming from prior session
+- **Step:** merge (index 3)
+- **Files modified:** src/shared/types.ts
+- **Summary:** # Session Summary: W-070
 
 ## Summary
 
-Addressed three issues from adversarial reviewer feedback on the enriched orchestrator system prompt:
+Implemented the `security-audit` built-in pipeline path with four steps (scan → analyze → report → remediate) and a comprehensive security-audit skill. The path is now available as a default alongside development, research, and adversarial.
 
-1. **CLI reference completed** — Added 4 missing commands (`insights`, `paths`, `plugins`, `upgrade`) to `buildCliReferenceSection()`.
-2. **Handler `task` field fixed** — Changed `handleOrchestratorEvent` INSERT to use `event.task` for title and `event.prompt` for description. Previously used `event.prompt` for both, meaning task titles were full implementation instructions.
-3. **Handler `depends_on` passthrough fixed** — Added `depends_on` column to the INSERT statement so cross-tree dependency chains actually work. The column existed in the schema and was checked by dispatch, but the orchestrator handler silently dropped it.
+### Key Design Decisions
 
-All 15 tests pass (including updated CLI reference assertions).
+- **Single skill, four steps**: One `security-audit` skill serves all pipeline steps, with step-specific sections. Matches the pattern used by other skills.
+- **Read-only analyze step**: The analysis/triage step runs in read-only sandbox — it reads scan results and classifies findings without modifying source files. On failure, it loops back to `scan`.
+- **Best-effort remediation**: The `remediate` step uses `on_failure: "$done"` — the pipeline succeeds even if auto-fixes fail, since the scan and report are the primary deliverables.
+- **Structured JSON interchange**: Each step produces a JSON file (`.grove/security-scan.json`, `.grove/security-analysis.json`, `.grove/security-remediation.json`) that downstream steps consume, plus a human-readable `.grove/security-report.md`.
+- **OWASP Top 10 coverage**: The skill includes a lookup table mapping each OWASP category to concrete patterns the worker should search for.
+- **False-positive heuristics**: The analyze step includes specific rules for common false positives (test fixtures, env var references, ORM parameterization, etc.).
 
 ## Files Modified
 
-- `src/agents/orchestrator.ts` — 4 CLI rows added, handler INSERT fixed (title, depends_on)
-- `tests/agents/orchestrator.test.ts` — 4 new assertions for missing CLI commands
+- `src/shared/types.ts` — added `security-audit` to `DEFAULT_PATHS`
+- `grove.yaml.example` — updated built-in path list comment, added commented-out customization example
+- `skills/security-audit/skill.yaml` — new skill metadata
+- `skills/security-audit/skill.md` — comprehensive skill instructions for all 4 steps
+- `.grove/session-summary.md` — this file
 
 ## Next Steps
 
-- None — all reviewer feedback addressed. Ready for re-review.
+- None — feature is complete. Tests pass. Ready for commit.
 
-```
+- **Cost so far:** $0.00
 
-### Prior Review History
-The plan has been revised in response to earlier feedback. Here is the history:
+Continue from where you left off. The WIP commit contains your in-progress work.
+Do NOT repeat work that's already committed.
 
-**Round 1 feedback:**
-Three issues to address:
+### Previous Session
+# Session Summary: W-070
 
-1. **CLI reference incomplete** — Task spec says 'all grove CLI commands' but 4 are missing: `insights` (cross-task analytics), `paths` (pipeline path management), `plugins` (plugin management), `upgrade` (binary updates). Fix: add 4 rows to the CLI reference table in `buildCliReferenceSection()`.
+## Summary
 
-2. **`depends_on` documented but silently dropped** — Event reference (line 152-171) documents `depends_on` as a spawn_worker option, but `handleOrchestratorEvent` (line 414-427) doesn't include it in the INSERT statement. The orchestrator will think it's setting up task dependencies when it's not. Fix: either add `depends_on` to the INSERT in the handler, or remove it from the event reference docs until the handler supports it.
+Implemented the `security-audit` built-in pipeline path with four steps (scan → analyze → report → remediate) and a comprehensive security-audit skill. The path is now available as a default alongside development, research, and adversarial.
 
-3. **`task` field documented but handler ignores it** — Event reference says `task` is the 'short title' (required), but the handler uses `event.prompt` for both title and description (line 418). `event.task` is never stored. Fix: change the INSERT to use `event.task` for title and `event.prompt` for description.
+### Key Design Decisions
 
-Issues 2 and 3 are pre-existing handler bugs, but documenting them as working features makes them worse — the orchestrator will now actively rely on broken behavior. The fix for all three is small.
+- **Single skill, four steps**: One `security-audit` skill serves all pipeline steps, with step-specific sections. Matches the pattern used by other skills.
+- **Read-only analyze step**: The analysis/triage step runs in read-only sandbox — it reads scan results and classifies findings without modifying source files. On failure, it loops back to `scan`.
+- **Best-effort remediation**: The `remediate` step uses `on_failure: "$done"` — the pipeline succeeds even if auto-fixes fail, since the scan and report are the primary deliverables.
+- **Structured JSON interchange**: Each step produces a JSON file (`.grove/security-scan.json`, `.grove/security-analysis.json`, `.grove/security-remediation.json`) that downstream steps consume, plus a human-readable `.grove/security-report.md`.
+- **OWASP Top 10 coverage**: The skill includes a lookup table mapping each OWASP category to concrete patterns the worker should search for.
+- **False-positive heuristics**: The analyze step includes specific rules for common false positives (test fixtures, env var references, ORM parameterization, etc.).
 
-### Output Instructions
-After your review, write your verdict to `.grove/review-result.json` in the worktree:
-```json
-{ "approved": true, "feedback": "Brief explanation of why the plan is approved" }
-```
-or:
-```json
-{ "approved": false, "feedback": "Detailed feedback explaining what needs to change and why" }
-```
+## Files Modified
 
-**Rules:**
-- You must explicitly approve (set `approved: true`) — silence or lack of objection is NOT approval
-- If rejecting, be specific: name the exact issue and what should change
-- You may read any file in the codebase to verify claims in the plan
-- Do NOT modify any file except `.grove/review-result.json`
+- `src/shared/types.ts` — added `security-audit` to `DEFAULT_PATHS`
+- `grove.yaml.example` — updated built-in path list comment, added commented-out customization example
+- `skills/security-audit/skill.yaml` — new skill metadata
+- `skills/security-audit/skill.md` — comprehensive skill instructions for all 4 steps
+- `.grove/session-summary.md` — this file
+
+## Next Steps
+
+- None — feature is complete. Tests pass. Ready for commit.
+
+
+### Files Already Modified
+.claude/CLAUDE.md
+.claude/skills/code-review/skill.md
+.claude/skills/merge-handler/skill.md
+.grove/session-summary.md
+docs/guides/configuration.md
+docs/guides/custom-paths.md
+grove.yaml.example
+skills/refactoring/skill.md
+skills/refactoring/skill.yaml
+src/shared/types.ts
+tests/engine/normalize-v3.test.ts
+web/package-lock.json
+
+### Session Summary Instructions
+Before finishing, create `.grove/session-summary.md` in the worktree with:
+- **Summary**: What you accomplished
+- **Files Modified**: List of files changed
+- **Next Steps**: What remains (if anything)
+
+### Working Guidelines
+- Make atomic commits: `feat: (W-071) description`, `fix: (W-071) description`
+- Run tests if available before marking done
+- Write the session summary file before finishing
