@@ -21,6 +21,8 @@ const commands: Record<string, () => Promise<{ run(args: string[]): Promise<void
   insights: () => import("./commands/insights"),
   cleanup:  () => import("./commands/cleanup"),
   plugins: () => import("./commands/plugins"),
+  paths: () => import("./commands/paths"),
+  path:  () => import("./commands/paths"),   // alias: grove path show
   skills: () => import("./commands/skills"),
   help:    () => import("./commands/help"),
   upgrade: () => import("./commands/upgrade"),
@@ -70,6 +72,7 @@ ${pc.bold("Commands:")}
   ${pc.green("config")}    Manage config (version, validate, migrate)
   ${pc.green("cost")}      Spend breakdown
   ${pc.green("insights")}  Cross-task pattern insights
+  ${pc.green("paths")}     Manage pipeline paths (CRUD)
   ${pc.green("plugins")}   Manage plugins
   ${pc.green("skills")}    Manage the skill library
   ${pc.green("help")}      Show this help
