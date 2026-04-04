@@ -1,37 +1,21 @@
-# Session Summary: W-065
+# Session Summary: W-072
 
 ## Summary
 
-Implemented an issue-status poller that periodically checks GitHub for closed issues and updates the corresponding local task status to `closed`. This closes the sync gap where GitHub issue closures (manual, merged PR, or @claude) were never reflected in the Grove task database.
+Resumed and verified the completed markdown table rendering feature. The previous session implemented proper HTML `<table>` rendering for markdown pipe tables in the `FormattedContent` component (`web/src/components/Chat.tsx`). This session confirmed the build passes cleanly (`tsc -b && vite build`) and the implementation is solid.
 
-The poller follows the same architectural pattern as the existing PR poller: a start/stop module with an interval-based poll loop, wired into the broker startup/shutdown lifecycle. It batches API calls by repository to minimize `gh` CLI invocations.
+### Key Design Decisions (from previous session)
 
-## Changes Made
-
-### `src/shared/github.ts`
-- Added `ghIssueView()` — fetch a single issue by number
-- Added `ghIssueStatuses()` — batch-fetch issue states for a list of issue numbers within a repo (groups results from `ghIssueList`)
-
-### `src/broker/db.ts`
-- Added `tasksWithOpenIssues()` — query for tasks with a non-null `github_issue` and non-terminal status (`draft`, `queued`, `active`), joined to their tree for the GitHub repo URL
-
-### `src/broker/issue-poller.ts` — NEW
-- `startIssuePoller(db)` — polls every 5 minutes, groups tasks by repo, calls `ghIssueStatuses`, marks closed issues as `closed` with `completed_at`, emits `task:status` bus event
-- `stopIssuePoller()` — clears the interval
-
-### `src/broker/index.ts`
-- Wired `startIssuePoller(db)` at broker startup (after PR poller)
-- Wired `stopIssuePoller()` at broker shutdown
-
-### `tests/broker/issue-poller.test.ts` — NEW
-- 5 tests covering `tasksWithOpenIssues()`: non-terminal statuses returned, terminal statuses excluded, null github_issue excluded, trees without github excluded, multi-repo grouping
+- **Three block types**: `"text" | "box-table" | "md-table"` — first pass groups table-like lines, classification step separates box-drawing from valid markdown tables.
+- **No external dependencies**: Table parsing is self-contained (~50 lines).
+- **Graceful fallback**: Invalid pipe-table blocks fall back to `<pre>` rendering.
+- **Alignment support**: Parses GFM separator syntax (`:---`, `:---:`, `---:`) and applies via `textAlign` style.
+- **Inline formatting preserved**: Table cells pass through `InlineFormat` for `**bold**` and `` `code` `` rendering.
 
 ## Files Modified
-- `src/shared/github.ts` — ghIssueView + ghIssueStatuses helpers
-- `src/broker/db.ts` — tasksWithOpenIssues query
-- `src/broker/issue-poller.ts` — new poller module
-- `src/broker/index.ts` — wiring
-- `tests/broker/issue-poller.test.ts` — new test file
+
+- `web/src/components/Chat.tsx` — refactored `FormattedContent` block detection, added `parseMdTable` parser, `MarkdownTable` component, and supporting types/helpers
 
 ## Next Steps
-- None — feature is complete as specified in issue #156
+
+- None — feature is complete. Build verified. Ready for merge.
