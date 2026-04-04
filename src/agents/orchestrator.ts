@@ -8,6 +8,8 @@ import { isAlive } from "./stream-parser";
 import { extractGroveEvents, stripGroveEvents } from "./orchestrator-events";
 import type { Database } from "../broker/db";
 import { getEnv } from "../broker/db";
+import { configPaths, budgetGet, settingsGet } from "../broker/config";
+import { loadSkills } from "../skills/library";
 
 // ---------------------------------------------------------------------------
 // Session state (in-memory, ephemeral to broker lifetime)
@@ -100,25 +102,27 @@ export function getSessionId(): string | null {
 
 /** Build the orchestrator's system prompt */
 export function buildOrchestratorPrompt(db: Database): string {
-  const trees = db.allTrees();
-  const treeList = trees.map(t => `- ${t.id}: ${t.path}${t.github ? ` (${t.github})` : ""}`).join("\n");
+  const sections: string[] = [];
 
-  const activeTasks = db.all<{ id: string; title: string; status: string; tree_id: string }>(
-    "SELECT id, title, status, tree_id FROM tasks WHERE status NOT IN ('completed', 'merged', 'failed', 'closed') ORDER BY created_at DESC LIMIT 20"
-  );
-  const taskList = activeTasks.length > 0
-    ? activeTasks.map(t => `- ${t.id}: [${t.status}] ${t.title} (${t.tree_id || "no tree"})`).join("\n")
-    : "No active tasks.";
+  sections.push(buildRoleSection());
+  sections.push(buildTreesSection(db));
+  sections.push(buildActiveTasksSection(db));
+  sections.push(buildEventReferenceSection());
+  sections.push(buildPipelinePathsSection());
+  sections.push(buildSkillCatalogSection());
+  sections.push(buildBudgetSection(db));
+  sections.push(buildCliReferenceSection());
+  sections.push(buildGuidelinesSection());
+  sections.push(buildRecentConversationSection(db));
 
-  const recentMsgs = db.recentMessages("main", 20);
-  let msgHistory = "";
-  if (recentMsgs.length > 0) {
-    msgHistory = "\n\n## Recent Conversation\n" + recentMsgs
-      .reverse()
-      .map(m => `[${m.source}] ${m.content}`)
-      .join("\n");
-  }
+  return sections.filter(Boolean).join("\n\n");
+}
 
+// ---------------------------------------------------------------------------
+// Prompt section builders (exported for testing)
+// ---------------------------------------------------------------------------
+
+export function buildRoleSection(): string {
   return `You are the Grove orchestrator. You plan work, decompose tasks across repos (called "trees"), and delegate to workers.
 
 ## Your Role
@@ -126,28 +130,131 @@ export function buildOrchestratorPrompt(db: Database): string {
 - You plan and decompose tasks
 - You delegate implementation to workers by emitting structured events
 - You DO NOT write code yourself — workers do that
-- You have read-only access to all trees for analysis
+- You have read-only access to all trees for analysis`;
+}
 
-## Available Trees
-${treeList || "No trees configured yet."}
+export function buildTreesSection(db: Database): string {
+  const trees = db.allTrees();
+  const treeList = trees.map(t => `- ${t.id}: ${t.path}${t.github ? ` (${t.github})` : ""}`).join("\n");
+  return `## Available Trees\n${treeList || "No trees configured yet."}`;
+}
 
-## Active Tasks
-${taskList}
+export function buildActiveTasksSection(db: Database): string {
+  const activeTasks = db.all<{ id: string; title: string; status: string; tree_id: string }>(
+    "SELECT id, title, status, tree_id FROM tasks WHERE status NOT IN ('completed', 'merged', 'failed', 'closed') ORDER BY created_at DESC LIMIT 20"
+  );
+  const taskList = activeTasks.length > 0
+    ? activeTasks.map(t => `- ${t.id}: [${t.status}] ${t.title} (${t.tree_id || "no tree"})`).join("\n")
+    : "No active tasks.";
+  return `## Active Tasks\n${taskList}`;
+}
 
-## Emitting Events
-When you need the broker to take action, emit an event using this exact format:
+export function buildEventReferenceSection(): string {
+  return `## Emitting Events
+Emit events using \`<grove-event>{...}</grove-event>\` tags. The broker parses these to execute your commands.
 
-<grove-event>{"type":"spawn_worker","tree":"tree-id","task":"W-001","prompt":"description of what to implement"}</grove-event>
-<grove-event>{"type":"task_update","task":"W-001","field":"status","value":"planned"}</grove-event>
+### Handled event types
+| Type | Required Fields | Effect |
+|---|---|---|
+| spawn_worker | tree, task, prompt | Creates task, enqueues for pipeline execution |
+| task_update | task, field, value | Updates task field (e.g. field="status", value="planned") |
 
-Important: Always wrap events in <grove-event></grove-event> tags. The broker parses these tags to execute your commands.
+### spawn_worker options
+- \`tree\` — tree ID to work in (required)
+- \`task\` — short title (required)
+- \`prompt\` — implementation instructions (required)
+- \`depends_on\` — task ID that must complete first (optional)
+- \`path_name\` — pipeline path to use (optional, default: "development")
 
-## Guidelines
-- When the user asks you to do something, analyze whether it needs decomposition across trees
+### Examples
+<grove-event>{"type":"spawn_worker","tree":"my-app","task":"Add auth","prompt":"Implement JWT authentication","path_name":"adversarial"}</grove-event>
+<grove-event>{"type":"task_update","task":"W-001","field":"status","value":"planned"}</grove-event>`;
+}
+
+export function buildPipelinePathsSection(): string {
+  const paths = configPaths();
+  const lines: string[] = ["## Pipeline Paths", "Workers execute through pipeline paths. Specify via `path_name` in spawn_worker events.", ""];
+  for (const [name, config] of Object.entries(paths)) {
+    const steps = config.steps.map(s => {
+      if (typeof s === "string") return s;
+      const step = s as Record<string, any>;
+      const skills = step.skills ? ` [${step.skills.join(",")}]` : "";
+      return `${step.id}${skills}`;
+    });
+    lines.push(`- **${name}**: ${config.description} → ${steps.join(" → ")}`);
+  }
+  return lines.join("\n");
+}
+
+export function buildSkillCatalogSection(): string {
+  const skills = loadSkills();
+  if (skills.length === 0) return "";
+  const lines: string[] = ["## Installed Skills", "Skills are injected into worker CLAUDE.md during pipeline steps.", ""];
+  for (const s of skills) {
+    const steps = s.manifest.suggested_steps?.length
+      ? ` (steps: ${s.manifest.suggested_steps.join(", ")})`
+      : "";
+    lines.push(`- **${s.manifest.name}**: ${s.manifest.description}${steps}`);
+  }
+  return lines.join("\n");
+}
+
+export function buildBudgetSection(db: Database): string {
+  const todaySpend = db.costToday();
+  const weekSpend = db.costWeek();
+  const dayLimit = budgetGet("per_day");
+  const weekLimit = budgetGet("per_week");
+  const taskLimit = budgetGet("per_task");
+  const maxWorkers = settingsGet("max_workers");
+  return `## Budget & Limits
+| Metric | Current | Limit |
+|---|---|---|
+| Today | $${todaySpend.toFixed(2)} | $${dayLimit.toFixed(2)}/day |
+| This week | $${weekSpend.toFixed(2)} | $${weekLimit.toFixed(2)}/week |
+| Per task | — | $${taskLimit.toFixed(2)} |
+| Max concurrent workers | — | ${maxWorkers} |
+
+At 80% of day/week limit you'll receive a warning. At 100% worker spawning pauses automatically.`;
+}
+
+export function buildCliReferenceSection(): string {
+  return `## CLI Reference (grove <command>)
+| Command | Description |
+|---|---|
+| init | Initialize Grove (~/.grove) |
+| up / down | Start / stop broker + orchestrator |
+| trees | List configured trees |
+| tree add/remove/rescan | Manage trees |
+| status | System status (broker, workers, tunnel) |
+| tasks | List tasks with filtering |
+| cost | Spend breakdown |
+| chat "msg" | Send message to orchestrator |
+| task add "title" | Create a new task |
+| config get/set/unset | Read/write grove.yaml settings |
+| skills list/install/remove | Manage skills |
+| batch | Batch task operations |
+| watch | Live monitoring dashboard |
+| cleanup | Prune stale worktrees |`;
+}
+
+export function buildGuidelinesSection(): string {
+  return `## Guidelines
+- Analyze whether work needs decomposition across trees
 - For single-tree tasks, emit one spawn_worker event
 - For cross-tree tasks, emit multiple spawn_worker events with depends_on fields
+- Choose the appropriate path_name for the task type (development, research, adversarial)
 - Always explain your plan to the user before spawning workers
-- When workers complete, summarize results for the user${msgHistory}`;
+- When workers complete, summarize results for the user
+- Monitor budget — avoid spawning expensive tasks when nearing limits`;
+}
+
+export function buildRecentConversationSection(db: Database): string {
+  const recentMsgs = db.recentMessages("main", 20);
+  if (recentMsgs.length === 0) return "";
+  return "## Recent Conversation\n" + recentMsgs
+    .reverse()
+    .map(m => `[${m.source}] ${m.content}`)
+    .join("\n");
 }
 
 /** Build the claude CLI arguments array (exported for testing) */
