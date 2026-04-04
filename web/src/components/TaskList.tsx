@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { api } from "../api/client";
 import type { Task, Tree } from "../hooks/useTasks";
 import type { StatusFilter } from "../App";
@@ -10,6 +10,12 @@ import ActivityIndicator from "./ActivityIndicator";
 import BatchPlan from "./BatchPlan";
 import { useSeed } from "../hooks/useSeed";
 import type { WsMessage } from "../hooks/useWebSocket";
+
+interface WavePlan {
+  treeId: string;
+  waves: Array<{ wave: number; taskIds: string[] }>;
+  taskWaves: Record<string, number>;
+}
 
 interface Props {
   tasks: Task[];
@@ -53,6 +59,23 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
     if (!selectedTree) return 0;
     return (allTasks ?? tasks).filter(t => t.tree_id === selectedTree && t.status === "draft").length;
   }, [selectedTree, allTasks, tasks]);
+
+  // Fetch wave plan when tree has 2+ drafts
+  const [wavePlan, setWavePlan] = useState<WavePlan | null>(null);
+  const loadWavePlan = useCallback(async () => {
+    if (!selectedTree || draftCount < 2) {
+      setWavePlan(null);
+      return;
+    }
+    try {
+      const plan = await api<WavePlan>(`/api/batch/plan?treeId=${selectedTree}`);
+      setWavePlan(plan);
+    } catch {
+      setWavePlan(null);
+    }
+  }, [selectedTree, draftCount]);
+
+  useEffect(() => { loadWavePlan(); }, [loadWavePlan]);
 
   // Compute per-status counts for filter tabs (scoped to selectedTree if set)
   const filterCounts = useMemo(() => {
@@ -219,9 +242,17 @@ export default function TaskList({ tasks, trees, paths, getActivity, getActivity
               <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="font-medium truncate flex items-center gap-1.5">{task.title}{task.has_seed && <SeedBadge />}</div>
-                  <div className="flex gap-2 text-xs text-zinc-500 mt-1">
+                  <div className="flex gap-2 text-xs text-zinc-500 mt-1 items-center">
                     {task.tree_id && <span>{task.tree_id}</span>}
                     <span>{task.id}</span>
+                    {wavePlan?.taskWaves[task.id] != null && (
+                      <span
+                        className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400"
+                        title={`Execution wave ${wavePlan.taskWaves[task.id]}`}
+                      >
+                        W{wavePlan.taskWaves[task.id]}
+                      </span>
+                    )}
                     <span>{task.path_name}</span>
                     {task.source_pr && (
                       <span className="text-purple-400" title={`PR #${task.source_pr}`}>PR</span>
