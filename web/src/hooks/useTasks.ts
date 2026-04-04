@@ -113,13 +113,12 @@ export function useTasks() {
         );
         break;
       case "worker:activity": {
+        // Only update the single-line status indicator — do NOT push to
+        // taskActivityLog here.  The typed agent:tool_use / agent:thinking /
+        // agent:text events (handled below) already append to the log, so
+        // appending here too caused every entry to appear twice.
         const tid = msg.data.taskId;
         taskActivity.set(tid, msg.data.msg);
-        if (!taskActivityLog.has(tid)) taskActivityLog.set(tid, []);
-        const log = taskActivityLog.get(tid)!;
-        log.push({ ts: Date.now(), msg: msg.data.msg });
-        if (log.length > MAX_LOG_ENTRIES) log.shift();
-        // Force re-render
         setTasks(prev => [...prev]);
         break;
       }
