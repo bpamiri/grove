@@ -393,7 +393,6 @@ export const DEFAULT_PATHS: Record<string, PathConfig> = {
         result_file: ".grove/merge-result.json", result_key: "merged" },
     ],
   },
-<<<<<<< HEAD
   "security-audit": {
     description: "Security audit — dependency scan, SAST, secrets detection, and report",
     steps: [
@@ -410,7 +409,8 @@ export const DEFAULT_PATHS: Record<string, PathConfig> = {
         prompt: "Attempt automated fixes for low-risk findings from `.grove/security-analysis.json` — dependency upgrades, pinning versions, removing unused dependencies. Commit each fix separately. Skip anything that requires manual review. Write results to `.grove/security-remediation.json`.",
         result_file: ".grove/security-remediation.json", result_key: "remediation_complete",
         on_failure: "$done" },
-=======
+    ],
+  },
   refactoring: {
     description: "Code refactoring with analysis, safe transformation, and verification",
     steps: [
@@ -429,7 +429,6 @@ export const DEFAULT_PATHS: Record<string, PathConfig> = {
       { id: "merge", type: "worker", skills: ["merge-handler"],
         prompt: "Push the branch, create a PR, wait for CI, and merge. Follow the merge-handler skill instructions exactly. Write your result to .grove/merge-result.json.",
         result_file: ".grove/merge-result.json", result_key: "merged" },
->>>>>>> 81a94f7 (feat: (W-071) add refactoring pipeline path with analysis, verification, and review)
     ],
   },
 };
