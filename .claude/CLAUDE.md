@@ -1,77 +1,88 @@
-# Task: W-072
-## Render markdown tables properly in orchestrator chat panel
+# Review: W-068
+## Enrich orchestrator system prompt with full CLI docs, MCP server, and skill catalog
 
-### Description
+### Role
+You are an adversarial reviewer. Your job is to rigorously critique the plan below.
+You CANNOT modify any code or files except `.grove/review-result.json`.
+You MUST read the plan carefully, review the codebase for context, and write your verdict.
+
+### Task Description
 ## Problem
-The `FormattedContent` component in `Chat.tsx` (line 148) detects markdown pipe tables (`|...|` lines) and renders them inside a `<pre>` block with monospace styling. This preserves alignment but doesn't render them as actual HTML tables with proper column structure, borders, and styling.
+The orchestrator's system prompt (`buildOrchestratorPrompt` in `src/agents/orchestrator.ts:102`) only knows about trees, active tasks, and recent messages. It has no knowledge of:
+- Full CLI commands and their usage
+- Available pipeline paths and their step definitions
+- Installed skills and their capabilities
+- MCP server availability
+- Budget status / cost context
 
-## Current Behavior
-- Box-drawing tables (┌─┐) → monospace `<pre>` ✓
-- Markdown pipe tables (`| col | col |`) → also monospace `<pre>` (looks OK but not great)
-- No column alignment, no header styling, no zebra striping
+This limits the orchestrator's ability to guide users effectively.
 
 ## Scope
-1. **Parse markdown tables** — detect header row, separator row (`|---|---|`), and data rows. Convert to structured data.
-2. **Render as HTML `<table>`** — with proper `<thead>`, `<tbody>`, column alignment (from separator row `:---:` etc.).
-3. **Style consistently** — dark theme table styling matching the Grove design system (zinc/emerald palette, subtle borders, header emphasis).
-4. **Keep box-drawing fallback** — box-drawing character tables should still render as `<pre>` monospace.
+1. **CLI reference** — inject a concise summary of all `grove` CLI commands into the system prompt (from `src/cli/commands/help.ts` or hardcoded reference).
+2. **Pipeline paths** — serialize the `paths:` section from grove.yaml into the prompt so the orchestrator knows what pipelines exist and what steps they contain.
+3. **Skill catalog** — list installed skills (from `skills/` dir + built-in) with one-line descriptions.
+4. **Budget context** — include current spend vs. limits so the orchestrator can make cost-aware decisions.
+5. **Grove event reference** — document all available event types the orchestrator can emit (currently only `spawn_worker` and `task_update` — but there may be more to add).
 
 ## Key Files
-- `web/src/components/Chat.tsx` — `FormattedContent` function (line 148), `BOX_CHARS` and `MD_TABLE` regexes (lines 137-139)
+- `src/agents/orchestrator.ts` — `buildOrchestratorPrompt()` function (line 102-151)
+- `src/skills/` — built-in skill injector
+- `src/cli/commands/help.ts` — CLI reference
 
 ## Notes
-- Consider using a lightweight markdown table parser rather than writing one from scratch. The rest of the markdown rendering is already custom (bold, code), so a full markdown library is probably overkill — just add table parsing.
+Keep the prompt lean — use compressed reference tables rather than verbose documentation. The context window budget matters.
 
-### Workflow
-This task follows the **development** path.
-
-### Strategy
-You are the sole worker on this task. Complete it end-to-end: implement, test, and commit.
-
-### Step Instructions
-Push the branch, create a PR, wait for CI, and merge. Follow the merge-handler skill instructions exactly. Write your result to .grove/merge-result.json.
-
-### Git Branch
-Work on branch: `grove/W-072-render-markdown-tables-properly-in-orche`
-Commit message format: conventional commits — `feat: (W-072) description`, `fix: (W-072) description`, etc. Task ID goes in the subject after the colon, NOT in the scope parentheses.
-
-### Previous Session
-# Session Summary: W-072
+### Plan Under Review
+```markdown
+# Session Summary: W-068
 
 ## Summary
 
-Resumed and verified the completed markdown table rendering feature. The previous session implemented proper HTML `<table>` rendering for markdown pipe tables in the `FormattedContent` component (`web/src/components/Chat.tsx`). This session confirmed the build passes cleanly (`tsc -b && vite build`) and the implementation is solid.
+Addressed three issues from adversarial reviewer feedback on the enriched orchestrator system prompt:
 
-### Key Design Decisions (from previous session)
+1. **CLI reference completed** — Added 4 missing commands (`insights`, `paths`, `plugins`, `upgrade`) to `buildCliReferenceSection()`.
+2. **Handler `task` field fixed** — Changed `handleOrchestratorEvent` INSERT to use `event.task` for title and `event.prompt` for description. Previously used `event.prompt` for both, meaning task titles were full implementation instructions.
+3. **Handler `depends_on` passthrough fixed** — Added `depends_on` column to the INSERT statement so cross-tree dependency chains actually work. The column existed in the schema and was checked by dispatch, but the orchestrator handler silently dropped it.
 
-- **Three block types**: `"text" | "box-table" | "md-table"` — first pass groups table-like lines, classification step separates box-drawing from valid markdown tables.
-- **No external dependencies**: Table parsing is self-contained (~50 lines).
-- **Graceful fallback**: Invalid pipe-table blocks fall back to `<pre>` rendering.
-- **Alignment support**: Parses GFM separator syntax (`:---`, `:---:`, `---:`) and applies via `textAlign` style.
-- **Inline formatting preserved**: Table cells pass through `InlineFormat` for `**bold**` and `` `code` `` rendering.
+All 15 tests pass (including updated CLI reference assertions).
 
 ## Files Modified
 
-- `web/src/components/Chat.tsx` — refactored `FormattedContent` block detection, added `parseMdTable` parser, `MarkdownTable` component, and supporting types/helpers
+- `src/agents/orchestrator.ts` — 4 CLI rows added, handler INSERT fixed (title, depends_on)
+- `tests/agents/orchestrator.test.ts` — 4 new assertions for missing CLI commands
 
 ## Next Steps
 
-- None — feature is complete. Build verified. Ready for merge.
+- None — all reviewer feedback addressed. Ready for re-review.
 
+```
 
-### Files Already Modified
-package.json
-src/shared/types.ts
-web/src/components/Chat.tsx
-web/src/components/Sidebar.tsx
+### Prior Review History
+The plan has been revised in response to earlier feedback. Here is the history:
 
-### Session Summary Instructions
-Before finishing, create `.grove/session-summary.md` in the worktree with:
-- **Summary**: What you accomplished
-- **Files Modified**: List of files changed
-- **Next Steps**: What remains (if anything)
+**Round 1 feedback:**
+Three issues to address:
 
-### Working Guidelines
-- Make atomic commits: `feat: (W-072) description`, `fix: (W-072) description`
-- Run tests if available before marking done
-- Write the session summary file before finishing
+1. **CLI reference incomplete** — Task spec says 'all grove CLI commands' but 4 are missing: `insights` (cross-task analytics), `paths` (pipeline path management), `plugins` (plugin management), `upgrade` (binary updates). Fix: add 4 rows to the CLI reference table in `buildCliReferenceSection()`.
+
+2. **`depends_on` documented but silently dropped** — Event reference (line 152-171) documents `depends_on` as a spawn_worker option, but `handleOrchestratorEvent` (line 414-427) doesn't include it in the INSERT statement. The orchestrator will think it's setting up task dependencies when it's not. Fix: either add `depends_on` to the INSERT in the handler, or remove it from the event reference docs until the handler supports it.
+
+3. **`task` field documented but handler ignores it** — Event reference says `task` is the 'short title' (required), but the handler uses `event.prompt` for both title and description (line 418). `event.task` is never stored. Fix: change the INSERT to use `event.task` for title and `event.prompt` for description.
+
+Issues 2 and 3 are pre-existing handler bugs, but documenting them as working features makes them worse — the orchestrator will now actively rely on broken behavior. The fix for all three is small.
+
+### Output Instructions
+After your review, write your verdict to `.grove/review-result.json` in the worktree:
+```json
+{ "approved": true, "feedback": "Brief explanation of why the plan is approved" }
+```
+or:
+```json
+{ "approved": false, "feedback": "Detailed feedback explaining what needs to change and why" }
+```
+
+**Rules:**
+- You must explicitly approve (set `approved: true`) — silence or lack of objection is NOT approval
+- If rejecting, be specific: name the exact issue and what should change
+- You may read any file in the codebase to verify claims in the plan
+- Do NOT modify any file except `.grove/review-result.json`
