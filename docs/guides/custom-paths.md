@@ -1,6 +1,6 @@
 # Custom Paths
 
-Paths define the pipeline a task follows from creation to completion. Grove ships with built-in paths (`development`, `research`, `content`, and `adversarial`), and you can define custom ones in `grove.yaml`.
+Paths define the pipeline a task follows from creation to completion. Grove ships with built-in paths (`development`, `research`, `adversarial`, and `refactoring`), and you can define custom ones in `grove.yaml`.
 
 ---
 
@@ -190,6 +190,24 @@ plan ──▶ review ──▶ implement ──▶ evaluate ──▶ merge ─
 - **implement**: Worker implements the approved plan
 - **evaluate**: Gate runs tests, lint, diff size checks
 - **merge**: Push, PR, CI, auto-merge
+
+### `refactoring`
+
+For restructuring code without changing behavior:
+
+```
+analyze ──▶ plan ──▶ implement ──▶ verify ──▶ review ──▶ merge ──▶ $done
+                        ▲            │          │
+                        └── fail ────┘          │
+                        └── reject ─────────────┘
+```
+
+- **analyze**: Identify refactoring targets — code smells, duplication, complexity. Produces `.grove/refactor-analysis.json`.
+- **plan**: Create a refactoring plan with before/after descriptions, risk assessment, and test strategy. Writes `.grove/refactor-plan.md`.
+- **implement**: Execute the plan with atomic commits per logical change.
+- **verify**: Run tests, compare against pre-refactoring baseline, check complexity metrics improved.
+- **review**: Read-only adversarial review focused on accidental behavior changes and missing test coverage.
+- **merge**: Push, PR, CI, auto-merge.
 
 ---
 

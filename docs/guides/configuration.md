@@ -141,10 +141,10 @@ paths:
 
 | Path | Steps | Description |
 |------|-------|-------------|
-| `development` | plan -> implement -> evaluate -> merge | Standard dev workflow with QA gate |
-| `research` | plan -> research -> report | Research task, no code changes |
-| `content` | plan -> implement -> evaluate -> publish | Documentation and content creation |
-| `adversarial` | plan -> review -> implement -> evaluate -> merge | Adversarial planning with review loop |
+| `development` | implement -> review -> merge | Standard dev workflow with review |
+| `research` | research -> report | Research task, no code changes |
+| `adversarial` | plan -> review-plan -> implement -> review-code -> merge | Adversarial planning with review loop |
+| `refactoring` | analyze -> plan -> implement -> verify -> review -> merge | Code refactoring with analysis and verification |
 
 See [Custom Paths](custom-paths.md) for the full guide on defining pipelines, step types, transitions, type inference, and retry behavior.
 
