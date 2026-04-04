@@ -1,7 +1,7 @@
-import { useState, useCallback, type RefObject } from "react";
-import DOMPurify from "dompurify";
+import { useState, type RefObject } from "react";
 import type { Seed, SeedMessage, SeedBranchInfo } from "../hooks/useSeed";
 import { TypingIndicator } from "./ActivityIndicator";
+import { HtmlFragment } from "./FormattedContent";
 import "./SeedFrame.css";
 
 interface Props {
@@ -21,32 +21,6 @@ interface Props {
   onStart: () => void;
   onStop: () => void;
   onDiscard: () => void;
-}
-
-function HtmlFragment({ html, onChoice }: { html: string; onChoice: (value: string) => void }) {
-  const clean = DOMPurify.sanitize(html, { ADD_ATTR: ["data-choice"] });
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      const target = (e.target as HTMLElement).closest("[data-choice]");
-      if (target) {
-        const value = target.getAttribute("data-choice");
-        if (value) {
-          target.classList.add("selected");
-          onChoice(`Selected: ${value}`);
-        }
-      }
-    },
-    [onChoice],
-  );
-
-  return (
-    <div
-      className="seed-html-frame"
-      onClick={handleClick}
-      dangerouslySetInnerHTML={{ __html: clean }}
-    />
-  );
 }
 
 export default function SeedChat({ seed, messages, isActive, isSeeded, containerRef, taskId, taskTitle, streamingText, stage, branches, activeBranch, wsSend, onSend, onStart, onStop, onDiscard }: Props) {
