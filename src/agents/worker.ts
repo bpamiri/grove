@@ -163,6 +163,7 @@ export function spawnWorker(task: Task, tree: Tree, db: Database, logDir: string
       reviewFeedback,
       checkpoint: checkpointCtx,
       sandbox: step?.sandbox ?? "read-write",
+      stepId: step?.id,
     });
   }
 

@@ -164,6 +164,14 @@ export function onStepComplete(
 
   // --- $done ---
   if (target === "$done") {
+    // Guard: merge steps must produce a PR before the task can complete.
+    // Re-read task to pick up pr_number written by monitorWorker just before this call.
+    const freshTask = db.taskGet(taskId);
+    if (currentStep.result_key === "merged" && !freshTask?.pr_number) {
+      failTask(db, taskId, `Merge step completed but no PR was created — worker may have skipped git push`);
+      return;
+    }
+
     db.run(
       "UPDATE tasks SET status = 'completed', current_step = '$done', completed_at = datetime('now') WHERE id = ?",
       [taskId],
