@@ -45,38 +45,45 @@ Commit message format: conventional commits — `feat: (W-078) description`, `fi
 
 ## Summary
 
-Explored the Grove step engine, worker, worktree, and config systems to understand how pipeline evaluation steps work. Created a detailed implementation plan for auto-rebasing worktrees onto main before read-only (evaluation) steps.
+Implemented auto-rebase of worktrees onto main before read-only evaluation steps. This prevents phantom test failures caused by stale worktrees when multiple tasks run in parallel and earlier tasks merge to main before later tasks reach their evaluation gate.
 
-### Key Design Decisions
+### Changes Made
 
-- **Trigger on `sandbox: "read-only"` steps** — These are the evaluation/review gates where stale worktrees cause phantom test failures. Read-write steps (implement, merge) don't need rebase because they produce code or use GitHub's merge mechanism.
-- **`rebaseOnMain()` utility in worktree.ts** — New function that fetches origin, rebases, and on conflict aborts + returns conflicting file list. Uses the existing `git()` helper and `resolveDefaultBranch()`.
-- **Hook in `executeStep()` before worker spawn** — After plugin pre-hook, before `switch (step.type)`, gated by `settingsGet("rebase_before_eval")` and `task.worktree_path` presence.
-- **Conflict = failure, not fatal** — Routes through `on_failure` path (back to implement), giving the worker a retry opportunity to resolve conflicts.
-- **Non-fatal catch for unexpected errors** — If rebaseOnMain throws, logs the error but proceeds with evaluation on the potentially stale base.
-- **`rebase_before_eval: true` default** in `SettingsConfig` — Can be disabled in grove.yaml `settings:`.
+1. **`rebase_before_eval` setting** — Added to `SettingsConfig` interface and `DEFAULT_SETTINGS` (default: `true`), configurable in grove.yaml `settings:`.
+
+2. **`rebaseOnMain()` utility** — New exported function in `worktree.ts` that fetches origin and rebases the task branch onto the default branch. On conflict, aborts the rebase and returns conflicting file names. Also exported `resolveDefaultBranch` (previously private).
+
+3. **Step engine hook** — In `executeStep()`, before spawning a worker for `sandbox: "read-only"` steps, the engine now calls `rebaseOnMain()`. On success, logs a `rebase_completed` event. On conflict, logs `rebase_conflict` with file names and fails via `on_failure` (typically back to implement). On unexpected errors, logs `rebase_failed` but proceeds non-fatally.
+
+4. **Tests** — 4 unit tests for `rebaseOnMain()` (clean rebase, conflicts, custom defaultBranch, no-op) and 5 integration tests for the step engine hook (calls before read-only, skips read-write, respects disabled setting, handles conflicts, skips null worktree_path).
 
 ## Files Modified
 
-- `docs/superpowers/plans/2026-04-04-auto-rebase-before-eval.md` — Implementation plan (4 tasks)
+- `src/shared/types.ts` — Added `rebase_before_eval` to `SettingsConfig` + `DEFAULT_SETTINGS`
+- `src/shared/worktree.ts` — Added `rebaseOnMain()`, `RebaseResult` interface, exported `resolveDefaultBranch`
+- `src/engine/step-engine.ts` — Added rebase logic in `executeStep()` before worker spawn
+- `tests/shared/worktree-rebase.test.ts` — New: 4 unit tests for `rebaseOnMain()`
+- `tests/engine/step-engine.test.ts` — Added 5 integration tests for rebase-before-eval behavior
+- `docs/superpowers/plans/2026-04-04-auto-rebase-before-eval.md` — Implementation plan (from previous session)
 
 ## Next Steps
 
-- Execute the plan (4 tasks):
-  1. Add `rebase_before_eval` to `SettingsConfig` in types.ts
-  2. Add `rebaseOnMain()` to worktree.ts with unit tests
-  3. Hook rebase into `executeStep()` in step-engine.ts
-  4. Add step engine integration tests
+None — implementation is complete. All 387 core tests pass (0 failures).
 
 
 ### Files Already Modified
 .claude/CLAUDE.md
 .grove/session-summary.md
+docs/superpowers/plans/2026-04-04-auto-rebase-before-eval.md
 package.json
 src/broker/orchestrator-feedback.ts
 src/broker/server.ts
+src/engine/step-engine.ts
 src/shared/types.ts
+src/shared/worktree.ts
 tests/broker/orchestrator-feedback.test.ts
+tests/engine/step-engine.test.ts
+tests/shared/worktree-rebase.test.ts
 web/src/App.tsx
 web/src/components/DagEditor.tsx
 web/src/components/Dashboard.tsx
