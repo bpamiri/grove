@@ -20,7 +20,7 @@ export function slugify(text: string, maxLen: number = 40): string {
 }
 
 /** Resolve the default branch for a repo (origin/develop, origin/main, etc.) */
-function resolveDefaultBranch(repoPath: string, configured?: string): string {
+export function resolveDefaultBranch(repoPath: string, configured?: string): string {
   if (configured) {
     // Try origin/<configured> first, then bare name
     for (const ref of [`origin/${configured}`, configured]) {
@@ -248,4 +248,49 @@ export function pruneStaleWorktrees(db: Database): PruneResult {
   }
 
   return { pruned, errors };
+}
+
+/** Result of a rebase-on-main attempt */
+export interface RebaseResult {
+  ok: boolean;
+  conflictFiles?: string[];
+  error?: string;
+}
+
+/**
+ * Fetch origin and rebase the current branch onto the default branch.
+ * Used before evaluation steps to ensure the worktree has the latest main.
+ * On conflict, aborts the rebase and returns the list of conflicting files.
+ */
+export function rebaseOnMain(worktreePath: string, defaultBranch?: string): RebaseResult {
+  const target = resolveDefaultBranch(worktreePath, defaultBranch);
+  const remoteBranch = target.replace("origin/", "");
+
+  // Fetch latest from origin
+  const fetch = git(worktreePath, ["fetch", "origin", remoteBranch]);
+  if (!fetch.ok) {
+    return { ok: false, error: `fetch failed: ${fetch.stderr}` };
+  }
+
+  // Attempt rebase
+  const rebase = git(worktreePath, ["rebase", target]);
+  if (rebase.ok) {
+    return { ok: true };
+  }
+
+  // Rebase failed — collect conflicting files before aborting
+  const diffResult = git(worktreePath, ["diff", "--name-only", "--diff-filter=U"]);
+  const conflictFiles = diffResult.stdout
+    .split("\n")
+    .map(f => f.trim())
+    .filter(Boolean);
+
+  // Abort the rebase to restore clean state
+  git(worktreePath, ["rebase", "--abort"]);
+
+  return {
+    ok: false,
+    conflictFiles: conflictFiles.length > 0 ? conflictFiles : undefined,
+    error: `rebase conflict with ${target}`,
+  };
 }
