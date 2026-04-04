@@ -19,6 +19,7 @@ import { wireNotifications } from "../notifications/index";
 import { wireGitHubSync } from "./github-sync";
 import { wireOrchestratorFeedback, unwireOrchestratorFeedback } from "./orchestrator-feedback";
 import { startPrPoller, stopPrPoller } from "../pr/poller";
+import { startIssuePoller, stopIssuePoller } from "./issue-poller";
 import { PluginHost } from "../plugins/host";
 import { setAdapterRegistry } from "../agents/worker";
 import { AdapterRegistry } from "../agents/adapters/registry";
@@ -145,6 +146,9 @@ export async function startBroker(): Promise<BrokerInfo> {
   // Start PR poller (polls GitHub for new PRs per tree)
   startPrPoller(db);
 
+  // Start issue-status poller (syncs task status from GitHub issue closures)
+  startIssuePoller(db);
+
   // Initialize orchestrator and wire event feedback loop
   orchestrator.init(db);
   wireOrchestratorFeedback(db);
@@ -221,6 +225,7 @@ export async function startBroker(): Promise<BrokerInfo> {
     stopCostMonitor();
     stopHeartbeat();
     stopPrPoller();
+    stopIssuePoller();
     pluginHost?.shutdown().catch(() => {});
     // Deregister from grove.cloud (best-effort, non-blocking)
     const tc = tunnelConfig();

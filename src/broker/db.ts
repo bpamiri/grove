@@ -206,6 +206,18 @@ export class Database {
     return candidates.filter(t => !this.isTaskBlocked(t.id));
   }
 
+  /** Find tasks with a github_issue that are still in a non-terminal status, grouped by tree */
+  tasksWithOpenIssues(): Array<{ tree_id: string; github: string; task_id: string; github_issue: number }> {
+    return this.all(
+      `SELECT t.id AS task_id, t.tree_id, t.github_issue, tr.github
+       FROM tasks t
+       JOIN trees tr ON t.tree_id = tr.id
+       WHERE t.github_issue IS NOT NULL
+         AND t.status NOT IN ('completed', 'failed', 'closed')
+         AND tr.github IS NOT NULL`,
+    );
+  }
+
   subTasks(parentTaskId: string): Task[] {
     return this.all<Task>(
       "SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY created_at ASC",

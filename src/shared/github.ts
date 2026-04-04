@@ -263,6 +263,36 @@ export function ghIssueClose(repo: string, issueNumber: number): boolean {
   return result.ok;
 }
 
+/** Fetch a single issue by number. Returns null if the issue doesn't exist or gh fails. */
+export function ghIssueView(repo: string, issueNumber: number): GhIssue | null {
+  const result = gh([
+    "issue", "view", String(issueNumber), "-R", repo,
+    "--json", "number,title,state,url,body,labels",
+  ]);
+  if (!result.ok) return null;
+  try { return JSON.parse(result.stdout); } catch { return null; }
+}
+
+/**
+ * Batch-fetch the state of multiple issues in a single `gh issue list` call.
+ * Returns a map of issue number → state string ("OPEN" or "CLOSED").
+ * Issues not found in the result are omitted from the map.
+ */
+export function ghIssueStatuses(repo: string, issueNumbers: number[]): Map<number, string> {
+  if (issueNumbers.length === 0) return new Map();
+  // Use gh issue list with --state=all and a high limit to fetch all relevant issues.
+  // Then filter client-side to only the numbers we care about.
+  const issues = ghIssueList(repo, { state: "all", limit: 200 });
+  const wanted = new Set(issueNumbers);
+  const result = new Map<number, string>();
+  for (const issue of issues) {
+    if (wanted.has(issue.number)) {
+      result.set(issue.number, issue.state);
+    }
+  }
+  return result;
+}
+
 export function ghIssueList(repo: string, opts?: { state?: string; limit?: number }): GhIssue[] {
   const args = [
     "issue", "list", "-R", repo,
