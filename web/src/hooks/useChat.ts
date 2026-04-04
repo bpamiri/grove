@@ -44,5 +44,10 @@ export function useChat(send: (data: any) => void) {
     send({ type: "chat", text });
   }, [send]);
 
-  return { messages, sendMessage, handleWsMessage, bottomRef, thinking };
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setThinking(false);
+  }, []);
+
+  return { messages, sendMessage, handleWsMessage, bottomRef, thinking, clearMessages };
 }
