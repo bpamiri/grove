@@ -1,21 +1,28 @@
-# Session Summary: W-072
+# Session Summary: W-068
 
 ## Summary
 
-Resumed and verified the completed markdown table rendering feature. The previous session implemented proper HTML `<table>` rendering for markdown pipe tables in the `FormattedContent` component (`web/src/components/Chat.tsx`). This session confirmed the build passes cleanly (`tsc -b && vite build`) and the implementation is solid.
+Enriched the orchestrator system prompt (`buildOrchestratorPrompt` in `src/agents/orchestrator.ts`) with five new context sections so the orchestrator can guide users effectively. The prompt was refactored from a monolithic string into composable, independently testable section builders.
 
-### Key Design Decisions (from previous session)
+### New sections
+1. **CLI reference** — compressed markdown table of all `grove` CLI commands (including insights, paths, plugins, upgrade)
+2. **Pipeline paths** — serialized from `configPaths()` showing each path's description and step flow
+3. **Skill catalog** — lists installed skills from `loadSkills()` with descriptions and suggested steps
+4. **Budget context** — live snapshot of today/week spend vs limits from `db.costToday()`, `db.costWeek()`, `budgetGet()`
+5. **Event reference** — full documentation of `spawn_worker` options (including `path_name` and `depends_on`) and `task_update`
 
-- **Three block types**: `"text" | "box-table" | "md-table"` — first pass groups table-like lines, classification step separates box-drawing from valid markdown tables.
-- **No external dependencies**: Table parsing is self-contained (~50 lines).
-- **Graceful fallback**: Invalid pipe-table blocks fall back to `<pre>` rendering.
-- **Alignment support**: Parses GFM separator syntax (`:---`, `:---:`, `---:`) and applies via `textAlign` style.
-- **Inline formatting preserved**: Table cells pass through `InlineFormat` for `**bold**` and `` `code` `` rendering.
+### Reviewer feedback addressed
+- Added 4 missing CLI commands to reference table
+- Fixed `handleOrchestratorEvent` to use `event.task` for title (not `event.prompt`)
+- Added `depends_on` passthrough to handler INSERT for cross-tree dependency chains
+
+All 15 orchestrator tests pass (7 original + 8 new).
 
 ## Files Modified
 
-- `web/src/components/Chat.tsx` — refactored `FormattedContent` block detection, added `parseMdTable` parser, `MarkdownTable` component, and supporting types/helpers
+- `src/agents/orchestrator.ts` — enriched prompt builder with composable sections + handler fixes
+- `tests/agents/orchestrator.test.ts` — 8 new tests for all new sections
 
 ## Next Steps
 
-- None — feature is complete. Build verified. Ready for merge.
+- None — feature complete and reviewer feedback addressed. Ready for merge.
