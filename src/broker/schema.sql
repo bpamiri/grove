@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS trees (
 -- Tasks: work items
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
-  tree_id TEXT REFERENCES trees(id),
-  parent_task_id TEXT REFERENCES tasks(id),
+  tree_id TEXT REFERENCES trees(id) ON DELETE CASCADE,
+  parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'draft',
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- Sessions: one per agent spawn (orchestrator, worker, evaluator)
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  task_id TEXT REFERENCES tasks(id),
+  task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
   role TEXT NOT NULL,
   pid INTEGER,
   tmux_pane TEXT,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS messages (
 -- Seeds: brainstorming design artifacts attached to tasks
 CREATE TABLE IF NOT EXISTS seeds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
   summary TEXT,
   spec TEXT,
   conversation TEXT,
