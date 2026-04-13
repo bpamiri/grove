@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS trees (
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
-  tree_id TEXT REFERENCES trees(id),
-  parent_task_id TEXT REFERENCES tasks(id),
+  tree_id TEXT REFERENCES trees(id) ON DELETE CASCADE,
+  parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'draft',
@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE TABLE IF NOT EXISTS task_edges (
-  from_task TEXT NOT NULL REFERENCES tasks(id),
-  to_task TEXT NOT NULL REFERENCES tasks(id),
+  from_task TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  to_task TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   edge_type TEXT NOT NULL DEFAULT 'dependency',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (from_task, to_task)
@@ -59,7 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_task_edges_to ON task_edges(to_task);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  task_id TEXT REFERENCES tasks(id),
+  task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
   role TEXT NOT NULL,
   pid INTEGER,
   tmux_pane TEXT,
