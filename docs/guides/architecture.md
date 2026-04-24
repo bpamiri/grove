@@ -15,14 +15,14 @@ You --- Browser (GUI) --- Tunnel ---+
               |                           |
               |  HTTP+WS . SQLite . SAP   |
               |  Plugins . Adapters       |
-              |  Monitor . Merge Manager  |
+              |  Monitor . Step Engine    |
               +----------+----------------+
                          |
           +--------------+--------------+
           v              v              v
-    Orchestrator     Worker(s)      Evaluator
-    (Claude Code)  (configurable)  (in-process)
-    persistent     ephemeral       on-demand
+    Orchestrator     Worker(s)     Review/Merge
+    (Claude Code)  (configurable)  (skill-backed
+    persistent     ephemeral         worker steps)
 ```
 
 ## Components
@@ -36,11 +36,10 @@ The central Bun process. Lightweight, stable, never makes decisions. Manages:
 - **SAP event protocol** — typed JSON events for all broker-agent communication
 - **Plugin host** — loads and runs `~/.grove/plugins/` lifecycle hooks
 - **Adapter registry** — selects the agent backend (Claude Code, Codex, Aider, Gemini) per task
-- **Step engine** — drives tasks through configurable pipelines (plan → implement → evaluate → merge)
+- **Step engine** — drives tasks through configurable pipelines (plan → implement → review → merge), auto-rebasing the worktree before read-only steps
 - **Dispatch queue** — manages concurrent worker slots (default: 5)
 - **Health monitor** — detects stalled workers via PID liveness checks and stall timeouts
 - **Cost monitor** — tracks Claude API spend against per-task, daily, and weekly budgets
-- **Merge manager** — pushes branches, creates PRs, watches CI, merges on green (sequential per-repo)
 - **Event bus** — typed in-process pub/sub that bridges internal events to WebSocket clients
 - **GitHub sync** — auto-creates issues on task creation, closes on PR merge
 - **Seed sessions** — interactive brainstorming with Claude
@@ -67,32 +66,29 @@ Ephemeral agent sessions selected via the adapter abstraction (Claude Code by de
 - Commits changes and reports back; performs a WIP checkpoint commit on shutdown
 - Is killed after completing its step
 
-Workers cannot push to remote. The merge manager handles that.
+Each worker step has a `sandbox` mode (`read-write` or `read-only`) and may declare `skills` that are injected into the worker's context. Read-only steps (like review) cannot modify code. Read-write steps (implement, merge) can.
 
-### Evaluator
+### Review and Merge (skill-backed worker steps)
 
-An in-process function that runs after a worker completes. Executes quality gates via shell commands (`Bun.spawnSync`), with no Claude API calls:
-- **Commits** — checks that at least one commit exists on the branch (hard gate)
-- **Tests** — runs the tree's test command (hard gate)
-- **Lint** — runs the tree's lint command (soft gate — warnings only)
-- **Diff size** — rejects changes outside the min/max range (soft gate)
+Earlier versions of Grove had a built-in in-process evaluator and a merge manager. These have been replaced by **worker steps that invoke skills**:
 
-Before running gates, the evaluator **rebases onto the base branch** to catch conflicts early. After 3 consecutive rebase failures, the evaluator marks the failure as fatal.
+- **Review step** — a read-only worker step with `skills: ["code-review"]`. The worker reads the diff, runs tests, and writes a structured verdict to `.grove/review-result.json`. The step engine reads `result_key: "approved"` to decide pass/fail.
+- **Merge step** — a read-write worker step with `skills: ["merge-handler"]`. The worker pushes the branch, opens a PR, watches CI, and merges on green, writing `.grove/merge-result.json` with `result_key: "merged"`.
 
-Separate from the worker because models are poor critics of their own output.
+Before any read-only step, the step engine auto-rebases the worktree onto the base branch (gated by `settings.rebase_before_eval`, default true). On rebase conflict the step fails and the engine loops back to implement with conflict context.
 
-Gate results: pass (advance to next step), fail with retry prompt (retry worker up to `max_retries`), or soft warning (pass through). Plugin `gate:custom` hooks run after the built-in gates, enabling user-defined quality checks.
+Plugin `step:pre` / `step:post` / `gate:custom` hooks can extend behavior; custom skills can replace the defaults. The `verdict` step type pauses the pipeline for human decision via `/api/tasks/:id/verdict`.
 
 ## Data Flow
 
 1. You create a task (via GUI, CLI, or orchestrator)
 2. The step engine picks the task's path (e.g., `development`)
 3. Dispatch assigns the first step to an available worker slot
-4. Worker executes in an isolated worktree, commits, reports completion
-5. Evaluator runs quality gates on the worker's output
-6. If gates pass, the step engine advances to the next step
-7. Merge manager pushes the branch, creates a PR, monitors CI
-8. On CI green, the PR is merged and the task is marked complete
+4. Implement worker executes in an isolated worktree, commits, reports completion
+5. Review worker (read-only) rebases onto base, reads the diff, runs tests, writes verdict
+6. If the verdict is `approved`, the engine advances; otherwise loops back to implement with feedback
+7. Merge worker pushes the branch, creates a PR, monitors CI, merges on green
+8. Post-merge cleanup removes the worktree and branches; linked GitHub issues are closed
 
 ## Web GUI
 
@@ -126,7 +122,7 @@ All processes are children of the broker. `grove down` sends SIGTERM to the brok
 
 Plugins live in `~/.grove/plugins/<name>/` with a `plugin.json` manifest. The `PluginHost` loads enabled plugins at broker startup and invokes them at defined hook points:
 
-- **`gate:custom`** — runs after built-in evaluator gates, can add pass/fail results
+- **`gate:custom`** — runs after a review step's skill-produced verdict, can add pass/fail results
 - **`step:pre`** — runs before a worker step executes (can modify prompt or skip)
 - **`step:post`** — runs after a worker step completes (can inspect output)
 - **`notify:custom`** — custom notification channel (alongside Slack/webhook/system)
@@ -200,9 +196,10 @@ The step engine (`src/engine/step-engine.ts`) replaces hardcoded pipeline wiring
 
 When a step executes, the engine looks at its type:
 
-- **worker** → runs `step:pre` plugin hooks, then spawns an agent session via `spawnWorker()` (adapter-aware), then runs `step:post` hooks
-- **gate** → runs `evaluate()` against the worktree, then runs `gate:custom` plugin hooks
-- **merge** → queues the task in the merge manager
+- **worker** → runs `step:pre` plugin hooks; if `sandbox: "read-only"` and `settings.rebase_before_eval` is true, auto-rebases onto the base branch; then spawns an agent session via `spawnWorker()` (adapter-aware); then runs `step:post` hooks. Review and merge are both worker steps — they differ only in sandbox, skills, and result_file.
+- **verdict** → pauses the task and waits for human decision via `POST /api/tasks/:id/verdict`. Used for external PR review paths.
+
+(Older `gate`, `merge`, and `review` step types were migrated to `worker` in config schema v3 — see `src/broker/config-migrations.ts`.)
 
 Dynamic imports are used to avoid circular dependencies between modules.
 
@@ -298,91 +295,62 @@ Workers are killed after completing their step. The worktree is preserved across
 
 ---
 
-## Deep Dive: Evaluator
+## Deep Dive: Review Step (code-review skill)
 
-The evaluator (`src/agents/evaluator.ts`) runs quality gates on worker output as an in-process function (no Claude API calls). It executes git, test, and lint commands via `Bun.spawnSync`.
+Grove does not have a built-in evaluator. Review is a **read-only worker step** that delegates to the `code-review` skill (bundled at `skills/code-review/`). The step runs the same adapter machinery as implement, but in read-only sandbox mode.
 
-### Pre-Gate Rebase
+### Pre-Review Rebase
 
-Before running any gates, the evaluator rebases the task branch onto the base ref:
+Before the review worker spawns, the step engine (`src/engine/step-engine.ts`) auto-rebases the worktree onto the base branch when `sandbox: "read-only"` and `settings.rebase_before_eval` is true (the default). See `rebaseOnMain()` in `src/shared/worktree.ts`.
 
-1. Fetch latest from origin (non-fatal if offline)
-2. Compare merge-base against remote HEAD
-3. Rebase onto base ref (auto-detected or configured via `base_ref`)
-4. On conflict: abort rebase, count consecutive failures
+- **Clean rebase** — logs `rebase_completed` and proceeds to spawn the review worker.
+- **Conflict** — aborts the rebase, logs `rebase_conflict` with the conflicting files, and fails the step. The engine loops back to implement with conflict context.
+- **Unexpected error** — logs `rebase_failed` but continues non-fatally.
 
-After `MAX_REBASE_FAILURES` (3) consecutive rebase conflicts, the failure escalates to **fatal** — the task stops retrying.
+### What the Skill Does
 
-### Gate Checks
+The `code-review` skill runs inside a worker session. It walks a structured checklist (reading the diff, running the tree's test command, checking for obvious issues) and writes a structured verdict to the step's `result_file` (default `.grove/review-result.json`).
 
-| Gate | Tier | Check |
-|------|------|-------|
-| `commits` | hard | `git log base..HEAD --oneline` — at least one commit exists |
-| `tests` | hard | Runs `test_command` in the worktree with timeout |
-| `lint` | soft | Runs `lint_command` in the worktree with timeout |
-| `diff_size` | soft | `git diff --stat` — line count within min/max range |
+The step's `result_key` (default `approved`) names the boolean the engine reads to decide success vs failure. Plugin `gate:custom` hooks run after the skill's verdict is read and can add additional pass/fail results.
 
-**Hard gates** block the merge on failure. **Soft gates** log warnings but allow the task to proceed.
+### Retry Feedback
 
-### Retry Prompt
-
-When gates fail, the evaluator builds a structured retry prompt listing each failure with its output. This prompt is passed to the worker on retry, giving it specific guidance on what to fix. If the task has a seed spec, it's included for design alignment.
+When the review step's verdict is "not approved," the engine loops back to the preceding worker step (typically `implement`). Review feedback is written to `.grove/review-feedback.md` in the worktree so the next implement run has concrete guidance. See `step-engine.ts:onStepComplete` for the feedback-writing logic.
 
 ---
 
-## Deep Dive: Merge Manager
+## Deep Dive: Merge Step (merge-handler skill)
 
-The merge manager (`src/merge/manager.ts`) handles the full lifecycle of getting code from a worktree branch into the main branch.
+Grove does not have a built-in merge manager. Merge is a **worker step** that delegates to the `merge-handler` skill (bundled at `skills/merge-handler/`). It runs as a normal adapter-spawned worker with the merge-handler skill injected.
 
-### Sequential Per-Tree Queue
+### What the Skill Does
 
-Merges are queued per tree to prevent race conditions:
+The merge-handler skill guides the worker through:
 
-```
-Tree: api-server → [Task A (merging)] → [Task B (waiting)] → [Task C (waiting)]
-Tree: frontend   → [Task D (merging)]
-```
+1. Push the branch to origin.
+2. Open a PR via `gh pr create` with a structured body (task description, cost, linked issue).
+3. Poll CI status via `gh pr checks` until pass, fail, or timeout.
+4. On pass: merge (`gh pr merge --squash --delete-branch` or equivalent per repo policy).
+5. Write `.grove/merge-result.json` with `{ merged: bool, pr_number: N, ... }`.
 
-Different trees merge independently in parallel. Within a tree, merges are strictly sequential.
+The step's `result_key: "merged"` tells the engine whether to advance to `$done` or fail.
 
-### Merge Workflow
+### Engine Guard
 
-```
-Push branch ──▶ Create PR ──▶ Poll CI (15s intervals, 10m timeout)
-                                  │
-                      ┌───────────┼───────────┐
-                      ▼           ▼           ▼
-                  CI passes    CI fails    Timeout
-                      │           │           │
-                  Auto-merge  Feed failure  Treat as
-                  + cleanup   back to       failure
-                              worker
-```
-
-### PR Body
-
-PRs include structured metadata:
-- Task description
-- Task ID, path, cost, file count
-- Per-gate results with pass/fail status
-- `Closes #N` if the task has a linked GitHub issue
-- Grove attribution footer
-
-### CI Failure Recovery
-
-On CI failure, the merge manager:
-1. Fetches failing check details (name, conclusion, URL)
-2. Appends failure context to the task's session summary
-3. Calls `onStepComplete(taskId, "failure")` to trigger a retry
-4. The worker gets re-spawned with the CI failure context
+`onStepComplete` has a guard: when a merge step reports success (`result_key === "merged"`), the engine re-reads the task to verify `pr_number` was written. If the worker claimed success without producing a PR, the task fails with "Merge step completed but no PR was created."
 
 ### Post-Merge Cleanup
 
-After a successful merge:
-- Worktree is removed (`git worktree remove --force`)
-- Local and remote branches are deleted
-- Linked GitHub issue is closed
-- All cleanup is best-effort — failures are logged but don't block
+Best-effort cleanup happens in `onStepComplete` when transitioning to `$done`:
+
+- Worktree is removed via `cleanupWorktree()` in `src/shared/worktree.ts`.
+- Branches are deleted as part of the `gh pr merge --delete-branch` call.
+- Linked GitHub issues are closed by the merge-handler skill (`Closes #N` in the PR body + `gh issue close` where needed).
+- Failures in cleanup are logged but don't block task completion.
+
+### CI Failure Recovery
+
+If CI fails during the merge step, the skill records the failing check details in `.grove/merge-result.json`. The engine sees `merged: false`, calls `onStepComplete(taskId, "failure")`, and — if retries remain — re-runs the merge step (or loops back to implement, depending on the path's `on_failure` target).
 
 ---
 

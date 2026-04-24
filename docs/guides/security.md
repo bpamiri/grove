@@ -50,9 +50,9 @@ Each worker receives a generated `.claude/CLAUDE.md` containing:
 - Step instructions and quality gate requirements
 - The repository's own CLAUDE.md content
 
-### No Remote Push
+### Scoped Remote Push
 
-Workers cannot push to remote repositories. The merge manager handles all push, PR creation, and merge operations after evaluation passes.
+Only the dedicated merge step (a worker running the `merge-handler` skill) performs `git push`, `gh pr create`, and `gh pr merge`. Implement and review workers have no authorization path for remote-write operations — their sandbox hooks and skill prompts keep them local.
 
 ## Network Security
 
