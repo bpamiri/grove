@@ -44,7 +44,7 @@ Imported tasks have `github_issue` set immediately, so the auto-create listener 
 
 ### Auto-Close Issues
 
-When a task's PR is merged, the merge manager automatically closes the linked GitHub issue via `gh issue close`. This only happens if the task has a `github_issue` number set.
+When a task's PR is merged, the `merge-handler` skill closes the linked GitHub issue via `gh issue close`. This only happens if the task has a `github_issue` number set.
 
 The PR body also includes `Closes #N` syntax, so GitHub's native issue-linking works as a fallback.
 
@@ -69,17 +69,17 @@ task:created event
        └─ Failure → log issue_create_failed event → continue
 ```
 
-All GitHub operations use the `gh` CLI (`src/merge/github.ts`). Issue creation is fire-and-forget — errors never propagate to the caller or block task processing.
+All GitHub operations use the `gh` CLI (`src/shared/github.ts`). Issue creation is fire-and-forget — errors never propagate to the caller or block task processing.
 
 ---
 
 ## Pull Request Lifecycle
 
-The merge manager handles the full PR lifecycle. No manual `git push` or PR creation needed.
+The `merge-handler` skill (bundled at `skills/merge-handler/`) drives the full PR lifecycle inside a worker session. No manual `git push` or PR creation needed.
 
 ### Branch Push
 
-After a worker commits changes and gates pass, the merge manager pushes the task's branch:
+After the review step approves a task, the merge worker runs `git push origin HEAD` from the worktree:
 
 ```
 git push -u origin grove/W-042-add-auth-middleware
@@ -89,18 +89,18 @@ Branch naming convention: `{branch_prefix}{task_id}-{slugified-title}`
 
 ### PR Creation
 
-The merge manager creates a PR with:
+The merge worker creates a PR with:
 
 | Section | Content |
 |---------|---------|
 | **Title** | `feat: (TASK-ID) description` (max 60 chars) |
 | **Description** | Task description |
 | **Metadata** | Task ID, path name, cost, file count |
-| **Gate results** | Per-gate pass/fail status with messages |
+| **Review verdict** | Summary of the review step's findings |
 | **Issue link** | `Closes #N` if `github_issue` is set |
 | **Footer** | Grove attribution |
 
-If the task already has a PR (from a previous attempt), the merge manager reuses it — updating the title and re-checking CI rather than creating a duplicate.
+If the task already has a PR (from a previous attempt), the merge worker reuses it — updating the title and re-checking CI rather than creating a duplicate.
 
 ### CI Monitoring
 
@@ -120,27 +120,13 @@ Pending ──▶ All checks pass ──▶ Auto-merge
 
 ### Conflict Handling
 
-The evaluator performs a pre-gate rebase before running quality checks:
+The step engine auto-rebases the worktree before every read-only step (typically review) when `settings.rebase_before_eval` is true (the default):
 
 1. Fetch latest from origin
-2. Compare merge-base against remote HEAD
-3. Rebase task branch onto the base ref
-4. If rebase conflicts: abort and count as a failure
+2. Rebase task branch onto the base ref
+3. If rebase conflicts: abort, log the conflicting files, and fail the step back to implement for resolution
 
-After 3 consecutive rebase failures (`MAX_REBASE_FAILURES`), the failure escalates to `fatal` — the task stops retrying and surfaces the conflict for manual resolution.
-
----
-
-## Merge Queue
-
-Merges are processed **sequentially per tree** to prevent race conditions. If tasks A and B both pass gates for the same tree, B waits for A's PR to merge before pushing.
-
-```
-Tree: api-server
-  Queue: [Task A (merging)] → [Task B (waiting)] → [Task C (waiting)]
-```
-
-Different trees merge independently in parallel.
+See `rebaseOnMain()` in `src/shared/worktree.ts` and the hook in `src/engine/step-engine.ts:executeStep`.
 
 ---
 
